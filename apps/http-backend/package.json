@@ -20,6 +20,8 @@
   "license": "ISC",
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
+    "@repo/backend-common": "workspace:*",
+    "@repo/database": "workspace:*",
     "@types/express": "^5.0.3",
     "nodemon": "^3.1.10"
   }

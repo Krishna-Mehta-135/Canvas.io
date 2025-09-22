@@ -1,12 +1,4 @@
-import {PrismaClient} from "../generated/prisma";
-
-declare global {
-    var process: {
-        env: {
-            NODE_ENV?: string;
-        };
-    };
-}
+import { PrismaClient } from "../generated/prisma";
 
 const globalForPrisma = globalThis as unknown as {
     prisma: PrismaClient | undefined;

@@ -1,51 +1,70 @@
-import { JwtPayload } from "jsonwebtoken";
-import { ApiResponse } from "../utils/ApiResponse";
-import { asyncHandler } from "../utils/asyncHandler";
-import { Request, Response, NextFunction } from 'express';
-import jwt  from "jsonwebtoken";
+import {ApiResponse} from "../utils/ApiResponse";
+import {asyncHandler} from "../utils/asyncHandler";
+import {Request, Response, NextFunction} from "express";
+import jwt from "jsonwebtoken";
+import {JWT_SECRET} from "@repo/backend-common/config";
+import {prisma} from "@repo/database";
 
-
-
-declare global{
-    namespace Express{
-        interface Request{
-            user?: IUser //IUSer in models
-        }
-    }
+// Define your custom JWT payload interface
+interface CustomJWTPayload {
+    userId: string;
+    email: string;
 }
 
-// JWT payload interface
-interface JwtPayload {
+// Define User type (based on your Prisma schema)
+interface IUser {
     id: string;
-    iat?: number;
-    exp?: number;
+    email: string;
+}
+
+declare global {
+    namespace Express {
+        interface Request {
+            user?: IUser;
+        }
+    }
 }
 
 const protect = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-    if(req.headers.authorization && req.headers.authorization.startsWith("Bearer")){
+    if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
         try {
-            const token = req.headers.authorization.split(" ")[1]
-            if (!process.env.JWT_SECRET) {
-                throw new Error("JWT_SECRET is not defined in environment variables.");
+            const token = req.headers.authorization.split(" ")[1];
+
+            if (!JWT_SECRET || typeof JWT_SECRET !== "string") {
+                throw new Error("JWT_SECRET is not properly configured");
             }
-            const decoded = jwt.verify(token, process.env.JWT_SECRET) as unknown as JwtPayload;
-            req.user = await User.findById(decoded.id).select("-password");
-            
-            if (!req.user) {
-                return res.status(401).json(
-                    new ApiResponse(401, null, "User not found")
-                );
+
+            if (!token) {
+                return res.status(401).json(new ApiResponse(401, null, "No token provided."));
             }
-            return next()
+            const decoded = jwt.verify(token, JWT_SECRET) as unknown as CustomJWTPayload;
+
+            const user = await prisma.user.findUnique({
+                where: {id: decoded.userId},
+                select: {
+                    id: true,
+                    email: true,
+                },
+            });
+
+            if (!user) {
+                return res.status(401).json(new ApiResponse(401, null, "User not found"));
+            }
+
+            req.user = user;
+            return next();
         } catch (error: any) {
             if (error.name === "TokenExpiredError") {
-                return res.status(401).json(
-                    new ApiResponse(401, null, "Token expired. Please login again.")
-                );
+                return res.status(401).json(new ApiResponse(401, null, "Token expired. Please login again."));
             }
-            return res.status(401).json(
-                new ApiResponse(401, null, "Not authorized. Token failed.")
-            );
+            if (error.name === "JsonWebTokenError") {
+                return res.status(401).json(new ApiResponse(401, null, "Invalid token."));
+            }
+            return res.status(401).json(new ApiResponse(401, null, `Authentication failed: ${error.message}`));
         }
+    } else {
+        return res.status(401).json(new ApiResponse(401, null, "Not authorized. No token provided."));
     }
-})
+});
+
+export {protect};

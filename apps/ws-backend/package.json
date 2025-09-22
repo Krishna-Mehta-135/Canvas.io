@@ -9,14 +9,14 @@
     "dev": "tsc -b --watch --preserveWatchOutput & nodemon ./dist/index.js"
   },
   "dependencies": {
-    "@repo/typescript-config": "workspace:*",
-    "@types/ws": "^8.18.1",
     "ws": "^8.18.3"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.1.10",
+    "@repo/typescript-config": "workspace:*",
+    "@types/ws": "^8.18.1"
   }
 }

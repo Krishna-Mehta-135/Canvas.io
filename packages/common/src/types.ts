@@ -1,6 +1,10 @@
 import { z } from "zod"
 
 const registerUserSchema = z.object({
+    email:     z
+                .email("Please enter a valid email address")
+                .trim()
+                .toLowerCase(),
     password:  z
                 .string()
                 .min(6 ,"Password must be 8 characters long")
@@ -11,16 +15,11 @@ const registerUserSchema = z.object({
                 .regex(/[0-9]/, "Password must contain at least one number")
                 .regex(/[^A-Za-z0-9]/, "Password must contain at least one special character")
                 .trim(),
-    email:     z
-                .string()
-                .email("Please enter a valid email address")
-                .trim()
-                .toLowerCase(),
 })
 
 const loginUserSchema = z.object({
     email :        z
-                    .string()
+                    .email("Please enter a valid email address")
                     .min(3, "Email or password is required")
                     .trim(),
     password:      z
@@ -30,4 +29,11 @@ const loginUserSchema = z.object({
                     .trim()
 })
 
-export { registerUserSchema, loginUserSchema}
+const CreateRoomSchema = z.object({
+    name:       z
+                .string()
+                .min(3)
+                .max(20)
+})
+
+export { registerUserSchema, loginUserSchema, CreateRoomSchema }

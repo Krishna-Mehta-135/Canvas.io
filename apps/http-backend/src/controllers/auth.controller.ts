@@ -24,3 +24,5 @@ const signin = asyncHandler(async (req, res) => {
     //use validated elements
     const { email, password } = validationResult.data;
 })
+
+export  {signin, signup}

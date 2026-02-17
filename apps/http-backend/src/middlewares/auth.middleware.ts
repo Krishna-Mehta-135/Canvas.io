@@ -1,7 +1,7 @@
 import jwt from "jsonwebtoken";
 import {NextFunction, Request, Response} from "express";
 import {ApiError} from "../utils/ApiError";
-import {JWT_SECRET} from "../config";
+import {JWT_SECRET} from "@repo/backend-common/config";
 
 declare global {
     namespace Express {
@@ -40,6 +40,9 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
 
         const token: string = parts[1] as string;
 
+        if(!JWT_SECRET){
+            throw new ApiError(401, "Unauthorized")
+        }
         const decoded = jwt.verify(token, JWT_SECRET);
 
         if (!isCustomJwtPayload(decoded)) {

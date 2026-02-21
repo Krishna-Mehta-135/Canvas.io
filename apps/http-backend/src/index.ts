@@ -8,6 +8,8 @@ const PORT = process.env.PORT || 3000;
 
 async function startServer() {
     try {
+        //$connect() starts the db when the server starts so we can fail early.
+        //Otherwise prisma defaults to lazy loading and waits until first req is made.
         await prismaClient.$connect();
         console.log("Database connected");
 
@@ -20,3 +22,5 @@ async function startServer() {
         process.exit(1);
     }
 }
+
+startServer();

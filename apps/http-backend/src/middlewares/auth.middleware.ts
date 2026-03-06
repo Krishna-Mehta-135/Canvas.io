@@ -26,23 +26,16 @@ function isCustomJwtPayload(decoded: unknown): decoded is CustomJwtPayload {
 
 export function authenticate(req: Request, res: Response, next: NextFunction) {
     try {
-        const authHeader = req.headers.authorization;
+        const token = req.cookies?.token;
 
-        if (!authHeader?.startsWith("Bearer ")) {
-            throw new ApiError(401, "Authorization token missing");
+        if (!token) {
+            throw new ApiError(401, "Authentication token missing");
         }
 
-        const parts = authHeader.split(" ");
-
-        if (parts.length !== 2) {
-            throw new ApiError(401, "Invalid authorization header format");
+        if (!JWT_SECRET) {
+            throw new ApiError(401, "Unauthorized");
         }
 
-        const token: string = parts[1] as string;
-
-        if(!JWT_SECRET){
-            throw new ApiError(401, "Unauthorized")
-        }
         const decoded = jwt.verify(token, JWT_SECRET);
 
         if (!isCustomJwtPayload(decoded)) {

@@ -112,34 +112,6 @@ const signin = asyncHandler(async (req, res) => {
     );
 });
 
-const createRoom = asyncHandler(async (req, res) => {
-    const validationResult = CreateRoomSchema.safeParse(req.body);
-    if (!validationResult.success) {
-        throw new ApiError(400, "Incorrect input");
-    }
 
-    const {slug} = validationResult.data;
-    const userId = req.userId;
 
-    if (!userId) {
-        throw new ApiError(401, "Unauthorized: User ID not found");
-    }
-
-    try {
-        const room = await prismaClient.room.create({
-            data: {
-                slug,
-                adminId: userId,
-            },
-        });
-
-        return res.status(201).json(new ApiResponse(201, room, "Room created successfully"));
-    } catch (err: any) {
-        if (err.code === "P2002") {
-            throw new ApiError(409, "Room already exists");
-        }
-        throw err;
-    }
-});
-
-export {signup, signin, createRoom};
+export {signup, signin};

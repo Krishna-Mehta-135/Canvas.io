@@ -58,8 +58,27 @@ const getMessages = asyncHandler(async (req, res) => {
         },
     });
 
-    
     res.status(200).json(new ApiResponse(200, messages.reverse(), "Messages fetched successfully"));
 });
 
-export {createRoom, getMessages};
+const getRoomIdFromSlug = asyncHandler(async (req, res) => {
+    const slug = req.params.slug;
+
+    if (typeof slug !== "string") {
+        throw new ApiError(400, "Invalid slug");
+    }
+
+    const room = await prismaClient.room.findUnique({
+        where: {
+            slug: slug,
+        },
+    });
+
+    if (!room) {
+        throw new ApiError(404, "Room not found");
+    }
+    
+    res.status(200).json(new ApiResponse(200, room, "RoomId successfully fetched from slug"));
+});
+
+export {createRoom, getMessages, getRoomIdFromSlug};

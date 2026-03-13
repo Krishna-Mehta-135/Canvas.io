@@ -1,135 +1,92 @@
-# Turborepo starter
+# Canvas.io
 
-This Turborepo starter is maintained by the Turborepo core team.
+**Canvas.io** is a fast, highly interactive, and privacy-focused virtual whiteboarding application. Built from the ground up for low-latency visual collaboration, Canvas.io gives individuals and distributed teams an infinite canvas to sketch ideas, map out complex systems, draw diagrams, and brainstorm with a natural, hand-drawn feel.
 
-## Using this example
+Whether you're outlining software architectures, wireframing user interfaces, or just mapping your thoughts, everything updates in real-time across all connected clients.
 
-Run the following command:
+## Key Features
 
-```sh
-npx create-turbo@latest
+- **Infinite Canvas Workspace**: Pan and zoom seamlessly across an endless grid.
+- **Rich Drawing Tools**: Access standard whiteboard tools including freehand drawing, rectangles, circles, arrows, lines, and text.
+- **Real-Time Multiplayer**: Experience true collaborative drawing with live, multi-user cursor tracking, instant shape synchronization, and presence awareness.
+- **Hand-drawn Aesthetics**: Diagrams render with a natural, sketched finish giving your work a personalized touch.
+- **End-to-End Privacy First**: Built with user data security at the core, featuring robust authentication boundaries and private room architecture.
+
+---
+
+## Architecture & Tech Stack
+
+Canvas.io is structured as a modern [Turborepo](https://turbo.build/repo) monorepo. It splits concerns into dedicated services to handle the demanding requirements of a real-time drawing app.
+
+### Core Applications (`apps/`)
+
+- **`apps/web` (Next.js 15 Frontend)**  
+  The main user-facing application. It statically handles the landing pages, marketing, user dashboards, and authentication. More importantly, it hosts the complex HTML Canvas / WebGL rendering engine where all the drawing, panning, zooming, and client-side interactions happen.
+
+- **`apps/ws-backend` (Node.js/WebSocket Server)**  
+  The high-performance, real-time message broker of the platform. This server manages active WebSocket connections for users collaborating in a specific room. It instantly broadcasts shape creation, deletion, dragging events, and live cursor positions to all connected peers, ensuring a lag-free collaborative experience.
+
+- **`apps/http-backend` (Express.js REST API)**  
+  Handles traditional HTTP workloads such as user authentication (signup, signin via secure HTTP-only cookies), room creation, initial room state fetching, and user asset management. 
+
+### Shared Packages (`packages/`)
+
+To ensure absolute consistency across the frontend, REST API, and WebSocket server, Canvas.io heavily utilizes shared internal packages:
+
+- **`@repo/ui`**: A shared React component design system built with Tailwind CSS v4 to keep the UI consistent.
+- **`@repo/common`**: The source of truth for runtime validation definitions (using Zod) and shared TypeScript types for drawing events, shapes, messages, and payloads.
+- **`@repo/db`**: The centralized Prisma ORM client and underlying database schema (PostgreSQL), used by both the HTTP and WS backends for persistence.
+- **Config packages**: `@repo/backend-common`, `@repo/eslint-config`, and `@repo/typescript-config` manage shared boilerplate for linting, compilation, and backend environment variables.
+
+---
+
+## Local Development Guide
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/en/) (v18+)
+- [pnpm](https://pnpm.io/) (v8+)
+- [PostgreSQL](https://www.postgresql.org/) database running locally or via Docker
+
+### 1. Setup
+
+Clone the repository and install all workspace dependencies:
+
+```bash
+git clone <your-repo-url>
+cd canvas.io
+pnpm install
 ```
 
-## What's inside?
+### 2. Environment Variables
 
-This Turborepo includes the following packages/apps:
+You must create `.env` files in the necessary applications (`apps/http-backend`, `apps/ws-backend`, and `@repo/db`). You will configure at minimum:
 
-### Apps and Packages
+- `DATABASE_URL` (for Prisma to connect to PostgreSQL)
+- `JWT_SECRET` (for secure cookie-based auth token generation)
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
+### 3. Database Initialization
 
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
+Generate the Prisma client and push your schema to the database to set up the tables:
 
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build
-yarn dlx turbo build
-pnpm exec turbo build
+```bash
+pnpm --filter @repo/db generate
+pnpm --filter @repo/db push
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+### 4. Running the Stack
 
-```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo build --filter=docs
+To spin up all apps and packages in parallel via Turborepo, run:
 
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo build --filter=docs
-yarn exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
+```bash
+pnpm dev
 ```
 
-### Develop
+The system will start simultaneously:
+- **Frontend App**: `http://localhost:3000`
+- **HTTP/REST API**: `http://localhost:3001`
+- **WebSocket Server**: `ws://localhost:8080` (or your configured WS port)
 
-To develop all apps and packages, run the following command:
+## Contributing
 
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev
-yarn exec turbo dev
-pnpm exec turbo dev
-```
-
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo dev --filter=web
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo dev --filter=web
-yarn exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-```
-cd my-turborepo
-
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo login
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo login
-yarn exec turbo login
-pnpm exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-```
-# With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended)
-turbo link
-
-# Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
-npx turbo link
-yarn exec turbo link
-pnpm exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+We welcome contributions! Please adhere to the established ESLint and Prettier rules, and ensure your PRs pass all type checks (`pnpm build`). When working on multiplayer features, take special care to update `@repo/common` schemas to ensure compatibility between the `web` frontend and `ws-backend`.

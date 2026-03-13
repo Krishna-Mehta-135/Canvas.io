@@ -1,4 +1,8 @@
 @import "tailwindcss";
+
+/* Include shared UI package classes in Tailwind v4 scanning. */
+@source "../../../packages/ui/src";
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
@@ -22,15 +26,21 @@ body {
   background: var(--background);
 }
 
-* {
-  box-sizing: border-box;
-  padding: 0;
-  margin: 0;
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
 }
 
 a {
   color: inherit;
   text-decoration: none;
+}
+
+/* Landing page typography refinement */
+.landing-main h1,
+.landing-main h2 {
+  letter-spacing: -0.02em;
 }
 
 .imgDark {

@@ -15,6 +15,7 @@ const drawMap: {
 } = {
     rect: drawRectangle,
     circle: drawCircle,
+    line: drawLine,
 };
 
 function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "rect"}>) {
@@ -26,6 +27,13 @@ function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: 
     ctx.strokeStyle = shape.stroke || "white";
     ctx.beginPath();
     ctx.arc(shape.centerX, shape.centerY, shape.radius, 0, Math.PI * 2);
+    ctx.stroke();
+}
+
+function drawLine(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "line"}>) {
+    ctx.beginPath();
+    ctx.moveTo(shape.x1, shape.y1);
+    ctx.lineTo(shape.x2, shape.y2);
     ctx.stroke();
 }
 

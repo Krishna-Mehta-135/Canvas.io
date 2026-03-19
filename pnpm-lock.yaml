@@ -160,6 +160,16 @@ importers:
         specifier: ^22.15.3
         version: 22.15.3
 
+  packages/canvas-engine:
+    dependencies:
+      '@types/node':
+        specifier: ^22.15.3
+        version: 22.15.3
+    devDependencies:
+      '@repo/typescript-config':
+        specifier: 'workspace: *'
+        version: link:../typescript-config
+
   packages/common:
     dependencies:
       zod:

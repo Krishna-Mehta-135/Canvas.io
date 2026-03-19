@@ -1,0 +1,19 @@
+{
+  "name": "canvas-engine",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.30.1",
+  "devDependencies": {
+    "@repo/typescript-config": "workspace: *"
+  },
+  "dependencies": {
+    "@types/node": "^22.15.3"
+  }
+}

@@ -1,3 +1,6 @@
+import axios from "axios";
+import {HTTP_BACKEND} from "../../config";
+
 type Shape =
     | {
           type: "rect";
@@ -13,10 +16,10 @@ type Shape =
           radius: number;
       };
 
-export function initDraw(canvas: HTMLCanvasElement) {
+export function initDraw(canvas: HTMLCanvasElement, roomId: string) {
     const ctx = canvas.getContext("2d");
 
-    let existingShapes: Shape[] = [];
+    let existingShapes: Shape[] = getExistingShapes(roomId);
 
     if (!ctx) return;
     let clicked = false;
@@ -78,4 +81,16 @@ function clearCanvas(existingShapes: Shape[], canvas: HTMLCanvasElement, ctx: Ca
             ctx.strokeRect(shape.x, shape.y, shape.width, shape.height);
         }
     });
+}
+
+async function getExistingShapes(roomId: string) {
+    const res = await axios.get(`${HTTP_BACKEND}/room/${roomId}/messages`);
+    const data = res.data.messages;
+
+    const shapes = data.map((x: {message: string}) => {
+        const messageData = JSON.parse(x.message);
+        return messageData;
+    });
+
+    return shapes;
 }

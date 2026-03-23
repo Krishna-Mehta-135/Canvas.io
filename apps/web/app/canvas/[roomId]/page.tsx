@@ -1,19 +1,30 @@
 "use client";
-import {useEffect, useRef} from "react";
-import {initDraw} from "../../draw";
 
-export default function Canvas() {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
+import {useEffect, useRef} from "react";
+import {attachEvents} from "@repo/canvas-engine";
+import {CanvasState} from "@repo/canvas-engine";
+export default function CanvasPage() {
+    const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
     useEffect(() => {
-        if (!canvasRef.current) return;
-        initDraw(canvasRef.current);
-    }, [canvasRef]);
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        // set size
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        const state = new CanvasState();
+
+        attachEvents(canvas, ctx, state);
+    }, []);
 
     return (
-        <div>
-            {/* To interact with the canvas, we first have to extract the context */}
-            <canvas ref={canvasRef} width={1080} height={1000}></canvas>
+        <div className="h-screen w-screen bg-black">
+            <canvas ref={canvasRef} />
         </div>
     );
 }

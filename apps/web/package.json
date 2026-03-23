@@ -19,7 +19,8 @@
     "postcss": "^8.5.8",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "tailwindcss": "^4.2.1"
+    "tailwindcss": "^4.2.1",
+    "@repo/canvas-engine": "workspace:*"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",

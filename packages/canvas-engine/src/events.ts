@@ -64,6 +64,8 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
 
     let previewShape: Shape | null = null;
 
+
+    //TODO: Tool dragging,resizing, shape deletion, history, undo
     let currentTool: Tool = "rect"; // later comes from UI
     let activeTool: Tool | null = null;
 

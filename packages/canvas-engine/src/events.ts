@@ -106,6 +106,8 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
                 prevY = y;
             }
 
+            render(ctx, canvas, state.getShapes(), selectedShape);
+            
             return;
         }
 
@@ -141,7 +143,7 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
                 prevY = y;
             }
 
-            render(ctx, canvas, state.getShapes());
+            render(ctx, canvas, state.getShapes(), selectedShape);
             return;
         }
 
@@ -151,7 +153,7 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
         previewShape = createPreviewShape(activeTool, startX, startY, x, y);
 
         const shapes = state.getShapes();
-        render(ctx, canvas, previewShape ? [...shapes, previewShape] : shapes);
+        render(ctx, canvas, previewShape ? [...shapes, previewShape] : shapes, selectedShape);
     });
 
     // -------------------- MOUSEUP --------------------
@@ -173,7 +175,7 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
             activeTool = null;
             previewShape = null;
 
-            render(ctx, canvas, state.getShapes());
+            render(ctx, canvas, state.getShapes(), selectedShape);
             return;
         }
 
@@ -185,6 +187,6 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
         activeTool = null;
         previewShape = null;
 
-        render(ctx, canvas, state.getShapes());
+        render(ctx, canvas, state.getShapes(), selectedShape);
     });
 }

@@ -23,7 +23,7 @@ export default function CanvasPage() {
     }, []);
 
     return (
-        <div className="h-screen w-screen bg-black">
+        <div className="h-screen w-screen bg-[#121212]">
             <canvas ref={canvasRef} />
         </div>
     );

@@ -1,16 +1,16 @@
 /*
-Responsibilities of renderer :-
-1. Clear canvas
-2. Loop over shapes
-3. Draw each shape
-
-Renderer is a deterministic function:
-Same inputs → same visual output on canvas
+Renderer:
+- draws shapes
+- draws selection box
+- draws resize handles
 */
 
 import {Shape} from "./types";
 
 const DEFAULT_STROKE_WIDTH = 2;
+const HANDLE_COLOR = "#8d8ac5";
+
+// -------------------- DRAW MAP --------------------
 
 const drawMap: {
     [K in Shape["type"]]: (ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: K}>) => void;
@@ -20,16 +20,7 @@ const drawMap: {
     line: drawLine,
 };
 
-// -------------------- DRAW SHAPES --------------------
-
-function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "rect"}>) {
-    ctx.strokeStyle = shape.stroke || "white";
-    ctx.lineWidth = DEFAULT_STROKE_WIDTH;
-
-    drawRoundedRect(ctx, shape.x, shape.y, shape.width, shape.height, 12);
-
-    ctx.stroke();
-}
+// -------------------- ROUNDED RECT --------------------
 
 function drawRoundedRect(
     ctx: CanvasRenderingContext2D,
@@ -52,6 +43,19 @@ function drawRoundedRect(
     ctx.lineTo(x, y + r);
     ctx.quadraticCurveTo(x, y, x + r, y);
     ctx.closePath();
+}
+
+// -------------------- DRAW SHAPES --------------------
+
+function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "rect"}>) {
+    ctx.strokeStyle = shape.stroke || "white";
+    ctx.lineWidth = DEFAULT_STROKE_WIDTH;
+
+    //dynamic radius for both small and big rectangles
+    const radius = Math.min(20, shape.width / 3, shape.height / 3);
+
+    drawRoundedRect(ctx, shape.x, shape.y, shape.width, shape.height, radius);
+    ctx.stroke();
 }
 
 function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "circle"}>) {
@@ -106,19 +110,52 @@ function getBoundingBox(shape: Shape) {
     throw new Error("Unknown shape");
 }
 
+// -------------------- HANDLES --------------------
+
+function drawHandle(ctx: CanvasRenderingContext2D, x: number, y: number) {
+    const size = 8;
+
+    ctx.fillStyle = HANDLE_COLOR;
+    ctx.strokeStyle = HANDLE_COLOR;
+
+    ctx.beginPath();
+    ctx.rect(x - size / 2, y - size / 2, size, size);
+    ctx.fill();
+}
+
+// -------------------- HANDLE POSITIONS --------------------
+
+function getHandlePoints(shape: Shape) {
+    const {x, y, width, height} = getBoundingBox(shape);
+
+    const padding = 4;
+    const inward = -1; // 🔥 tweak this
+
+    return [
+        {x: x - padding + inward, y: y - padding + inward},
+        {x: x + width + padding - inward, y: y - padding + inward},
+        {x: x - padding + inward, y: y + height + padding - inward},
+        {x: x + width + padding - inward, y: y + height + padding - inward},
+    ];
+}
+
 // -------------------- SELECTION --------------------
 
 function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape) {
     ctx.save();
 
     const {x, y, width, height} = getBoundingBox(shape);
-
     const padding = 6;
 
-    ctx.strokeStyle = "#4da3ff";
+    // sharp selection box (NOT rounded)
+    ctx.strokeStyle = HANDLE_COLOR;
     ctx.lineWidth = 1;
 
     ctx.strokeRect(x - padding, y - padding, width + padding * 2, height + padding * 2);
+
+    // handles
+    const handles = getHandlePoints(shape);
+    handles.forEach((p) => drawHandle(ctx, p.x, p.y));
 
     ctx.restore();
 }
@@ -131,7 +168,9 @@ export function render(
     shapes: Shape[],
     selectedShape: Shape | null
 ) {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // background
+    ctx.fillStyle = "#121212";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     shapes.forEach((shape) => {
         const drawFn = drawMap[shape.type];

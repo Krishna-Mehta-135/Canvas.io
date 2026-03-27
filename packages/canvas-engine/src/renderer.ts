@@ -63,7 +63,7 @@ function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: 
     ctx.lineWidth = DEFAULT_STROKE_WIDTH;
 
     ctx.beginPath();
-    ctx.arc(shape.centerX, shape.centerY, shape.radius, 0, Math.PI * 2);
+    ctx.ellipse(shape.centerX, shape.centerY, shape.radiusX, shape.radiusY, 0, 0, Math.PI * 2);
     ctx.stroke();
 }
 
@@ -91,10 +91,10 @@ function getBoundingBox(shape: Shape) {
 
     if (shape.type === "circle") {
         return {
-            x: shape.centerX - shape.radius,
-            y: shape.centerY - shape.radius,
-            width: shape.radius * 2,
-            height: shape.radius * 2,
+            x: shape.centerX - shape.radiusX,
+            y: shape.centerY - shape.radiusY,
+            width: shape.radiusX * 2,
+            height: shape.radiusY * 2,
         };
     }
 

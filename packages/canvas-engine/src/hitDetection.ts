@@ -15,7 +15,13 @@ const HIT_THRESHOLD = 5;
  *
  * This mimics tools like Excalidraw where only the border is interactive.
  */
-function hitRectStroke(shape: Extract<Shape, {type: "rect"}>, x: number, y: number): boolean {
+function hitRect(shape: Extract<Shape, {type: "rect"}>, x: number, y: number): boolean {
+    // inside
+    const inside = x >= shape.x && x <= shape.x + shape.width && y >= shape.y && y <= shape.y + shape.height;
+
+    if (inside) return true;
+
+    // edge (existing logic)
     const left = Math.abs(x - shape.x) < HIT_THRESHOLD && y >= shape.y && y <= shape.y + shape.height;
 
     const right = Math.abs(x - (shape.x + shape.width)) < HIT_THRESHOLD && y >= shape.y && y <= shape.y + shape.height;
@@ -35,13 +41,22 @@ function hitRectStroke(shape: Extract<Shape, {type: "rect"}>, x: number, y: numb
  *
  * |distance - radius| < threshold
  */
-function hitCircle(shape: Extract<Shape, {type: "circle"}>, x: number, y: number): boolean {
+function hitEllipse(shape: Extract<Shape, {type: "circle"}>, x: number, y: number): boolean {
     const dx = x - shape.centerX;
     const dy = y - shape.centerY;
 
-    const dist = Math.sqrt(dx * dx + dy * dy);
+    const rx = shape.radiusX;
+    const ry = shape.radiusY;
 
-    return Math.abs(dist - shape.radius) < HIT_THRESHOLD;
+    if (rx === 0 || ry === 0) return false;
+
+    const value = (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry);
+
+    // inside
+    if (value <= 1) return true;
+
+    // edge (optional tolerance)
+    return Math.abs(value - 1) < 0.1;
 }
 
 /**
@@ -74,8 +89,8 @@ function hitLine(shape: Extract<Shape, {type: "line"}>, x: number, y: number): b
 const hitMap: {
     [K in Shape["type"]]: (shape: Extract<Shape, {type: K}>, x: number, y: number) => boolean;
 } = {
-    rect: hitRectStroke,
-    circle: hitCircle,
+    rect: hitRect,
+    circle: hitEllipse,
     line: hitLine,
 };
 

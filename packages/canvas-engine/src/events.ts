@@ -96,7 +96,7 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
     let prevY = 0;
 
     // Tool state
-    let currentTool: Tool = "circle";
+    let currentTool: Tool = "rect";
     let activeTool: Tool | null = null;
 
     // -------------------- MOUSEDOWN --------------------

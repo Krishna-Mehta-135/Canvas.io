@@ -7,17 +7,24 @@ Responsibilities of events.ts :-
 */
 
 import {render} from "./renderer";
-import {Shape} from "./types";
+import {PreviewShape, Shape} from "./types";
 import {getMousePos} from "./utils";
 import {CanvasState} from "./state";
 import {getShapeAtPoint} from "./hitDetection";
+import {dispatch} from "./store";
 
 type Tool = "rect" | "circle" | "line";
 
 /**
  * Create shape preview during drawing
  */
-function createPreviewShape(tool: Tool, startX: number, startY: number, currentX: number, currentY: number): Shape {
+function createPreviewShape(
+    tool: Tool,
+    startX: number,
+    startY: number,
+    currentX: number,
+    currentY: number
+): PreviewShape {
     if (tool === "rect") {
         return {
             type: "rect",
@@ -29,13 +36,18 @@ function createPreviewShape(tool: Tool, startX: number, startY: number, currentX
     }
 
     if (tool === "circle") {
-        const radius = Math.sqrt((currentX - startX) ** 2 + (currentY - startY) ** 2);
+        const x = Math.min(startX, currentX);
+        const y = Math.min(startY, currentY);
+
+        const width = Math.abs(currentX - startX);
+        const height = Math.abs(currentY - startY);
 
         return {
             type: "circle",
-            centerX: startX,
-            centerY: startY,
-            radius,
+            centerX: x + width / 2,
+            centerY: y + height / 2,
+            radiusX: width / 2,
+            radiusY: height / 2,
         };
     }
 
@@ -67,7 +79,10 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
     let isDrawing = false;
     let startX = 0;
     let startY = 0;
-    let previewShape: Shape | null = null;
+
+    // Convert PreviewShape → Shape ONLY for rendering
+    // This shape is NOT stored in state
+    let previewShape: PreviewShape | null = null;
 
     // Dragging state
     let selectedShape: Shape | null = null;
@@ -81,7 +96,7 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
     let prevY = 0;
 
     // Tool state
-    let currentTool: Tool = "rect";
+    let currentTool: Tool = "circle";
     let activeTool: Tool | null = null;
 
     // -------------------- MOUSEDOWN --------------------
@@ -107,7 +122,7 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
             }
 
             render(ctx, canvas, state.getShapes(), selectedShape);
-            
+
             return;
         }
 
@@ -125,19 +140,43 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
         // DRAGGING
         if (isDragging && selectedShape) {
             if (selectedShape.type === "rect") {
-                selectedShape.x = x - offsetX;
-                selectedShape.y = y - offsetY;
+                dispatch(state, {
+                    type: "MOVE_SHAPE",
+                    payload: {
+                        id: selectedShape.id,
+                        updates: {
+                            x: x - offsetX,
+                            y: y - offsetY,
+                        },
+                    },
+                });
             } else if (selectedShape.type === "circle") {
-                selectedShape.centerX = x - offsetX;
-                selectedShape.centerY = y - offsetY;
+                dispatch(state, {
+                    type: "MOVE_SHAPE",
+                    payload: {
+                        id: selectedShape.id,
+                        updates: {
+                            centerX: x - offsetX,
+                            centerY: y - offsetY,
+                        },
+                    },
+                });
             } else if (selectedShape.type === "line") {
                 const dx = x - prevX;
                 const dy = y - prevY;
 
-                selectedShape.x1 += dx;
-                selectedShape.y1 += dy;
-                selectedShape.x2 += dx;
-                selectedShape.y2 += dy;
+                dispatch(state, {
+                    type: "MOVE_SHAPE",
+                    payload: {
+                        id: selectedShape.id,
+                        updates: {
+                            x1: selectedShape.x1 + dx,
+                            y1: selectedShape.y1 + dy,
+                            x2: selectedShape.x2 + dx,
+                            y2: selectedShape.y2 + dy,
+                        },
+                    },
+                });
 
                 prevX = x;
                 prevY = y;
@@ -153,7 +192,18 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
         previewShape = createPreviewShape(activeTool, startX, startY, x, y);
 
         const shapes = state.getShapes();
-        render(ctx, canvas, previewShape ? [...shapes, previewShape] : shapes, selectedShape);
+        let shapesToRender: Shape[] = shapes;
+
+        if (previewShape) {
+            const tempShape: Shape = {
+                ...previewShape,
+                id: "__preview__", // fake id
+            };
+
+            shapesToRender = [...shapes, tempShape];
+        }
+
+        render(ctx, canvas, shapesToRender, selectedShape);
     });
 
     // -------------------- MOUSEUP --------------------
@@ -179,9 +229,17 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
             return;
         }
 
-        const finalShape = createPreviewShape(activeTool, startX, startY, x, y);
+        const preview = createPreviewShape(activeTool, startX, startY, x, y);
 
-        state.addShape(finalShape);
+        const finalShape: Shape = {
+            ...preview,
+            id: crypto.randomUUID(),
+        };
+
+        dispatch(state, {
+            type: "ADD_SHAPE",
+            payload: finalShape,
+        });
 
         isDrawing = false;
         activeTool = null;

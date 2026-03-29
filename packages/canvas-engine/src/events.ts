@@ -1,9 +1,14 @@
 /*
-Responsibilities of events.ts :-
-1. Listen to mouse events
-2. Manage interaction state
-3. Update CanvasState when needed
-4. Call render()
+events.ts
+
+Handles user interaction:
+- translates mouse events → actions (dispatch)
+- manages temporary interaction state (dragging, preview)
+- triggers rendering
+
+NOTE:
+- This file should NOT mutate shapes directly
+- All state updates must go through dispatch/store
 */
 
 import {render} from "./renderer";
@@ -16,7 +21,10 @@ import {dispatch} from "./store";
 type Tool = "rect" | "circle" | "line";
 
 /**
- * Create shape preview during drawing
+ * Creates a temporary shape during drag.
+ *
+ * This does NOT include id and is NOT stored in state.
+ * It only represents the user's current drag intent.
  */
 function createPreviewShape(
     tool: Tool,
@@ -65,37 +73,35 @@ function createPreviewShape(
 }
 
 /**
- * Ignore accidental clicks (must drag at least 3px)
+ * Prevents accidental clicks from creating shapes.
+ * Requires a minimum drag distance.
  */
 function hasDragged(startX: number, startY: number, endX: number, endY: number) {
     const dx = endX - startX;
     const dy = endY - startY;
 
-    return dx * dx + dy * dy > 9; // 3px threshold squared
+    return dx * dx + dy * dy > 9;
 }
 
 export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, state: CanvasState) {
-    // Drawing state
+    // Drawing state (temporary interaction)
     let isDrawing = false;
     let startX = 0;
     let startY = 0;
-
-    // Convert PreviewShape → Shape ONLY for rendering
-    // This shape is NOT stored in state
     let previewShape: PreviewShape | null = null;
 
-    // Dragging state
+    // Selection + dragging state
     let selectedShape: Shape | null = null;
     let isDragging = false;
 
     let offsetX = 0;
     let offsetY = 0;
 
-    // For line dragging
+    // For line dragging (delta-based movement)
     let prevX = 0;
     let prevY = 0;
 
-    // Tool state
+    // Active tool
     let currentTool: Tool = "rect";
     let activeTool: Tool | null = null;
 
@@ -105,11 +111,12 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
 
         const shape = getShapeAtPoint(state.getShapes(), x, y);
 
-        // DRAGGING MODE
+        // DRAGGING MODE (select existing shape)
         if (shape) {
             selectedShape = shape;
             isDragging = true;
 
+            // Store offset so shape doesn't "jump"
             if (shape.type === "rect") {
                 offsetX = x - shape.x;
                 offsetY = y - shape.y;
@@ -122,11 +129,10 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
             }
 
             render(ctx, canvas, state.getShapes(), selectedShape);
-
             return;
         }
 
-        // DRAWING MODE
+        // DRAWING MODE (start new shape)
         activeTool = currentTool;
         isDrawing = true;
         startX = x;
@@ -137,7 +143,7 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
     canvas.addEventListener("mousemove", (e) => {
         const {x, y} = getMousePos(canvas, e);
 
-        // DRAGGING
+        // DRAGGING → dispatch movement action
         if (isDragging && selectedShape) {
             if (selectedShape.type === "rect") {
                 dispatch(state, {
@@ -194,10 +200,11 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
         const shapes = state.getShapes();
         let shapesToRender: Shape[] = shapes;
 
+        // Convert PreviewShape → Shape ONLY for rendering
         if (previewShape) {
             const tempShape: Shape = {
                 ...previewShape,
-                id: "__preview__", // fake id
+                id: "__preview__",
             };
 
             shapesToRender = [...shapes, tempShape];
@@ -210,16 +217,17 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
     canvas.addEventListener("mouseup", (e) => {
         const {x, y} = getMousePos(canvas, e);
 
-        // STOP DRAGGING
+        // End dragging
         if (isDragging) {
             isDragging = false;
             selectedShape = null;
             return;
         }
 
-        // DRAWING COMPLETE
+        // Finish drawing
         if (!isDrawing || !activeTool) return;
 
+        // Ignore accidental clicks
         if (!hasDragged(startX, startY, x, y)) {
             isDrawing = false;
             activeTool = null;
@@ -231,6 +239,7 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
 
         const preview = createPreviewShape(activeTool, startX, startY, x, y);
 
+        // Convert PreviewShape → Shape (real entity)
         const finalShape: Shape = {
             ...preview,
             id: crypto.randomUUID(),

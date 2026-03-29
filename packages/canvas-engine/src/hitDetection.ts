@@ -2,26 +2,31 @@ import {Shape} from "./types";
 
 /**
  * Pixel tolerance for hit detection.
+ *
  * This is NOT the visual stroke width.
- * It defines how close the cursor must be to consider a "hit".
+ * It defines how close the cursor must be to a shape's boundary
+ * to consider it a "hit".
  */
 const HIT_THRESHOLD = 5;
 
 /**
- * Rectangle hit detection (stroke-based).
+ * Rectangle hit detection.
  *
- * Instead of checking if the point lies inside the rectangle,
- * we check if it is close to any of the four edges.
+ * We support BOTH:
+ * 1. Inside detection → allows clicking anywhere inside the shape
+ * 2. Edge detection → allows grabbing borders easily
  *
- * This mimics tools like Excalidraw where only the border is interactive.
+ * This creates a natural UX similar to modern editors:
+ * - click inside → move
+ * - click near edge → also move (later resize)
  */
 function hitRect(shape: Extract<Shape, {type: "rect"}>, x: number, y: number): boolean {
-    // inside
+    // Inside detection (area-based)
     const inside = x >= shape.x && x <= shape.x + shape.width && y >= shape.y && y <= shape.y + shape.height;
 
     if (inside) return true;
 
-    // edge (existing logic)
+    // Edge detection (stroke-like behavior)
     const left = Math.abs(x - shape.x) < HIT_THRESHOLD && y >= shape.y && y <= shape.y + shape.height;
 
     const right = Math.abs(x - (shape.x + shape.width)) < HIT_THRESHOLD && y >= shape.y && y <= shape.y + shape.height;
@@ -34,12 +39,26 @@ function hitRect(shape: Extract<Shape, {type: "rect"}>, x: number, y: number): b
 }
 
 /**
- * Circle hit detection (stroke-based).
+ * Ellipse (circle/oval) hit detection.
  *
- * We compute the distance from the point to the center,
- * and check if it lies close to the circumference.
+ * Uses the normalized ellipse equation:
  *
- * |distance - radius| < threshold
+ *   (dx² / rx²) + (dy² / ry²)
+ *
+ * where:
+ *   dx = x - centerX
+ *   dy = y - centerY
+ *
+ * Interpretation:
+ *   value < 1  → inside ellipse
+ *   value = 1  → on boundary
+ *   value > 1  → outside
+ *
+ * We support:
+ * 1. Inside detection → full area clickable
+ * 2. Edge detection → small tolerance around boundary
+ *
+ * This creates consistent interaction with rectangles.
  */
 function hitEllipse(shape: Extract<Shape, {type: "circle"}>, x: number, y: number): boolean {
     const dx = x - shape.centerX;
@@ -48,24 +67,28 @@ function hitEllipse(shape: Extract<Shape, {type: "circle"}>, x: number, y: numbe
     const rx = shape.radiusX;
     const ry = shape.radiusY;
 
+    // Prevent invalid shapes
     if (rx === 0 || ry === 0) return false;
 
     const value = (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry);
 
-    // inside
+    // Inside detection
     if (value <= 1) return true;
 
-    // edge (optional tolerance)
+    // Edge detection (boundary tolerance)
     return Math.abs(value - 1) < 0.1;
 }
 
 /**
  * Line hit detection.
  *
- * Since a line has no area, we compute the shortest distance
- * from the point to the line segment and compare it with threshold.
+ * A line has no area, so we compute the shortest distance
+ * from the point to the line segment.
  *
- * Formula used: distance from point to line
+ * Formula:
+ *   distance = |Ax + By + C| / length
+ *
+ * If distance is within threshold → hit
  */
 function hitLine(shape: Extract<Shape, {type: "line"}>, x: number, y: number): boolean {
     const dx = shape.x2 - shape.x1;
@@ -84,7 +107,7 @@ function hitLine(shape: Extract<Shape, {type: "line"}>, x: number, y: number): b
 /**
  * Maps shape type → corresponding hit detection function.
  *
- * This avoids multiple if/else blocks and keeps logic scalable.
+ * Keeps logic modular and avoids large condition chains.
  */
 const hitMap: {
     [K in Shape["type"]]: (shape: Extract<Shape, {type: K}>, x: number, y: number) => boolean;
@@ -95,11 +118,15 @@ const hitMap: {
 };
 
 /**
- * Returns the topmost shape under the given point.
+ * Returns the topmost shape under a given point.
  *
  * Iterates in reverse order because:
- * - later shapes are drawn on top
+ * - shapes drawn later appear on top
  * - so they should be checked first
+ *
+ * Returns:
+ *   Shape if hit
+ *   null if no shape is hit
  */
 export function getShapeAtPoint(shapes: Shape[], x: number, y: number): Shape | null {
     for (let i = shapes.length - 1; i >= 0; i--) {
@@ -108,8 +135,7 @@ export function getShapeAtPoint(shapes: Shape[], x: number, y: number): Shape | 
 
         const fn = hitMap[shape.type];
 
-        // TypeScript cannot infer the exact shape type here,
-        // so we use a controlled cast.
+        // Controlled cast due to union type limitations
         if (fn(shape as any, x, y)) {
             return shape;
         }

@@ -1,8 +1,19 @@
 /*
-Renderer:
-- draws shapes
-- draws selection box
-- draws resize handles
+renderer.ts
+
+Responsible for visual output of the canvas.
+
+Responsibilities:
+- draw shapes
+- draw selection UI (bounding box + resize handles)
+
+Constraints:
+- PURE rendering layer (no state mutation)
+- does not handle interaction or logic
+- reflects the current state onto pixels
+
+Rendering model:
+- immediate mode → entire canvas is redrawn every frame
 */
 
 import {Shape} from "./types";
@@ -12,6 +23,11 @@ const HANDLE_COLOR = "#8d8ac5";
 
 // -------------------- DRAW MAP --------------------
 
+/**
+ * Maps shape type → corresponding draw function.
+ *
+ * Avoids large condition chains and keeps rendering extensible.
+ */
 const drawMap: {
     [K in Shape["type"]]: (ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: K}>) => void;
 } = {
@@ -22,6 +38,11 @@ const drawMap: {
 
 // -------------------- ROUNDED RECT --------------------
 
+/**
+ * Draws a rounded rectangle path.
+ *
+ * Radius is clamped so it never exceeds half the width/height.
+ */
 function drawRoundedRect(
     ctx: CanvasRenderingContext2D,
     x: number,
@@ -47,17 +68,28 @@ function drawRoundedRect(
 
 // -------------------- DRAW SHAPES --------------------
 
+/**
+ * Rectangle rendering with adaptive corner radius.
+ *
+ * Smaller shapes → smaller radius for better visual balance.
+ */
 function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "rect"}>) {
     ctx.strokeStyle = shape.stroke || "white";
     ctx.lineWidth = DEFAULT_STROKE_WIDTH;
 
-    //dynamic radius for both small and big rectangles
     const radius = Math.min(20, shape.width / 3, shape.height / 3);
 
     drawRoundedRect(ctx, shape.x, shape.y, shape.width, shape.height, radius);
     ctx.stroke();
 }
 
+/**
+ * Ellipse rendering (supports both circle and oval).
+ *
+ * Uses center-based representation:
+ * - centerX, centerY
+ * - radiusX, radiusY
+ */
 function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "circle"}>) {
     ctx.strokeStyle = shape.stroke || "white";
     ctx.lineWidth = DEFAULT_STROKE_WIDTH;
@@ -67,6 +99,12 @@ function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: 
     ctx.stroke();
 }
 
+/**
+ * Straight line between two points.
+ *
+ * Note:
+ * Lines have no area → only stroke matters.
+ */
 function drawLine(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "line"}>) {
     ctx.strokeStyle = shape.stroke || "white";
     ctx.lineWidth = DEFAULT_STROKE_WIDTH;
@@ -79,6 +117,17 @@ function drawLine(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "l
 
 // -------------------- BOUNDING BOX --------------------
 
+/**
+ * Computes the bounding box of a shape.
+ *
+ * Used for:
+ * - selection outline
+ * - resize handles
+ *
+ * Important:
+ * Bounding box represents geometric limits,
+ * NOT interaction logic.
+ */
 function getBoundingBox(shape: Shape) {
     if (shape.type === "rect") {
         return {
@@ -112,6 +161,11 @@ function getBoundingBox(shape: Shape) {
 
 // -------------------- HANDLES --------------------
 
+/**
+ * Draws a resize handle.
+ *
+ * Handles are visual interaction points (corners of bounding box).
+ */
 function drawHandle(ctx: CanvasRenderingContext2D, x: number, y: number) {
     const size = 8;
 
@@ -125,11 +179,17 @@ function drawHandle(ctx: CanvasRenderingContext2D, x: number, y: number) {
 
 // -------------------- HANDLE POSITIONS --------------------
 
+/**
+ * Returns corner positions for resize handles.
+ *
+ * padding → pushes handles slightly outward
+ * inward tweak → fine visual alignment adjustment
+ */
 function getHandlePoints(shape: Shape) {
     const {x, y, width, height} = getBoundingBox(shape);
 
     const padding = 4;
-    const inward = -1; // 🔥 tweak this
+    const inward = -1;
 
     return [
         {x: x - padding + inward, y: y - padding + inward},
@@ -141,19 +201,24 @@ function getHandlePoints(shape: Shape) {
 
 // -------------------- SELECTION --------------------
 
+/**
+ * Draws selection UI:
+ * - bounding box (sharp)
+ * - resize handles
+ *
+ * Purely visual (does not affect state).
+ */
 function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape) {
     ctx.save();
 
     const {x, y, width, height} = getBoundingBox(shape);
     const padding = 6;
 
-    // sharp selection box (NOT rounded)
     ctx.strokeStyle = HANDLE_COLOR;
     ctx.lineWidth = 1;
 
     ctx.strokeRect(x - padding, y - padding, width + padding * 2, height + padding * 2);
 
-    // handles
     const handles = getHandlePoints(shape);
     handles.forEach((p) => drawHandle(ctx, p.x, p.y));
 
@@ -162,13 +227,23 @@ function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape) {
 
 // -------------------- RENDER --------------------
 
+/**
+ * Main render loop.
+ *
+ * Flow:
+ * 1. Clear canvas (background fill)
+ * 2. Draw all shapes
+ * 3. Draw selection overlay
+ *
+ * Rendering is full redraw every frame (no retained state).
+ */
 export function render(
     ctx: CanvasRenderingContext2D,
     canvas: HTMLCanvasElement,
     shapes: Shape[],
     selectedShape: Shape | null
 ) {
-    // background
+    // Background
     ctx.fillStyle = "#121212";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 

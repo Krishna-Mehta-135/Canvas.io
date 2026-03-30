@@ -27,7 +27,7 @@ export type Shape =
           y2: number;
       });
 
-// 🔥 NEW: preview shape (NO id)
+// preview shape (NO id)
 export type PreviewShape =
     | {
           type: "rect";
@@ -50,3 +50,22 @@ export type PreviewShape =
           x2: number;
           y2: number;
       };
+
+/**
+ * Handle represents all possible resize control points.
+ *
+ * Includes:
+ * - box handles (rect / ellipse)
+ * - line endpoints
+ */
+export type Handle =
+    | "top-left"
+    | "top-right"
+    | "bottom-left"
+    | "bottom-right"
+    | "left"
+    | "right"
+    | "top"
+    | "bottom"
+    | "start"
+    | "end";

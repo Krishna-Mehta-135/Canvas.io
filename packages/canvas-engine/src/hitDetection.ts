@@ -1,64 +1,28 @@
-import {Shape} from "./types";
+import {Handle, Shape} from "./types";
 
 /**
- * Pixel tolerance for hit detection.
- *
- * This is NOT the visual stroke width.
- * It defines how close the cursor must be to a shape's boundary
- * to consider it a "hit".
+ * Pixel tolerance for hit detection
  */
 const HIT_THRESHOLD = 5;
 
 /**
- * Rectangle hit detection.
- *
- * We support BOTH:
- * 1. Inside detection → allows clicking anywhere inside the shape
- * 2. Edge detection → allows grabbing borders easily
- *
- * This creates a natural UX similar to modern editors:
- * - click inside → move
- * - click near edge → also move (later resize)
+ * Rectangle hit detection
  */
 function hitRect(shape: Extract<Shape, {type: "rect"}>, x: number, y: number): boolean {
-    // Inside detection (area-based)
     const inside = x >= shape.x && x <= shape.x + shape.width && y >= shape.y && y <= shape.y + shape.height;
 
     if (inside) return true;
 
-    // Edge detection (stroke-like behavior)
-    const left = Math.abs(x - shape.x) < HIT_THRESHOLD && y >= shape.y && y <= shape.y + shape.height;
-
-    const right = Math.abs(x - (shape.x + shape.width)) < HIT_THRESHOLD && y >= shape.y && y <= shape.y + shape.height;
-
-    const top = Math.abs(y - shape.y) < HIT_THRESHOLD && x >= shape.x && x <= shape.x + shape.width;
-
-    const bottom = Math.abs(y - (shape.y + shape.height)) < HIT_THRESHOLD && x >= shape.x && x <= shape.x + shape.width;
+    const left = Math.abs(x - shape.x) < HIT_THRESHOLD;
+    const right = Math.abs(x - (shape.x + shape.width)) < HIT_THRESHOLD;
+    const top = Math.abs(y - shape.y) < HIT_THRESHOLD;
+    const bottom = Math.abs(y - (shape.y + shape.height)) < HIT_THRESHOLD;
 
     return left || right || top || bottom;
 }
 
 /**
- * Ellipse (circle/oval) hit detection.
- *
- * Uses the normalized ellipse equation:
- *
- *   (dx² / rx²) + (dy² / ry²)
- *
- * where:
- *   dx = x - centerX
- *   dy = y - centerY
- *
- * Interpretation:
- *   value < 1  → inside ellipse
- *   value = 1  → on boundary
- *   value > 1  → outside
- *
- * We support:
- * 1. Inside detection → full area clickable
- * 2. Edge detection → small tolerance around boundary
- *
- * This creates consistent interaction with rectangles.
+ * Ellipse hit detection
  */
 function hitEllipse(shape: Extract<Shape, {type: "circle"}>, x: number, y: number): boolean {
     const dx = x - shape.centerX;
@@ -67,36 +31,23 @@ function hitEllipse(shape: Extract<Shape, {type: "circle"}>, x: number, y: numbe
     const rx = shape.radiusX;
     const ry = shape.radiusY;
 
-    // Prevent invalid shapes
     if (rx === 0 || ry === 0) return false;
 
     const value = (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry);
 
-    // Inside detection
     if (value <= 1) return true;
 
-    // Edge detection (boundary tolerance)
     return Math.abs(value - 1) < 0.1;
 }
 
 /**
- * Line hit detection.
- *
- * A line has no area, so we compute the shortest distance
- * from the point to the line segment.
- *
- * Formula:
- *   distance = |Ax + By + C| / length
- *
- * If distance is within threshold → hit
+ * Line hit detection
  */
 function hitLine(shape: Extract<Shape, {type: "line"}>, x: number, y: number): boolean {
     const dx = shape.x2 - shape.x1;
     const dy = shape.y2 - shape.y1;
 
     const length = Math.sqrt(dx * dx + dy * dy);
-
-    // Prevent division by zero for extremely small lines
     if (length === 0) return false;
 
     const distance = Math.abs(dy * x - dx * y + shape.x2 * shape.y1 - shape.y2 * shape.x1) / length;
@@ -105,28 +56,16 @@ function hitLine(shape: Extract<Shape, {type: "line"}>, x: number, y: number): b
 }
 
 /**
- * Maps shape type → corresponding hit detection function.
- *
- * Keeps logic modular and avoids large condition chains.
+ * Map
  */
-const hitMap: {
-    [K in Shape["type"]]: (shape: Extract<Shape, {type: K}>, x: number, y: number) => boolean;
-} = {
+const hitMap = {
     rect: hitRect,
     circle: hitEllipse,
     line: hitLine,
 };
 
 /**
- * Returns the topmost shape under a given point.
- *
- * Iterates in reverse order because:
- * - shapes drawn later appear on top
- * - so they should be checked first
- *
- * Returns:
- *   Shape if hit
- *   null if no shape is hit
+ * Topmost shape detection
  */
 export function getShapeAtPoint(shapes: Shape[], x: number, y: number): Shape | null {
     for (let i = shapes.length - 1; i >= 0; i--) {
@@ -134,10 +73,67 @@ export function getShapeAtPoint(shapes: Shape[], x: number, y: number): Shape | 
         if (!shape) continue;
 
         const fn = hitMap[shape.type];
+        if (fn(shape as any, x, y)) return shape;
+    }
 
-        // Controlled cast due to union type limitations
-        if (fn(shape as any, x, y)) {
-            return shape;
+    return null;
+}
+
+/**
+ * HANDLE DETECTION
+ */
+const HANDLE_SIZE = 8;
+
+export function getHandleAtPoint(shape: Shape, x: number, y: number): Handle | null {
+    // ---------- RECT ----------
+    if (shape.type === "rect") {
+        return getBoxHandle(shape.x, shape.y, shape.x + shape.width, shape.y + shape.height, x, y);
+    }
+
+    // ---------- CIRCLE ----------
+    if (shape.type === "circle") {
+        const x1 = shape.centerX - shape.radiusX;
+        const y1 = shape.centerY - shape.radiusY;
+        const x2 = shape.centerX + shape.radiusX;
+        const y2 = shape.centerY + shape.radiusY;
+
+        return getBoxHandle(x1, y1, x2, y2, x, y);
+    }
+
+    // ---------- LINE ----------
+    if (shape.type === "line") {
+        const startHit = Math.abs(x - shape.x1) <= HANDLE_SIZE && Math.abs(y - shape.y1) <= HANDLE_SIZE;
+
+        if (startHit) return "start";
+
+        const endHit = Math.abs(x - shape.x2) <= HANDLE_SIZE && Math.abs(y - shape.y2) <= HANDLE_SIZE;
+
+        if (endHit) return "end";
+    }
+
+    return null;
+}
+
+/**
+ * Shared bounding-box handle logic
+ */
+function getBoxHandle(x1: number, y1: number, x2: number, y2: number, x: number, y: number): Handle | null {
+    const HANDLE_SIZE = 6; 
+
+    const handles = {
+        "top-left": [x1, y1],
+        "top-right": [x2, y1],
+        "bottom-left": [x1, y2],
+        "bottom-right": [x2, y2],
+        left: [x1, (y1 + y2) / 2],
+        right: [x2, (y1 + y2) / 2],
+        top: [(x1 + x2) / 2, y1],
+        bottom: [(x1 + x2) / 2, y2],
+    } as const;
+
+    for (const [handle, [hx, hy]] of Object.entries(handles)) {
+        if (Math.abs(x - hx) <= HANDLE_SIZE && Math.abs(y - hy) <= HANDLE_SIZE) {
+            return handle as Handle;
         }
     }
 

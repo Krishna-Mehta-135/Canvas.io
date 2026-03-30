@@ -1,31 +1,31 @@
 /*
-events.ts
+    events.ts
 
-Handles user interaction:
-- translates mouse events → actions (dispatch)
-- manages temporary interaction state (dragging, preview)
-- triggers rendering
+    Handles ALL user interaction.
 
-NOTE:
-- This file should NOT mutate shapes directly
-- All state updates must go through dispatch/store
-*/
+    Responsibilities:
+    - Convert mouse events → actions (dispatch)
+    - Manage temporary interaction state
+    - Coordinate between detection + geometry + rendering
+
+    Key Design:
+    - Priority: resize > drag > draw
+    - No direct mutation (only dispatch)
+    - Cursor = visual feedback only (never control flow)
+    */
 
 import {render} from "./renderer";
-import {PreviewShape, Shape} from "./types";
+import {Handle, PreviewShape, Shape} from "./types";
 import {getMousePos} from "./utils";
 import {CanvasState} from "./state";
-import {getShapeAtPoint} from "./hitDetection";
+import {getShapeAtPoint, getHandleAtPoint} from "./hitDetection";
 import {dispatch} from "./store";
+import {resizeShape} from "./geometry";
 
 type Tool = "rect" | "circle" | "line";
 
-/**
- * Creates a temporary shape during drag.
- *
- * This does NOT include id and is NOT stored in state.
- * It only represents the user's current drag intent.
- */
+/* ---------------- PREVIEW ---------------- */
+
 function createPreviewShape(
     tool: Tool,
     startX: number,
@@ -72,50 +72,54 @@ function createPreviewShape(
     throw new Error("Unknown tool");
 }
 
-/**
- * Prevents accidental clicks from creating shapes.
- * Requires a minimum drag distance.
- */
 function hasDragged(startX: number, startY: number, endX: number, endY: number) {
     const dx = endX - startX;
     const dy = endY - startY;
-
     return dx * dx + dy * dy > 9;
 }
 
+/* ---------------- EVENTS ---------------- */
+
 export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, state: CanvasState) {
-    // Drawing state (temporary interaction)
     let isDrawing = false;
     let startX = 0;
     let startY = 0;
     let previewShape: PreviewShape | null = null;
 
-    // Selection + dragging state
     let selectedShape: Shape | null = null;
     let isDragging = false;
 
     let offsetX = 0;
     let offsetY = 0;
 
-    // For line dragging (delta-based movement)
     let prevX = 0;
     let prevY = 0;
 
-    // Active tool
+    let isResizing = false;
+
+    let resizeSession: {
+        shape: Shape;
+        handle: Handle;
+    } | null = null;
+
     let currentTool: Tool = "rect";
+    let activeTool: Tool | null = null;
+
+    /* ---------------- KEYBOARD ---------------- */
+
     window.addEventListener("keydown", (e) => {
         if (e.key === "1") currentTool = "rect";
         if (e.key === "2") currentTool = "circle";
         if (e.key === "3") currentTool = "line";
 
-        // UNDO (Ctrl/Cmd + Z)
+        //Undo func
         if ((e.ctrlKey || e.metaKey) && e.key === "z") {
             e.preventDefault();
             state.undo();
             render(ctx, canvas, state.getShapes(), null);
         }
 
-        // REDO (Ctrl/Cmd + Y)
+        //Redo func
         if ((e.ctrlKey || e.metaKey) && e.key === "y") {
             e.preventDefault();
             state.redo();
@@ -123,20 +127,29 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
         }
     });
 
-    let activeTool: Tool | null = null;
+    /* ---------------- MOUSEDOWN ---------------- */
 
-    // -------------------- MOUSEDOWN --------------------
     canvas.addEventListener("mousedown", (e) => {
         const {x, y} = getMousePos(canvas, e);
 
         const shape = getShapeAtPoint(state.getShapes(), x, y);
 
-        // DRAGGING MODE (select existing shape)
+        // Detect handle on ANY shape (before selection)
+        const handle = shape ? getHandleAtPoint(shape, x, y) : null;
+
+        // RESIZE
+        if (shape && handle) {
+            isResizing = true;
+            resizeSession = {shape, handle};
+            selectedShape = shape;
+            return;
+        }
+
+        // DRAG
         if (shape) {
             selectedShape = shape;
             isDragging = true;
 
-            // Store offset so shape doesn't "jump"
             if (shape.type === "rect") {
                 offsetX = x - shape.x;
                 offsetY = y - shape.y;
@@ -148,59 +161,101 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
                 prevY = y;
             }
 
-            render(ctx, canvas, state.getShapes(), selectedShape);
+            render(ctx, canvas, state.getShapes(), shape);
             return;
         }
 
-        // DRAWING MODE (start new shape)
+        // DRAW
         activeTool = currentTool;
         isDrawing = true;
         startX = x;
         startY = y;
     });
 
-    // -------------------- MOUSEMOVE --------------------
+    /* ---------------- MOUSEMOVE ---------------- */
+
     canvas.addEventListener("mousemove", (e) => {
-        canvas.style.cursor = isDragging ? "move" : "crosshair";
         const {x, y} = getMousePos(canvas, e);
 
-        // DRAGGING → dispatch movement action
+        const shapes = state.getShapes();
+        const shape = getShapeAtPoint(shapes, x, y);
+
+        // CURSOR
+        if (selectedShape && shape?.id === selectedShape.id) {
+            const handle = getHandleAtPoint(shape, x, y);
+
+            if (handle) {
+                canvas.style.cursor = getCursorForHandle(handle);
+            } else {
+                canvas.style.cursor = "move";
+            }
+        } else if (shape) {
+            canvas.style.cursor = "move";
+        } else {
+            canvas.style.cursor = "crosshair";
+        }
+
+        // RESIZE
+        if (isResizing && resizeSession) {
+            const {shape, handle} = resizeSession;
+
+            const updates = resizeShape(shape, handle, x, y);
+
+            dispatch(state, {
+                type: "MOVE_SHAPE",
+                payload: {
+                    id: shape.id,
+                    updates,
+                },
+            });
+
+            const updated = state.getShapes().find((s) => s.id === shape.id);
+            render(ctx, canvas, state.getShapes(), updated || null);
+            return;
+        }
+
+        // DRAG
         if (isDragging && selectedShape) {
-            if (selectedShape.type === "rect") {
+            const selected = selectedShape;
+
+            if (selected.type === "rect") {
                 dispatch(state, {
                     type: "MOVE_SHAPE",
                     payload: {
-                        id: selectedShape.id,
+                        id: selected.id,
                         updates: {
                             x: x - offsetX,
                             y: y - offsetY,
                         },
                     },
                 });
-            } else if (selectedShape.type === "circle") {
+            } else if (selected.type === "circle") {
                 dispatch(state, {
                     type: "MOVE_SHAPE",
                     payload: {
-                        id: selectedShape.id,
+                        id: selected.id,
                         updates: {
                             centerX: x - offsetX,
                             centerY: y - offsetY,
                         },
                     },
                 });
-            } else if (selectedShape.type === "line") {
+            } else if (selected.type === "line") {
+                const current = state.getShapes().find((s) => s.id === selected.id);
+                if (!current || current.type !== "line") return;
+
                 const dx = x - prevX;
                 const dy = y - prevY;
 
                 dispatch(state, {
                     type: "MOVE_SHAPE",
                     payload: {
-                        id: selectedShape.id,
+                        id: current.id,
                         updates: {
-                            x1: selectedShape.x1 + dx,
-                            y1: selectedShape.y1 + dy,
-                            x2: selectedShape.x2 + dx,
-                            y2: selectedShape.y2 + dy,
+                            x1: current.x1 + dx,
+                            y1: current.y1 + dy,
+                            x2: current.x2 + dx,
+                            y2: current.y2 + dy,
                         },
                     },
                 });
@@ -209,72 +264,87 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
                 prevY = y;
             }
 
-            render(ctx, canvas, state.getShapes(), selectedShape);
+            render(ctx, canvas, state.getShapes(), selected);
             return;
         }
 
-        // DRAWING PREVIEW
+        // DRAW PREVIEW
         if (!isDrawing || !activeTool) return;
 
         previewShape = createPreviewShape(activeTool, startX, startY, x, y);
 
-        const shapes = state.getShapes();
-        let shapesToRender: Shape[] = shapes;
+        let shapesToRender = shapes;
 
-        // Convert PreviewShape → Shape ONLY for rendering
         if (previewShape) {
-            const tempShape: Shape = {
-                ...previewShape,
-                id: "__preview__",
-            };
-
-            shapesToRender = [...shapes, tempShape];
+            shapesToRender = [...shapes, {...previewShape, id: "__preview__"}];
         }
 
         render(ctx, canvas, shapesToRender, selectedShape);
     });
 
-    // -------------------- MOUSEUP --------------------
+    /* ---------------- MOUSEUP ---------------- */
+
     canvas.addEventListener("mouseup", (e) => {
         const {x, y} = getMousePos(canvas, e);
 
-        // End dragging
+        if (isResizing) {
+            isResizing = false;
+            resizeSession = null;
+            return;
+        }
+
         if (isDragging) {
             isDragging = false;
             selectedShape = null;
             return;
         }
 
-        // Finish drawing
         if (!isDrawing || !activeTool) return;
 
-        // Ignore accidental clicks
         if (!hasDragged(startX, startY, x, y)) {
             isDrawing = false;
             activeTool = null;
             previewShape = null;
-
-            render(ctx, canvas, state.getShapes(), selectedShape);
+            render(ctx, canvas, state.getShapes(), null);
             return;
         }
 
         const preview = createPreviewShape(activeTool, startX, startY, x, y);
 
-        // Convert PreviewShape → Shape (real entity)
-        const finalShape: Shape = {
-            ...preview,
-            id: crypto.randomUUID(),
-        };
-
         dispatch(state, {
             type: "ADD_SHAPE",
-            payload: finalShape,
+            payload: {
+                ...preview,
+                id: crypto.randomUUID(),
+            },
         });
 
         isDrawing = false;
         activeTool = null;
         previewShape = null;
 
-        render(ctx, canvas, state.getShapes(), selectedShape);
+        render(ctx, canvas, state.getShapes(), null);
     });
+}
+
+/* ---------------- CURSOR ---------------- */
+
+function getCursorForHandle(handle: Handle) {
+    switch (handle) {
+        case "top-left":
+        case "bottom-right":
+            return "nwse-resize";
+        case "top-right":
+        case "bottom-left":
+            return "nesw-resize";
+        case "left":
+        case "right":
+            return "ew-resize";
+        case "top":
+        case "bottom":
+            return "ns-resize";
+        case "start":
+        case "end":
+            return "pointer";
+    }
 }

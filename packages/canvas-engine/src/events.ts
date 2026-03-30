@@ -103,6 +103,11 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
 
     // Active tool
     let currentTool: Tool = "rect";
+    window.addEventListener("keydown", (e) => {
+        if (e.key === "1") currentTool = "rect";
+        if (e.key === "2") currentTool = "circle";
+        if (e.key === "3") currentTool = "line";
+    });
     let activeTool: Tool | null = null;
 
     // -------------------- MOUSEDOWN --------------------
@@ -141,6 +146,7 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
 
     // -------------------- MOUSEMOVE --------------------
     canvas.addEventListener("mousemove", (e) => {
+        canvas.style.cursor = isDragging ? "move" : "crosshair";
         const {x, y} = getMousePos(canvas, e);
 
         // DRAGGING → dispatch movement action

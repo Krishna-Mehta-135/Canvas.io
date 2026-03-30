@@ -107,7 +107,22 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
         if (e.key === "1") currentTool = "rect";
         if (e.key === "2") currentTool = "circle";
         if (e.key === "3") currentTool = "line";
+
+        // UNDO (Ctrl/Cmd + Z)
+        if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+            e.preventDefault();
+            state.undo();
+            render(ctx, canvas, state.getShapes(), null);
+        }
+
+        // REDO (Ctrl/Cmd + Y)
+        if ((e.ctrlKey || e.metaKey) && e.key === "y") {
+            e.preventDefault();
+            state.redo();
+            render(ctx, canvas, state.getShapes(), null);
+        }
     });
+
     let activeTool: Tool | null = null;
 
     // -------------------- MOUSEDOWN --------------------

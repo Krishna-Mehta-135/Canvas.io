@@ -50,16 +50,24 @@ export function dispatch(state: CanvasState, action: Action) {
 
     switch (action.type) {
         case "ADD_SHAPE": {
-            state.addShape(action.payload);
+            const newShapes = [...shapes, action.payload];
+            state.setShapes(newShapes);
             break;
         }
 
         case "MOVE_SHAPE": {
-            const shape = shapes.find((s) => s.id === action.payload.id);
-            if (!shape) return;
+            const {id, updates} = action.payload;
 
-            // Apply updates (mutation is fine for now)
-            Object.assign(shape, action.payload.updates);
+            const newShapes = shapes.map((s) => {
+                if (s.id !== id) return s;
+
+                return {
+                    ...s,
+                    ...updates,
+                } as Shape;
+            });
+
+            state.setShapes(newShapes);
             break;
         }
 

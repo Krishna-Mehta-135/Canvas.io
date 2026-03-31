@@ -34,6 +34,14 @@ export type Action =
               id: string;
               updates: Partial<Shape>;
           };
+      }
+    | {
+          type: "MOVE_SHAPES";
+          payload: {
+              ids: string[];
+              dx: number;
+              dy: number;
+          };
       };
 
 /*
@@ -65,6 +73,42 @@ export function dispatch(state: CanvasState, action: Action) {
                     ...s,
                     ...updates,
                 } as Shape;
+            });
+
+            state.setShapes(newShapes);
+            break;
+        }
+
+        case "MOVE_SHAPES": {
+            const {ids, dx, dy} = action.payload;
+            const selectedSet = new Set(ids);
+
+            const newShapes = shapes.map((shape) => {
+                if (!selectedSet.has(shape.id)) return shape;
+
+                if (shape.type === "rect") {
+                    return {
+                        ...shape,
+                        x: shape.x + dx,
+                        y: shape.y + dy,
+                    };
+                }
+
+                if (shape.type === "circle") {
+                    return {
+                        ...shape,
+                        centerX: shape.centerX + dx,
+                        centerY: shape.centerY + dy,
+                    };
+                }
+
+                return {
+                    ...shape,
+                    x1: shape.x1 + dx,
+                    y1: shape.y1 + dy,
+                    x2: shape.x2 + dx,
+                    y2: shape.y2 + dy,
+                };
             });
 
             state.setShapes(newShapes);

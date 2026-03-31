@@ -22,8 +22,20 @@ import {getShapeAtPoint, getHandleAtPoint} from "./hitDetection";
 import {dispatch} from "./store";
 import {resizeShape} from "./geometry";
 
-type Tool = "rect" | "circle" | "line";
+export type Tool = "select" | "rect" | "circle" | "line";
 const SELECTION_PADDING = 6;
+
+type AttachEventsOptions = {
+    getTool?: () => Tool;
+    onToolChange?: (tool: Tool) => void;
+};
+
+type SelectionBox = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+};
 
 function getResizeTarget(shapes: Shape[], x: number, y: number, selectedShape: Shape | null) {
     if (selectedShape) {
@@ -104,9 +116,28 @@ function hasDragged(startX: number, startY: number, endX: number, endY: number) 
     return dx * dx + dy * dy > 9;
 }
 
+function getSelectionBox(x1: number, y1: number, x2: number, y2: number): SelectionBox {
+    return {
+        x: Math.min(x1, x2),
+        y: Math.min(y1, y2),
+        width: Math.abs(x2 - x1),
+        height: Math.abs(y2 - y1),
+    };
+}
+
+function getSelectedShapesByIds(shapes: Shape[], selectedIds: string[]) {
+    const selectedIdSet = new Set(selectedIds);
+    return shapes.filter((shape) => selectedIdSet.has(shape.id));
+}
+
 /* ---------------- EVENTS ---------------- */
 
-export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D, state: CanvasState) {
+export function attachEvents(
+    canvas: HTMLCanvasElement,
+    ctx: CanvasRenderingContext2D,
+    state: CanvasState,
+    options: AttachEventsOptions = {}
+) {
     let isDrawing = false;
     let startX = 0;
     let startY = 0;
@@ -128,15 +159,33 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
         handle: Handle;
     } | null = null;
 
-    let currentTool: Tool = "rect";
+    let currentTool: Tool = options.getTool?.() ?? "select";
     let activeTool: Tool | null = null;
+
+    let isSelecting = false;
+
+    let selectionStartX = 0;
+    let selectionStartY = 0;
+
+    let selectionBox: SelectionBox | null = null;
+
+    let selectedShapeIds: string[] = [];
+    let dragMode: "single" | "multi" | null = null;
+
+    const getActiveTool = () => options.getTool?.() ?? currentTool;
+
+    const updateTool = (tool: Tool) => {
+        currentTool = tool;
+        options.onToolChange?.(tool);
+    };
 
     /* ---------------- KEYBOARD ---------------- */
 
     window.addEventListener("keydown", (e) => {
-        if (e.key === "1") currentTool = "rect";
-        if (e.key === "2") currentTool = "circle";
-        if (e.key === "3") currentTool = "line";
+        if (e.key === "v" || e.key === "V") updateTool("select");
+        if (e.key === "1") updateTool("rect");
+        if (e.key === "2") updateTool("circle");
+        if (e.key === "3") updateTool("line");
 
         //Undo func
         if ((e.ctrlKey || e.metaKey) && e.key === "z") {
@@ -166,6 +215,7 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
             isResizing = true;
             resizeSession = resizeTarget;
             selectedShape = resizeTarget.shape;
+            selectedShapeIds = [resizeTarget.shape.id];
             return;
         }
 
@@ -175,6 +225,19 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
         if (shape) {
             selectedShape = shape;
             isDragging = true;
+
+            const isShapeInSelection = selectedShapeIds.includes(shape.id);
+            if (isShapeInSelection && selectedShapeIds.length > 1) {
+                dragMode = "multi";
+                prevX = x;
+                prevY = y;
+
+                render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds));
+                return;
+            }
+
+            selectedShapeIds = [shape.id];
+            dragMode = "single";
 
             if (shape.type === "rect") {
                 offsetX = x - shape.x;
@@ -187,12 +250,26 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
                 prevY = y;
             }
 
-            render(ctx, canvas, state.getShapes(), shape);
+            render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds));
+            return;
+        }
+
+        // EMPTY CLICK
+        if (!shape && getActiveTool() === "select") {
+            isSelecting = true;
+
+            selectionStartX = x;
+            selectionStartY = y;
+
+            selectedShapeIds = [];
+            selectedShape = null;
+
+            render(ctx, canvas, state.getShapes(), null, null, []);
             return;
         }
 
         // DRAW
-        activeTool = currentTool;
+        activeTool = getActiveTool();
         isDrawing = true;
         startX = x;
         startY = y;
@@ -212,6 +289,8 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
             canvas.style.cursor = getCursorForHandle(resizeTarget.handle);
         } else if (shape) {
             canvas.style.cursor = "move";
+        } else if (getActiveTool() === "select") {
+            canvas.style.cursor = "default";
         } else {
             canvas.style.cursor = "crosshair";
         }
@@ -231,12 +310,45 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
             });
 
             const updated = state.getShapes().find((s) => s.id === shape.id);
-            render(ctx, canvas, state.getShapes(), updated || null);
+            render(
+                ctx,
+                canvas,
+                state.getShapes(),
+                updated || null,
+                null,
+                getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
+            );
             return;
         }
 
         // DRAG
         if (isDragging && selectedShape) {
+            if (dragMode === "multi") {
+                const dx = x - prevX;
+                const dy = y - prevY;
+
+                if (dx !== 0 || dy !== 0) {
+                    dispatch(state, {
+                        type: "MOVE_SHAPES",
+                        payload: {
+                            ids: selectedShapeIds,
+                            dx,
+                            dy,
+                        },
+                    });
+                }
+
+                prevX = x;
+                prevY = y;
+
+                const updatedShapes = state.getShapes();
+                const updatedSelectedShapes = getSelectedShapesByIds(updatedShapes, selectedShapeIds);
+                selectedShape = updatedShapes.find((shape) => shape.id === selectedShape?.id) || selectedShape;
+
+                render(ctx, canvas, updatedShapes, selectedShape, null, updatedSelectedShapes);
+                return;
+            }
+
             const selected = selectedShape;
 
             if (selected.type === "rect") {
@@ -285,7 +397,26 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
                 prevY = y;
             }
 
-            render(ctx, canvas, state.getShapes(), selected);
+            render(
+                ctx,
+                canvas,
+                state.getShapes(),
+                selected,
+                null,
+                getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
+            );
+            return;
+        }
+
+        // ---------------- SELECTION BOX ----------------
+        if (isSelecting) {
+            const currentSelectionBox = getSelectionBox(selectionStartX, selectionStartY, x, y);
+            selectionBox = currentSelectionBox;
+
+            const selectedShapes = shapes.filter((s) => isShapeInsideBox(s, currentSelectionBox));
+            selectedShapeIds = selectedShapes.map((shape) => shape.id);
+
+            render(ctx, canvas, shapes, null, selectionBox, selectedShapes);
             return;
         }
 
@@ -300,13 +431,43 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
             shapesToRender = [...shapes, {...previewShape, id: "__preview__"}];
         }
 
-        render(ctx, canvas, shapesToRender, selectedShape);
+        render(
+            ctx,
+            canvas,
+            shapesToRender,
+            selectedShape,
+            null,
+            getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
+        );
     });
 
     /* ---------------- MOUSEUP ---------------- */
 
     canvas.addEventListener("mouseup", (e) => {
         const {x, y} = getMousePos(canvas, e);
+
+        if (isSelecting) {
+            const didDragSelection = hasDragged(selectionStartX, selectionStartY, x, y);
+            isSelecting = false;
+            selectionBox = null;
+
+            // pick primary shape (top-most inside selection)
+            const selectedShapes = getSelectedShapesByIds(state.getShapes(), selectedShapeIds);
+            selectedShape = didDragSelection ? selectedShapes[selectedShapes.length - 1] || null : null;
+            if (!didDragSelection) {
+                selectedShapeIds = [];
+            }
+
+            render(
+                ctx,
+                canvas,
+                state.getShapes(),
+                selectedShape,
+                null,
+                getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
+            );
+            return;
+        }
 
         if (isResizing) {
             isResizing = false;
@@ -316,7 +477,7 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
 
         if (isDragging) {
             isDragging = false;
-            selectedShape = null;
+            dragMode = null;
             return;
         }
 
@@ -326,7 +487,14 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
             isDrawing = false;
             activeTool = null;
             previewShape = null;
-            render(ctx, canvas, state.getShapes(), null);
+            render(
+                ctx,
+                canvas,
+                state.getShapes(),
+                selectedShape,
+                null,
+                getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
+            );
             return;
         }
 
@@ -344,7 +512,14 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
         activeTool = null;
         previewShape = null;
 
-        render(ctx, canvas, state.getShapes(), null);
+        render(
+            ctx,
+            canvas,
+            state.getShapes(),
+            selectedShape,
+            null,
+            getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
+        );
     });
 }
 
@@ -368,4 +543,39 @@ function getCursorForHandle(handle: Handle) {
         case "end":
             return "pointer";
     }
+}
+
+function isShapeInsideBox(shape: Shape, box: SelectionBox) {
+    const {x, y, width, height} = box;
+
+    const x2 = x + width;
+    const y2 = y + height;
+
+    if (shape.type === "rect") {
+        return shape.x >= x && shape.x + shape.width <= x2 && shape.y >= y && shape.y + shape.height <= y2;
+    }
+
+    if (shape.type === "circle") {
+        const sx1 = shape.centerX - shape.radiusX;
+        const sy1 = shape.centerY - shape.radiusY;
+        const sx2 = shape.centerX + shape.radiusX;
+        const sy2 = shape.centerY + shape.radiusY;
+
+        return sx1 >= x && sx2 <= x2 && sy1 >= y && sy2 <= y2;
+    }
+
+    if (shape.type === "line") {
+        return (
+            shape.x1 >= x &&
+            shape.x1 <= x2 &&
+            shape.y1 >= y &&
+            shape.y1 <= y2 &&
+            shape.x2 >= x &&
+            shape.x2 <= x2 &&
+            shape.y2 >= y &&
+            shape.y2 <= y2
+        );
+    }
+
+    return false;
 }

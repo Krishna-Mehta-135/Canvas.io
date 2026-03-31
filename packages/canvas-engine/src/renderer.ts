@@ -23,6 +23,13 @@ const HANDLE_COLOR = "#8d8ac5";
 const SELECTION_PADDING = 6;
 const HANDLE_SIZE = 12;
 
+type SelectionBox = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+};
+
 // -------------------- DRAW MAP --------------------
 
 /**
@@ -243,6 +250,18 @@ function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape) {
     ctx.restore();
 }
 
+function drawSelectionBox(ctx: CanvasRenderingContext2D, selectionBox: SelectionBox) {
+    ctx.save();
+
+    ctx.strokeStyle = HANDLE_COLOR;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([6, 4]);
+
+    ctx.strokeRect(selectionBox.x, selectionBox.y, selectionBox.width, selectionBox.height);
+
+    ctx.restore();
+}
+
 // -------------------- RENDER --------------------
 
 /**
@@ -259,7 +278,9 @@ export function render(
     ctx: CanvasRenderingContext2D,
     canvas: HTMLCanvasElement,
     shapes: Shape[],
-    selectedShape: Shape | null
+    selectedShape: Shape | null,
+    selectionBox: SelectionBox | null = null,
+    selectedShapes: Shape[] = []
 ) {
     // Background
     ctx.fillStyle = "#121212";
@@ -270,9 +291,21 @@ export function render(
         if (!drawFn) return;
 
         drawFn(ctx, shape as any);
-
-        if (selectedShape === shape) {
-            drawSelection(ctx, shape);
-        }
     });
+
+    selectedShapes.forEach((shape) => {
+        if (shape === selectedShape) return;
+        drawSelection(ctx, shape);
+    });
+
+    if (selectedShape) {
+        const primary = shapes.find((shape) => shape.id === selectedShape.id);
+        if (primary) {
+            drawSelection(ctx, primary);
+        }
+    }
+
+    if (selectionBox) {
+        drawSelectionBox(ctx, selectionBox);
+    }
 }

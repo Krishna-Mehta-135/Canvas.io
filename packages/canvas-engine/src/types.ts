@@ -1,3 +1,14 @@
+/*
+types.ts
+
+Core canvas-engine data contracts.
+
+Contains:
+- persisted shape model used by state/store
+- preview shape model used during drag interactions
+- handle union used for resize operations
+*/
+
 type BaseShape = {
     id: string;
     stroke?: string;

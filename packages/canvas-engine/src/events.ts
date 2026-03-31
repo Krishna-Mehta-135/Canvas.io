@@ -104,13 +104,30 @@ export function attachEvents(
             activeTextEditorCleanup = null;
         }
 
+        const fontSize = existing?.fontSize ?? 24;
+        const lineHeight = Math.round(fontSize * 1.25);
+
         activeTextEditorCleanup = createInlineTextEditor({
             canvas,
             x,
             y,
+            ctx,
             initialText: existing?.text ?? "",
-            fontSize: existing?.fontSize ?? 24,
-            onCommit: ({text, width, height, fontSize}) => {
+            fontSize,
+            onInput: (text) => {
+                // Live preview: render text on canvas as user types
+                render(ctx, canvas, state.getShapes(), null, null, []);
+                
+                // Draw the live text preview - fully white and visible
+                ctx.fillStyle = "#ffffff";
+                ctx.font = `${fontSize}px Virgil, Caveat, ui-rounded, sans-serif`;
+                ctx.textBaseline = "top";
+                const lines = text.split("\n");
+                lines.forEach((line, index) => {
+                    ctx.fillText(line, x, y + index * lineHeight);
+                });
+            },
+            onCommit: ({text, width, height, fontSize: newFontSize}) => {
                 activeTextEditorCleanup = null;
 
                 const trimmed = text.trim();
@@ -139,7 +156,7 @@ export function attachEvents(
                                 text: trimmed,
                                 width,
                                 height,
-                                fontSize,
+                                fontSize: newFontSize,
                             },
                         },
                     });
@@ -163,7 +180,7 @@ export function attachEvents(
                     x,
                     y,
                     text: trimmed,
-                    fontSize,
+                    fontSize: newFontSize,
                     width,
                     height,
                 };
@@ -285,11 +302,15 @@ export function attachEvents(
         }
 
         if (shape && getActiveTool() === "text" && shape.type === "text") {
+            e.stopPropagation();
+            e.preventDefault();
             startTextEditing(shape.x, shape.y, shape);
             return;
         }
 
         if (!shape && getActiveTool() === "text") {
+            e.stopPropagation();
+            e.preventDefault();
             startTextEditing(x, y);
             return;
         }

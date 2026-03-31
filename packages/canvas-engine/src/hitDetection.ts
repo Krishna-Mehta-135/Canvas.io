@@ -1,3 +1,15 @@
+/*
+hitDetection.ts
+
+Legacy hit-detection module kept for compatibility during migration.
+
+Responsibilities:
+- shape hit-testing by pointer location
+- resize-handle hit-testing
+
+Preferred location for new usage: src/interaction/hitDetection.ts
+*/
+
 import {Handle, Shape} from "./types";
 
 /**

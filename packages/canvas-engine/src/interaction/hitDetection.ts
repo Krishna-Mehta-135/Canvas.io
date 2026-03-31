@@ -1,3 +1,17 @@
+/*
+interaction/hitDetection.ts
+
+Interaction-layer hit testing.
+
+Responsibilities:
+- find top-most shape under the pointer
+- resolve which resize handle (if any) is being targeted
+
+Used by:
+- events.ts for selection and text/edit targeting
+- interaction/resizeTarget.ts for resize initiation
+*/
+
 import {Handle, Shape} from "../types";
 
 /**

@@ -115,8 +115,13 @@ export function attachEvents(
             initialText: existing?.text ?? "",
             fontSize,
             onInput: (text) => {
-                // Live preview: render text on canvas as user types
-                render(ctx, canvas, state.getShapes(), null, null, []);
+                // Live preview: render text on canvas as user types.
+                // While editing an existing text shape, hide that old shape to avoid doubled text.
+                const previewShapes = existing
+                    ? state.getShapes().filter((shape) => shape.id !== existing.id)
+                    : state.getShapes();
+
+                render(ctx, canvas, previewShapes, null, null, []);
                 
                 // Draw the live text preview - fully white and visible
                 ctx.fillStyle = "#ffffff";
@@ -203,6 +208,14 @@ export function attachEvents(
             },
             onCancel: () => {
                 activeTextEditorCleanup = null;
+                render(
+                    ctx,
+                    canvas,
+                    state.getShapes(),
+                    selectedShape,
+                    null,
+                    getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
+                );
             },
         });
     };
@@ -298,13 +311,6 @@ export function attachEvents(
             selectedShape = selectedShapes[selectedShapes.length - 1] || null;
 
             render(ctx, canvas, shapes, selectedShape, null, selectedShapes);
-            return;
-        }
-
-        if (shape && getActiveTool() === "text" && shape.type === "text") {
-            e.stopPropagation();
-            e.preventDefault();
-            startTextEditing(shape.x, shape.y, shape);
             return;
         }
 

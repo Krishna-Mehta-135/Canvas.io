@@ -4,27 +4,15 @@ import {Handle, Shape} from "./types";
  * Pixel tolerance for hit detection
  */
 const HIT_THRESHOLD = 5;
+const HANDLE_SIZE = 10;
 
-/**
- * Rectangle hit detection
- */
-function hitRect(shape: Extract<Shape, {type: "rect"}>, x: number, y: number): boolean {
-    const inside = x >= shape.x && x <= shape.x + shape.width && y >= shape.y && y <= shape.y + shape.height;
+/* ---------------- SHAPE HIT ---------------- */
 
-    if (inside) return true;
-
-    const left = Math.abs(x - shape.x) < HIT_THRESHOLD;
-    const right = Math.abs(x - (shape.x + shape.width)) < HIT_THRESHOLD;
-    const top = Math.abs(y - shape.y) < HIT_THRESHOLD;
-    const bottom = Math.abs(y - (shape.y + shape.height)) < HIT_THRESHOLD;
-
-    return left || right || top || bottom;
+function hitRect(shape: Extract<Shape, {type: "rect"}>, x: number, y: number) {
+    return x >= shape.x && x <= shape.x + shape.width && y >= shape.y && y <= shape.y + shape.height;
 }
 
-/**
- * Ellipse hit detection
- */
-function hitEllipse(shape: Extract<Shape, {type: "circle"}>, x: number, y: number): boolean {
+function hitEllipse(shape: Extract<Shape, {type: "circle"}>, x: number, y: number) {
     const dx = x - shape.centerX;
     const dy = y - shape.centerY;
 
@@ -35,15 +23,10 @@ function hitEllipse(shape: Extract<Shape, {type: "circle"}>, x: number, y: numbe
 
     const value = (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry);
 
-    if (value <= 1) return true;
-
-    return Math.abs(value - 1) < 0.1;
+    return value <= 1;
 }
 
-/**
- * Line hit detection
- */
-function hitLine(shape: Extract<Shape, {type: "line"}>, x: number, y: number): boolean {
+function hitLine(shape: Extract<Shape, {type: "line"}>, x: number, y: number) {
     const dx = shape.x2 - shape.x1;
     const dy = shape.y2 - shape.y1;
 
@@ -55,18 +38,14 @@ function hitLine(shape: Extract<Shape, {type: "line"}>, x: number, y: number): b
     return distance < HIT_THRESHOLD;
 }
 
-/**
- * Map
- */
 const hitMap = {
     rect: hitRect,
     circle: hitEllipse,
     line: hitLine,
 };
 
-/**
- * Topmost shape detection
- */
+/* ---------------- SHAPE DETECTION ---------------- */
+
 export function getShapeAtPoint(shapes: Shape[], x: number, y: number): Shape | null {
     for (let i = shapes.length - 1; i >= 0; i--) {
         const shape = shapes[i];
@@ -79,47 +58,48 @@ export function getShapeAtPoint(shapes: Shape[], x: number, y: number): Shape | 
     return null;
 }
 
-/**
- * HANDLE DETECTION
- */
-const HANDLE_SIZE = 8;
+/* ---------------- HANDLE DETECTION ---------------- */
 
-export function getHandleAtPoint(shape: Shape, x: number, y: number): Handle | null {
-    // ---------- RECT ----------
+export function getHandleAtPoint(shape: Shape, x: number, y: number, padding = 0): Handle | null {
+    // RECT
     if (shape.type === "rect") {
-        return getBoxHandle(shape.x, shape.y, shape.x + shape.width, shape.y + shape.height, x, y);
+        return getBoxHandle(
+            shape.x - padding,
+            shape.y - padding,
+            shape.x + shape.width + padding,
+            shape.y + shape.height + padding,
+            x,
+            y
+        );
     }
 
-    // ---------- CIRCLE ----------
+    // CIRCLE (uses bounding box)
     if (shape.type === "circle") {
-        const x1 = shape.centerX - shape.radiusX;
-        const y1 = shape.centerY - shape.radiusY;
-        const x2 = shape.centerX + shape.radiusX;
-        const y2 = shape.centerY + shape.radiusY;
+        const x1 = shape.centerX - shape.radiusX - padding;
+        const y1 = shape.centerY - shape.radiusY - padding;
+        const x2 = shape.centerX + shape.radiusX + padding;
+        const y2 = shape.centerY + shape.radiusY + padding;
 
         return getBoxHandle(x1, y1, x2, y2, x, y);
     }
 
-    // ---------- LINE ----------
+    // LINE (endpoints only)
     if (shape.type === "line") {
-        const startHit = Math.abs(x - shape.x1) <= HANDLE_SIZE && Math.abs(y - shape.y1) <= HANDLE_SIZE;
+        if (Math.abs(x - shape.x1) <= HANDLE_SIZE && Math.abs(y - shape.y1) <= HANDLE_SIZE) {
+            return "start";
+        }
 
-        if (startHit) return "start";
-
-        const endHit = Math.abs(x - shape.x2) <= HANDLE_SIZE && Math.abs(y - shape.y2) <= HANDLE_SIZE;
-
-        if (endHit) return "end";
+        if (Math.abs(x - shape.x2) <= HANDLE_SIZE && Math.abs(y - shape.y2) <= HANDLE_SIZE) {
+            return "end";
+        }
     }
 
     return null;
 }
 
-/**
- * Shared bounding-box handle logic
- */
-function getBoxHandle(x1: number, y1: number, x2: number, y2: number, x: number, y: number): Handle | null {
-    const HANDLE_SIZE = 6; 
+/* ---------------- BOX HANDLES ---------------- */
 
+function getBoxHandle(x1: number, y1: number, x2: number, y2: number, x: number, y: number): Handle | null {
     const handles = {
         "top-left": [x1, y1],
         "top-right": [x2, y1],

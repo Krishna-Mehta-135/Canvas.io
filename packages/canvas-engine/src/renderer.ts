@@ -20,6 +20,8 @@ import {Shape} from "./types";
 
 const DEFAULT_STROKE_WIDTH = 2;
 const HANDLE_COLOR = "#8d8ac5";
+const SELECTION_PADDING = 6;
+const HANDLE_SIZE = 12;
 
 // -------------------- DRAW MAP --------------------
 
@@ -167,13 +169,11 @@ function getBoundingBox(shape: Shape) {
  * Handles are visual interaction points (corners of bounding box).
  */
 function drawHandle(ctx: CanvasRenderingContext2D, x: number, y: number) {
-    const size = 8;
-
     ctx.fillStyle = HANDLE_COLOR;
     ctx.strokeStyle = HANDLE_COLOR;
 
     ctx.beginPath();
-    ctx.rect(x - size / 2, y - size / 2, size, size);
+    ctx.rect(x - HANDLE_SIZE / 2, y - HANDLE_SIZE / 2, HANDLE_SIZE, HANDLE_SIZE);
     ctx.fill();
 }
 
@@ -186,16 +186,30 @@ function drawHandle(ctx: CanvasRenderingContext2D, x: number, y: number) {
  * inward tweak → fine visual alignment adjustment
  */
 function getHandlePoints(shape: Shape) {
-    const {x, y, width, height} = getBoundingBox(shape);
+    if (shape.type === "line") {
+        return [
+            {x: shape.x1, y: shape.y1},
+            {x: shape.x2, y: shape.y2},
+        ];
+    }
 
-    const padding = 4;
-    const inward = -1;
+    const {x, y, width, height} = getBoundingBox(shape);
+    const x1 = x - SELECTION_PADDING;
+    const y1 = y - SELECTION_PADDING;
+    const x2 = x + width + SELECTION_PADDING;
+    const y2 = y + height + SELECTION_PADDING;
+    const centerX = (x1 + x2) / 2;
+    const centerY = (y1 + y2) / 2;
 
     return [
-        {x: x - padding + inward, y: y - padding + inward},
-        {x: x + width + padding - inward, y: y - padding + inward},
-        {x: x - padding + inward, y: y + height + padding - inward},
-        {x: x + width + padding - inward, y: y + height + padding - inward},
+        {x: x1, y: y1},
+        {x: x2, y: y1},
+        {x: x1, y: y2},
+        {x: x2, y: y2},
+        {x: x1, y: centerY},
+        {x: x2, y: centerY},
+        {x: centerX, y: y1},
+        {x: centerX, y: y2},
     ];
 }
 
@@ -212,13 +226,17 @@ function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape) {
     ctx.save();
 
     const {x, y, width, height} = getBoundingBox(shape);
-    const padding = 6;
 
     ctx.strokeStyle = HANDLE_COLOR;
     ctx.lineWidth = 1;
 
-    ctx.strokeRect(x - padding, y - padding, width + padding * 2, height + padding * 2);
-
+    ctx.strokeRect(
+        x - SELECTION_PADDING,
+        y - SELECTION_PADDING,
+        width + SELECTION_PADDING * 2,
+        height + SELECTION_PADDING * 2
+    );
+    
     const handles = getHandlePoints(shape);
     handles.forEach((p) => drawHandle(ctx, p.x, p.y));
 

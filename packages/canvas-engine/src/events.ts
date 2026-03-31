@@ -23,6 +23,32 @@ import {dispatch} from "./store";
 import {resizeShape} from "./geometry";
 
 type Tool = "rect" | "circle" | "line";
+const SELECTION_PADDING = 6;
+
+function getResizeTarget(shapes: Shape[], x: number, y: number, selectedShape: Shape | null) {
+    if (selectedShape) {
+        const selected = shapes.find((s) => s.id === selectedShape.id);
+
+        if (selected) {
+            const selectedHandle = getHandleAtPoint(selected, x, y, SELECTION_PADDING);
+            if (selectedHandle) {
+                return {shape: selected, handle: selectedHandle};
+            }
+        }
+    }
+
+    for (let i = shapes.length - 1; i >= 0; i--) {
+        const shape = shapes[i];
+        if (!shape) continue;
+
+        const handle = getHandleAtPoint(shape, x, y, SELECTION_PADDING);
+        if (handle) {
+            return {shape, handle};
+        }
+    }
+
+    return null;
+}
 
 /* ---------------- PREVIEW ---------------- */
 
@@ -131,21 +157,21 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
 
     canvas.addEventListener("mousedown", (e) => {
         const {x, y} = getMousePos(canvas, e);
+        const shapes = state.getShapes();
 
-        const shape = getShapeAtPoint(state.getShapes(), x, y);
-
-        // Detect handle on ANY shape (before selection)
-        const handle = shape ? getHandleAtPoint(shape, x, y) : null;
+        const resizeTarget = getResizeTarget(shapes, x, y, selectedShape);
 
         // RESIZE
-        if (shape && handle) {
+        if (resizeTarget) {
             isResizing = true;
-            resizeSession = {shape, handle};
-            selectedShape = shape;
+            resizeSession = resizeTarget;
+            selectedShape = resizeTarget.shape;
             return;
         }
 
-        // DRAG
+        const shape = getShapeAtPoint(shapes, x, y);
+
+        // ---------------- DRAG ----------------
         if (shape) {
             selectedShape = shape;
             isDragging = true;
@@ -178,17 +204,12 @@ export function attachEvents(canvas: HTMLCanvasElement, ctx: CanvasRenderingCont
         const {x, y} = getMousePos(canvas, e);
 
         const shapes = state.getShapes();
+        const resizeTarget = getResizeTarget(shapes, x, y, selectedShape);
         const shape = getShapeAtPoint(shapes, x, y);
 
         // CURSOR
-        if (selectedShape && shape?.id === selectedShape.id) {
-            const handle = getHandleAtPoint(shape, x, y);
-
-            if (handle) {
-                canvas.style.cursor = getCursorForHandle(handle);
-            } else {
-                canvas.style.cursor = "move";
-            }
+        if (resizeTarget) {
+            canvas.style.cursor = getCursorForHandle(resizeTarget.handle);
         } else if (shape) {
             canvas.style.cursor = "move";
         } else {

@@ -30,6 +30,12 @@ We keep it minimal for now:
 export type Action =
     | {type: "ADD_SHAPE"; payload: Shape}
     | {
+          type: "DELETE_SHAPES";
+          payload: {
+              ids: string[];
+          };
+      }
+    | {
           type: "MOVE_SHAPE";
           payload: {
               id: string;
@@ -38,6 +44,14 @@ export type Action =
       }
     | {
           type: "MOVE_SHAPES";
+          payload: {
+              ids: string[];
+              dx: number;
+              dy: number;
+          };
+      }
+    | {
+          type: "NUDGE_SHAPES";
           payload: {
               ids: string[];
               dx: number;
@@ -101,6 +115,85 @@ export function dispatch(state: CanvasState, action: Action) {
                         ...shape,
                         centerX: shape.centerX + dx,
                         centerY: shape.centerY + dy,
+                    };
+                }
+
+                if (shape.type === "text") {
+                    return {
+                        ...shape,
+                        x: shape.x + dx,
+                        y: shape.y + dy,
+                    };
+                }
+
+                if (shape.type === "freehand") {
+                    return {
+                        ...shape,
+                        points: shape.points.map((point) => ({
+                            x: point.x + dx,
+                            y: point.y + dy,
+                        })),
+                    };
+                }
+
+                return {
+                    ...shape,
+                    x1: shape.x1 + dx,
+                    y1: shape.y1 + dy,
+                    x2: shape.x2 + dx,
+                    y2: shape.y2 + dy,
+                };
+            });
+
+            state.setShapes(newShapes);
+            break;
+        }
+
+        case "DELETE_SHAPES": {
+            const selectedSet = new Set(action.payload.ids);
+            const newShapes = shapes.filter((shape) => !selectedSet.has(shape.id));
+            state.setShapes(newShapes);
+            break;
+        }
+
+        case "NUDGE_SHAPES": {
+            const {ids, dx, dy} = action.payload;
+            const selectedSet = new Set(ids);
+
+            const newShapes = shapes.map((shape) => {
+                if (!selectedSet.has(shape.id)) return shape;
+
+                if (shape.type === "rect") {
+                    return {
+                        ...shape,
+                        x: shape.x + dx,
+                        y: shape.y + dy,
+                    };
+                }
+
+                if (shape.type === "circle") {
+                    return {
+                        ...shape,
+                        centerX: shape.centerX + dx,
+                        centerY: shape.centerY + dy,
+                    };
+                }
+
+                if (shape.type === "text") {
+                    return {
+                        ...shape,
+                        x: shape.x + dx,
+                        y: shape.y + dy,
+                    };
+                }
+
+                if (shape.type === "freehand") {
+                    return {
+                        ...shape,
+                        points: shape.points.map((point) => ({
+                            x: point.x + dx,
+                            y: point.y + dy,
+                        })),
                     };
                 }
 

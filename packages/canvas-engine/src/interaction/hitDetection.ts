@@ -1,4 +1,4 @@
-import {Handle, Shape} from "./types";
+import {Handle, Shape} from "../types";
 
 /**
  * Pixel tolerance for hit detection

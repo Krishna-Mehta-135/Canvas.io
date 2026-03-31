@@ -41,7 +41,7 @@ This is a quick reference for required canvas engine files and what each one own
 
 ## Hit + state
 
-- src/hitDetection.ts
+- src/interaction/hitDetection.ts
   - getShapeAtPoint, getHandleAtPoint.
 - src/store.ts
   - dispatch(action) reducer-like transitions.

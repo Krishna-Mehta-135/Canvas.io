@@ -19,13 +19,15 @@ import {render} from "./renderer";
 import {Handle, PreviewShape, Shape} from "./types";
 import {getMousePos} from "./utils";
 import {CanvasState} from "./state";
-import {getShapeAtPoint} from "./hitDetection";
+import {getShapeAtPoint} from "./interaction/hitDetection";
 import {dispatch} from "./store";
 import {resizeShape} from "./geometry";
-import {AttachEventsOptions, Tool} from "./interaction/tools";
+import {AttachEventsOptions, isDrawableTool, Tool} from "./interaction/tools";
 import {createPreviewShape} from "./interaction/preview";
 import {getCursorForHandle} from "./interaction/cursor";
 import {getResizeTarget} from "./interaction/resizeTarget";
+import {createInlineTextEditor} from "./interaction/textEditor";
+import {handleGlobalKeydown} from "./interaction/keyboard";
 import {
     getSelectedShapesByIds,
     getSelectionBox,
@@ -67,6 +69,8 @@ export function attachEvents(
     let prevY = 0;
 
     let isResizing = false;
+    let isFreehandDrawing = false;
+    let freehandPoints: Array<{x: number; y: number}> = [];
 
     let resizeSession: {
         shape: Shape;
@@ -85,6 +89,7 @@ export function attachEvents(
 
     let selectedShapeIds: string[] = [];
     let dragMode: "single" | "multi" | null = null;
+    let activeTextEditorCleanup: (() => void) | null = null;
 
     const getActiveTool = () => options.getTool?.() ?? currentTool;
 
@@ -93,27 +98,155 @@ export function attachEvents(
         options.onToolChange?.(tool);
     };
 
+    const startTextEditing = (x: number, y: number, existing?: Extract<Shape, {type: "text"}>) => {
+        if (activeTextEditorCleanup) {
+            activeTextEditorCleanup();
+            activeTextEditorCleanup = null;
+        }
+
+        activeTextEditorCleanup = createInlineTextEditor({
+            canvas,
+            x,
+            y,
+            initialText: existing?.text ?? "",
+            fontSize: existing?.fontSize ?? 24,
+            onCommit: ({text, width, height, fontSize}) => {
+                activeTextEditorCleanup = null;
+
+                const trimmed = text.trim();
+
+                if (!trimmed) {
+                    if (existing) {
+                        dispatch(state, {
+                            type: "DELETE_SHAPES",
+                            payload: {
+                                ids: [existing.id],
+                            },
+                        });
+                        selectedShape = null;
+                        selectedShapeIds = [];
+                        render(ctx, canvas, state.getShapes(), null, null, []);
+                    }
+                    return;
+                }
+
+                if (existing) {
+                    dispatch(state, {
+                        type: "MOVE_SHAPE",
+                        payload: {
+                            id: existing.id,
+                            updates: {
+                                text: trimmed,
+                                width,
+                                height,
+                                fontSize,
+                            },
+                        },
+                    });
+
+                    selectedShape = state.getShapes().find((shape) => shape.id === existing.id) || existing;
+                    selectedShapeIds = [existing.id];
+                    render(
+                        ctx,
+                        canvas,
+                        state.getShapes(),
+                        selectedShape,
+                        null,
+                        getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
+                    );
+                    return;
+                }
+
+                const textShape: Extract<Shape, {type: "text"}> = {
+                    id: crypto.randomUUID(),
+                    type: "text",
+                    x,
+                    y,
+                    text: trimmed,
+                    fontSize,
+                    width,
+                    height,
+                };
+
+                dispatch(state, {
+                    type: "ADD_SHAPE",
+                    payload: textShape,
+                });
+
+                selectedShapeIds = [textShape.id];
+                selectedShape = state.getShapes().find((shape) => shape.id === textShape.id) || textShape;
+                render(
+                    ctx,
+                    canvas,
+                    state.getShapes(),
+                    selectedShape,
+                    null,
+                    getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
+                );
+            },
+            onCancel: () => {
+                activeTextEditorCleanup = null;
+            },
+        });
+    };
+
     /* ---------------- KEYBOARD ---------------- */
 
     window.addEventListener("keydown", (e) => {
-        if (e.key === "v" || e.key === "V") updateTool("select");
-        if (e.key === "1") updateTool("rect");
-        if (e.key === "2") updateTool("circle");
-        if (e.key === "3") updateTool("line");
-
-        //Undo func
-        if ((e.ctrlKey || e.metaKey) && e.key === "z") {
-            e.preventDefault();
-            state.undo();
-            render(ctx, canvas, state.getShapes(), null);
+        const keyboardTarget = e.target as HTMLElement | null;
+        if (
+            keyboardTarget &&
+            (keyboardTarget.tagName === "TEXTAREA" || keyboardTarget.tagName === "INPUT" || keyboardTarget.isContentEditable)
+        ) {
+            return;
         }
 
-        //Redo func
-        if ((e.ctrlKey || e.metaKey) && e.key === "y") {
-            e.preventDefault();
-            state.redo();
-            render(ctx, canvas, state.getShapes(), null);
-        }
+        handleGlobalKeydown(e, {
+            updateTool,
+            hasSelection: () => selectedShapeIds.length > 0,
+            deleteSelection: () => {
+                dispatch(state, {
+                    type: "DELETE_SHAPES",
+                    payload: {
+                        ids: selectedShapeIds,
+                    },
+                });
+
+                selectedShapeIds = [];
+                selectedShape = null;
+                render(ctx, canvas, state.getShapes(), null, null, []);
+            },
+            nudgeSelection: (dx, dy) => {
+                dispatch(state, {
+                    type: "NUDGE_SHAPES",
+                    payload: {
+                        ids: selectedShapeIds,
+                        dx,
+                        dy,
+                    },
+                });
+
+                const updatedShapes = state.getShapes();
+                selectedShape = updatedShapes.find((shape) => shape.id === selectedShape?.id) || selectedShape;
+
+                render(
+                    ctx,
+                    canvas,
+                    updatedShapes,
+                    selectedShape,
+                    null,
+                    getSelectedShapesByIds(updatedShapes, selectedShapeIds)
+                );
+            },
+            undo: () => {
+                state.undo();
+                render(ctx, canvas, state.getShapes(), null);
+            },
+            redo: () => {
+                state.redo();
+                render(ctx, canvas, state.getShapes(), null);
+            },
+        });
     });
 
     /* ---------------- MOUSEDOWN ---------------- */
@@ -134,6 +267,38 @@ export function attachEvents(
         }
 
         const shape = getShapeAtPoint(shapes, x, y);
+
+        if (shape && getActiveTool() === "select" && e.shiftKey) {
+            const exists = selectedShapeIds.includes(shape.id);
+
+            if (exists) {
+                selectedShapeIds = selectedShapeIds.filter((id) => id !== shape.id);
+            } else {
+                selectedShapeIds = [...selectedShapeIds, shape.id];
+            }
+
+            const selectedShapes = getSelectedShapesByIds(shapes, selectedShapeIds);
+            selectedShape = selectedShapes[selectedShapes.length - 1] || null;
+
+            render(ctx, canvas, shapes, selectedShape, null, selectedShapes);
+            return;
+        }
+
+        if (shape && getActiveTool() === "text" && shape.type === "text") {
+            startTextEditing(shape.x, shape.y, shape);
+            return;
+        }
+
+        if (!shape && getActiveTool() === "text") {
+            startTextEditing(x, y);
+            return;
+        }
+
+        if (!shape && getActiveTool() === "freehand") {
+            isFreehandDrawing = true;
+            freehandPoints = [{x, y}];
+            return;
+        }
 
         // ---------------- DRAG ----------------
         if (shape) {
@@ -162,6 +327,12 @@ export function attachEvents(
             } else if (shape.type === "line") {
                 prevX = x;
                 prevY = y;
+            } else if (shape.type === "text") {
+                offsetX = x - shape.x;
+                offsetY = y - shape.y;
+            } else if (shape.type === "freehand") {
+                prevX = x;
+                prevY = y;
             }
 
             render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds));
@@ -183,7 +354,12 @@ export function attachEvents(
         }
 
         // DRAW
-        activeTool = getActiveTool();
+        const active = getActiveTool();
+        if (!isDrawableTool(active)) {
+            return;
+        }
+
+        activeTool = active;
         isDrawing = true;
         startX = x;
         startY = y;
@@ -205,6 +381,8 @@ export function attachEvents(
             canvas.style.cursor = "move";
         } else if (getActiveTool() === "select") {
             canvas.style.cursor = "default";
+        } else if (getActiveTool() === "text") {
+            canvas.style.cursor = "text";
         } else {
             canvas.style.cursor = "crosshair";
         }
@@ -213,7 +391,10 @@ export function attachEvents(
         if (isResizing && resizeSession) {
             const {shape, handle} = resizeSession;
 
-            const updates = resizeShape(shape, handle, x, y);
+            const updates = resizeShape(shape, handle, x, y, {
+                fromCenter: e.altKey,
+                preserveAspect: e.shiftKey,
+            });
 
             dispatch(state, {
                 type: "MOVE_SHAPE",
@@ -309,6 +490,39 @@ export function attachEvents(
 
                 prevX = x;
                 prevY = y;
+            } else if (selected.type === "text") {
+                dispatch(state, {
+                    type: "MOVE_SHAPE",
+                    payload: {
+                        id: selected.id,
+                        updates: {
+                            x: x - offsetX,
+                            y: y - offsetY,
+                        },
+                    },
+                });
+            } else if (selected.type === "freehand") {
+                const current = state.getShapes().find((s) => s.id === selected.id);
+                if (!current || current.type !== "freehand") return;
+
+                const dx = x - prevX;
+                const dy = y - prevY;
+
+                dispatch(state, {
+                    type: "MOVE_SHAPE",
+                    payload: {
+                        id: selected.id,
+                        updates: {
+                            points: current.points.map((point) => ({
+                                x: point.x + dx,
+                                y: point.y + dy,
+                            })),
+                        },
+                    },
+                });
+
+                prevX = x;
+                prevY = y;
             }
 
             render(
@@ -334,10 +548,24 @@ export function attachEvents(
             return;
         }
 
+        if (isFreehandDrawing) {
+            freehandPoints = [...freehandPoints, {x, y}];
+
+            const preview: PreviewShape = {
+                type: "freehand",
+                points: freehandPoints,
+            };
+
+            render(ctx, canvas, [...shapes, {...preview, id: "__preview__"}], selectedShape, null, getSelectedShapesByIds(shapes, selectedShapeIds));
+            return;
+        }
+
         // DRAW PREVIEW
         if (!isDrawing || !activeTool) return;
 
-        previewShape = createPreviewShape(activeTool, startX, startY, x, y);
+        previewShape = createPreviewShape(activeTool, startX, startY, x, y, {
+            preserveAspect: e.shiftKey,
+        });
 
         let shapesToRender = shapes;
 
@@ -359,6 +587,37 @@ export function attachEvents(
 
     canvas.addEventListener("mouseup", (e) => {
         const {x, y} = getMousePos(canvas, e);
+
+        if (isFreehandDrawing) {
+            isFreehandDrawing = false;
+
+            if (freehandPoints.length > 1) {
+                const freehandShape: Extract<Shape, {type: "freehand"}> = {
+                    id: crypto.randomUUID(),
+                    type: "freehand",
+                    points: freehandPoints,
+                };
+
+                dispatch(state, {
+                    type: "ADD_SHAPE",
+                    payload: freehandShape,
+                });
+
+                selectedShape = state.getShapes().find((shape) => shape.id === freehandShape.id) || freehandShape;
+                selectedShapeIds = [freehandShape.id];
+            }
+
+            freehandPoints = [];
+            render(
+                ctx,
+                canvas,
+                state.getShapes(),
+                selectedShape,
+                null,
+                getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
+            );
+            return;
+        }
 
         if (isSelecting) {
             const didDragSelection = hasDragged(selectionStartX, selectionStartY, x, y);
@@ -412,7 +671,9 @@ export function attachEvents(
             return;
         }
 
-        const preview = createPreviewShape(activeTool, startX, startY, x, y);
+        const preview = createPreviewShape(activeTool, startX, startY, x, y, {
+            preserveAspect: e.shiftKey,
+        });
 
         dispatch(state, {
             type: "ADD_SHAPE",
@@ -434,5 +695,13 @@ export function attachEvents(
             null,
             getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
         );
+    });
+
+    canvas.addEventListener("dblclick", (e) => {
+        const {x, y} = getMousePos(canvas, e);
+        const shape = getShapeAtPoint(state.getShapes(), x, y);
+        if (!shape || shape.type !== "text") return;
+
+        startTextEditing(shape.x, shape.y, shape);
     });
 }

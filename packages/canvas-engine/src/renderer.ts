@@ -43,6 +43,8 @@ const drawMap: {
     rect: drawRectangle,
     circle: drawCircle,
     line: drawLine,
+    text: drawText,
+    freehand: drawFreehand,
 };
 
 // -------------------- ROUNDED RECT --------------------
@@ -124,6 +126,39 @@ function drawLine(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "l
     ctx.stroke();
 }
 
+function drawText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "text"}>) {
+    ctx.fillStyle = shape.stroke || "white";
+    ctx.font = `${shape.fontSize}px Virgil, Caveat, ui-rounded, sans-serif`;
+    ctx.textBaseline = "top";
+
+    const lineHeight = shape.fontSize * 1.25;
+    const lines = shape.text.split("\n");
+
+    lines.forEach((line, index) => {
+        ctx.fillText(line, shape.x, shape.y + index * lineHeight);
+    });
+}
+
+function drawFreehand(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "freehand"}>) {
+    if (shape.points.length < 2) return;
+
+    ctx.strokeStyle = shape.stroke || "white";
+    ctx.lineWidth = DEFAULT_STROKE_WIDTH;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+
+    ctx.beginPath();
+    ctx.moveTo(shape.points[0]!.x, shape.points[0]!.y);
+
+    for (let i = 1; i < shape.points.length; i++) {
+        const point = shape.points[i];
+        if (!point) continue;
+        ctx.lineTo(point.x, point.y);
+    }
+
+    ctx.stroke();
+}
+
 // -------------------- BOUNDING BOX --------------------
 
 /**
@@ -163,6 +198,36 @@ function getBoundingBox(shape: Shape) {
         const height = Math.abs(shape.y2 - shape.y1);
 
         return {x, y, width, height};
+    }
+
+    if (shape.type === "text") {
+        return {
+            x: shape.x,
+            y: shape.y,
+            width: shape.width,
+            height: shape.height,
+        };
+    }
+
+    if (shape.type === "freehand") {
+        if (shape.points.length === 0) {
+            return {x: 0, y: 0, width: 0, height: 0};
+        }
+
+        const xs = shape.points.map((point) => point.x);
+        const ys = shape.points.map((point) => point.y);
+
+        const minX = Math.min(...xs);
+        const maxX = Math.max(...xs);
+        const minY = Math.min(...ys);
+        const maxY = Math.max(...ys);
+
+        return {
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY,
+        };
     }
 
     throw new Error("Unknown shape");

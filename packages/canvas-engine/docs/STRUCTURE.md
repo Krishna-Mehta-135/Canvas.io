@@ -18,7 +18,7 @@ This package is split by responsibility to keep interaction logic isolated from 
   - Shape and handle type definitions.
 - src/geometry.ts
   - Pure resize/box conversion math.
-- src/hitDetection.ts
+- src/interaction/hitDetection.ts
   - Shape hit-testing and resize-handle hit-testing.
 - src/utils.ts
   - Shared canvas utility helpers (for example, mouse position translation).

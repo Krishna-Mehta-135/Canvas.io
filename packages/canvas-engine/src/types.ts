@@ -25,6 +25,19 @@ export type Shape =
           y1: number;
           x2: number;
           y2: number;
+    })
+    | (BaseShape & {
+        type: "text";
+        x: number;
+        y: number;
+        text: string;
+        fontSize: number;
+        width: number;
+        height: number;
+    })
+    | (BaseShape & {
+        type: "freehand";
+        points: Array<{x: number; y: number}>;
       });
 
 // preview shape (NO id)
@@ -49,6 +62,10 @@ export type PreviewShape =
           y1: number;
           x2: number;
           y2: number;
+        }
+        | {
+            type: "freehand";
+            points: Array<{x: number; y: number}>;
       };
 
 /**

@@ -63,6 +63,16 @@ export function isShapeInsideBox(shape: Shape, box: SelectionBox) {
         );
     }
 
+    if (shape.type === "text") {
+        return shape.x >= x && shape.x + shape.width <= x2 && shape.y >= y && shape.y + shape.height <= y2;
+    }
+
+    if (shape.type === "freehand") {
+        if (shape.points.length === 0) return false;
+
+        return shape.points.every((point) => point.x >= x && point.x <= x2 && point.y >= y && point.y <= y2);
+    }
+
     return false;
 }
 

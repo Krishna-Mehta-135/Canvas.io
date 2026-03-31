@@ -1,4 +1,4 @@
-import {getHandleAtPoint} from "../hitDetection";
+import {getHandleAtPoint} from "./hitDetection";
 import {Handle, Shape} from "../types";
 
 /**

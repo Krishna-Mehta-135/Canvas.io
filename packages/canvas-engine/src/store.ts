@@ -24,7 +24,8 @@ Actions = description of WHAT happened (not HOW)
 
 We keep it minimal for now:
 - ADD_SHAPE → new shape created
-- MOVE_SHAPE → existing shape updated (dragging)
+- MOVE_SHAPE → one shape updated (dragging or resizing)
+- MOVE_SHAPES → selected group moved together
 */
 export type Action =
     | {type: "ADD_SHAPE"; payload: Shape}
@@ -52,6 +53,7 @@ event → dispatch(action) → store updates state → render()
 
 IMPORTANT:
 - This is the ONLY place where state should change
+- Action handlers are pure shape transforms based on payload intent
 */
 export function dispatch(state: CanvasState, action: Action) {
     const shapes = state.getShapes();

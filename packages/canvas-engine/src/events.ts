@@ -6,131 +6,45 @@
     Responsibilities:
     - Convert mouse events → actions (dispatch)
     - Manage temporary interaction state
-    - Coordinate between detection + geometry + rendering
+    - Coordinate between interaction helpers + geometry + rendering
 
     Key Design:
     - Priority: resize > drag > draw
     - No direct mutation (only dispatch)
     - Cursor = visual feedback only (never control flow)
+    - Interaction-specific pure helpers live in ./interaction/*
     */
 
 import {render} from "./renderer";
 import {Handle, PreviewShape, Shape} from "./types";
 import {getMousePos} from "./utils";
 import {CanvasState} from "./state";
-import {getShapeAtPoint, getHandleAtPoint} from "./hitDetection";
+import {getShapeAtPoint} from "./hitDetection";
 import {dispatch} from "./store";
 import {resizeShape} from "./geometry";
+import {AttachEventsOptions, Tool} from "./interaction/tools";
+import {createPreviewShape} from "./interaction/preview";
+import {getCursorForHandle} from "./interaction/cursor";
+import {getResizeTarget} from "./interaction/resizeTarget";
+import {
+    getSelectedShapesByIds,
+    getSelectionBox,
+    hasDragged,
+    isShapeInsideBox,
+    SelectionBox,
+} from "./interaction/selection";
 
-export type Tool = "select" | "rect" | "circle" | "line";
 const SELECTION_PADDING = 6;
 
-type AttachEventsOptions = {
-    getTool?: () => Tool;
-    onToolChange?: (tool: Tool) => void;
-};
-
-type SelectionBox = {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-};
-
-function getResizeTarget(shapes: Shape[], x: number, y: number, selectedShape: Shape | null) {
-    if (selectedShape) {
-        const selected = shapes.find((s) => s.id === selectedShape.id);
-
-        if (selected) {
-            const selectedHandle = getHandleAtPoint(selected, x, y, SELECTION_PADDING);
-            if (selectedHandle) {
-                return {shape: selected, handle: selectedHandle};
-            }
-        }
-    }
-
-    for (let i = shapes.length - 1; i >= 0; i--) {
-        const shape = shapes[i];
-        if (!shape) continue;
-
-        const handle = getHandleAtPoint(shape, x, y, SELECTION_PADDING);
-        if (handle) {
-            return {shape, handle};
-        }
-    }
-
-    return null;
-}
-
-/* ---------------- PREVIEW ---------------- */
-
-function createPreviewShape(
-    tool: Tool,
-    startX: number,
-    startY: number,
-    currentX: number,
-    currentY: number
-): PreviewShape {
-    if (tool === "rect") {
-        return {
-            type: "rect",
-            x: Math.min(startX, currentX),
-            y: Math.min(startY, currentY),
-            width: Math.abs(currentX - startX),
-            height: Math.abs(currentY - startY),
-        };
-    }
-
-    if (tool === "circle") {
-        const x = Math.min(startX, currentX);
-        const y = Math.min(startY, currentY);
-
-        const width = Math.abs(currentX - startX);
-        const height = Math.abs(currentY - startY);
-
-        return {
-            type: "circle",
-            centerX: x + width / 2,
-            centerY: y + height / 2,
-            radiusX: width / 2,
-            radiusY: height / 2,
-        };
-    }
-
-    if (tool === "line") {
-        return {
-            type: "line",
-            x1: startX,
-            y1: startY,
-            x2: currentX,
-            y2: currentY,
-        };
-    }
-
-    throw new Error("Unknown tool");
-}
-
-function hasDragged(startX: number, startY: number, endX: number, endY: number) {
-    const dx = endX - startX;
-    const dy = endY - startY;
-    return dx * dx + dy * dy > 9;
-}
-
-function getSelectionBox(x1: number, y1: number, x2: number, y2: number): SelectionBox {
-    return {
-        x: Math.min(x1, x2),
-        y: Math.min(y1, y2),
-        width: Math.abs(x2 - x1),
-        height: Math.abs(y2 - y1),
-    };
-}
-
-function getSelectedShapesByIds(shapes: Shape[], selectedIds: string[]) {
-    const selectedIdSet = new Set(selectedIds);
-    return shapes.filter((shape) => selectedIdSet.has(shape.id));
-}
-
 /* ---------------- EVENTS ---------------- */
+
+/**
+ * Wires canvas input events to the engine interaction flow.
+ *
+ * The host app may either:
+ * - provide tool state via options.getTool, or
+ * - rely on internal tool state managed by keyboard shortcuts.
+ */
 
 export function attachEvents(
     canvas: HTMLCanvasElement,
@@ -208,7 +122,7 @@ export function attachEvents(
         const {x, y} = getMousePos(canvas, e);
         const shapes = state.getShapes();
 
-        const resizeTarget = getResizeTarget(shapes, x, y, selectedShape);
+        const resizeTarget = getResizeTarget(shapes, x, y, selectedShape, SELECTION_PADDING);
 
         // RESIZE
         if (resizeTarget) {
@@ -281,7 +195,7 @@ export function attachEvents(
         const {x, y} = getMousePos(canvas, e);
 
         const shapes = state.getShapes();
-        const resizeTarget = getResizeTarget(shapes, x, y, selectedShape);
+        const resizeTarget = getResizeTarget(shapes, x, y, selectedShape, SELECTION_PADDING);
         const shape = getShapeAtPoint(shapes, x, y);
 
         // CURSOR
@@ -521,61 +435,4 @@ export function attachEvents(
             getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
         );
     });
-}
-
-/* ---------------- CURSOR ---------------- */
-
-function getCursorForHandle(handle: Handle) {
-    switch (handle) {
-        case "top-left":
-        case "bottom-right":
-            return "nwse-resize";
-        case "top-right":
-        case "bottom-left":
-            return "nesw-resize";
-        case "left":
-        case "right":
-            return "ew-resize";
-        case "top":
-        case "bottom":
-            return "ns-resize";
-        case "start":
-        case "end":
-            return "pointer";
-    }
-}
-
-function isShapeInsideBox(shape: Shape, box: SelectionBox) {
-    const {x, y, width, height} = box;
-
-    const x2 = x + width;
-    const y2 = y + height;
-
-    if (shape.type === "rect") {
-        return shape.x >= x && shape.x + shape.width <= x2 && shape.y >= y && shape.y + shape.height <= y2;
-    }
-
-    if (shape.type === "circle") {
-        const sx1 = shape.centerX - shape.radiusX;
-        const sy1 = shape.centerY - shape.radiusY;
-        const sx2 = shape.centerX + shape.radiusX;
-        const sy2 = shape.centerY + shape.radiusY;
-
-        return sx1 >= x && sx2 <= x2 && sy1 >= y && sy2 <= y2;
-    }
-
-    if (shape.type === "line") {
-        return (
-            shape.x1 >= x &&
-            shape.x1 <= x2 &&
-            shape.y1 >= y &&
-            shape.y1 <= y2 &&
-            shape.x2 >= x &&
-            shape.x2 <= x2 &&
-            shape.y2 >= y &&
-            shape.y2 <= y2
-        );
-    }
-
-    return false;
 }

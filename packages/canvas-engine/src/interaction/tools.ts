@@ -16,4 +16,14 @@ export function isDrawableTool(tool: Tool): tool is "rect" | "circle" | "line" {
 export type AttachEventsOptions = {
     getTool?: () => Tool;
     onToolChange?: (tool: Tool) => void;
+    onSelectionChange?: (selectedIds: string[]) => void;
+};
+
+/**
+ * Imperative controls exposed by attachEvents for host UI integrations.
+ */
+export type AttachEventsController = {
+    deleteSelection: () => void;
+    hasSelection: () => boolean;
+    getSelectedIds: () => string[];
 };

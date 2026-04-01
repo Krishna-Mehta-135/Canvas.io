@@ -22,7 +22,7 @@ import {CanvasState} from "./state";
 import {getShapeAtPoint} from "./interaction/hitDetection";
 import {dispatch} from "./store";
 import {resizeShape} from "./geometry";
-import {AttachEventsOptions, isDrawableTool, Tool} from "./interaction/tools";
+import {AttachEventsController, AttachEventsOptions, isDrawableTool, Tool} from "./interaction/tools";
 import {createPreviewShape} from "./interaction/preview";
 import {getCursorForHandle} from "./interaction/cursor";
 import {getResizeTarget} from "./interaction/resizeTarget";
@@ -53,7 +53,7 @@ export function attachEvents(
     ctx: CanvasRenderingContext2D,
     state: CanvasState,
     options: AttachEventsOptions = {}
-) {
+): AttachEventsController {
     let isDrawing = false;
     let startX = 0;
     let startY = 0;
@@ -96,6 +96,46 @@ export function attachEvents(
     const updateTool = (tool: Tool) => {
         currentTool = tool;
         options.onToolChange?.(tool);
+    };
+
+    const emitSelectionChange = () => {
+        options.onSelectionChange?.([...selectedShapeIds]);
+    };
+
+    const setSelection = (ids: string[], primaryId?: string | null) => {
+        selectedShapeIds = [...ids];
+
+        const shapes = state.getShapes();
+        const selectedShapes = getSelectedShapesByIds(shapes, selectedShapeIds);
+
+        if (primaryId) {
+            selectedShape = selectedShapes.find((shape) => shape.id === primaryId) || selectedShapes[selectedShapes.length - 1] || null;
+        } else {
+            selectedShape = selectedShapes[selectedShapes.length - 1] || null;
+        }
+
+        emitSelectionChange();
+        return selectedShapes;
+    };
+
+    const clearSelection = () => {
+        selectedShapeIds = [];
+        selectedShape = null;
+        emitSelectionChange();
+    };
+
+    const deleteSelection = () => {
+        if (selectedShapeIds.length === 0) return;
+
+        dispatch(state, {
+            type: "DELETE_SHAPES",
+            payload: {
+                ids: selectedShapeIds,
+            },
+        });
+
+        clearSelection();
+        render(ctx, canvas, state.getShapes(), null, null, []);
     };
 
     const startTextEditing = (x: number, y: number, existing?: Extract<Shape, {type: "text"}>) => {
@@ -145,8 +185,7 @@ export function attachEvents(
                                 ids: [existing.id],
                             },
                         });
-                        selectedShape = null;
-                        selectedShapeIds = [];
+                        clearSelection();
                         render(ctx, canvas, state.getShapes(), null, null, []);
                     }
                     return;
@@ -166,8 +205,7 @@ export function attachEvents(
                         },
                     });
 
-                    selectedShape = state.getShapes().find((shape) => shape.id === existing.id) || existing;
-                    selectedShapeIds = [existing.id];
+                    setSelection([existing.id], existing.id);
                     render(
                         ctx,
                         canvas,
@@ -195,8 +233,7 @@ export function attachEvents(
                     payload: textShape,
                 });
 
-                selectedShapeIds = [textShape.id];
-                selectedShape = state.getShapes().find((shape) => shape.id === textShape.id) || textShape;
+                setSelection([textShape.id], textShape.id);
                 render(
                     ctx,
                     canvas,
@@ -234,18 +271,7 @@ export function attachEvents(
         handleGlobalKeydown(e, {
             updateTool,
             hasSelection: () => selectedShapeIds.length > 0,
-            deleteSelection: () => {
-                dispatch(state, {
-                    type: "DELETE_SHAPES",
-                    payload: {
-                        ids: selectedShapeIds,
-                    },
-                });
-
-                selectedShapeIds = [];
-                selectedShape = null;
-                render(ctx, canvas, state.getShapes(), null, null, []);
-            },
+            deleteSelection,
             nudgeSelection: (dx, dy) => {
                 dispatch(state, {
                     type: "NUDGE_SHAPES",
@@ -270,10 +296,12 @@ export function attachEvents(
             },
             undo: () => {
                 state.undo();
+                clearSelection();
                 render(ctx, canvas, state.getShapes(), null);
             },
             redo: () => {
                 state.redo();
+                clearSelection();
                 render(ctx, canvas, state.getShapes(), null);
             },
         });
@@ -291,8 +319,7 @@ export function attachEvents(
         if (resizeTarget) {
             isResizing = true;
             resizeSession = resizeTarget;
-            selectedShape = resizeTarget.shape;
-            selectedShapeIds = [resizeTarget.shape.id];
+            setSelection([resizeTarget.shape.id], resizeTarget.shape.id);
             return;
         }
 
@@ -300,15 +327,15 @@ export function attachEvents(
 
         if (shape && getActiveTool() === "select" && e.shiftKey) {
             const exists = selectedShapeIds.includes(shape.id);
+            let nextSelectionIds = selectedShapeIds;
 
             if (exists) {
-                selectedShapeIds = selectedShapeIds.filter((id) => id !== shape.id);
+                nextSelectionIds = selectedShapeIds.filter((id) => id !== shape.id);
             } else {
-                selectedShapeIds = [...selectedShapeIds, shape.id];
+                nextSelectionIds = [...selectedShapeIds, shape.id];
             }
 
-            const selectedShapes = getSelectedShapesByIds(shapes, selectedShapeIds);
-            selectedShape = selectedShapes[selectedShapes.length - 1] || null;
+            const selectedShapes = setSelection(nextSelectionIds);
 
             render(ctx, canvas, shapes, selectedShape, null, selectedShapes);
             return;
@@ -342,7 +369,7 @@ export function attachEvents(
                 return;
             }
 
-            selectedShapeIds = [shape.id];
+            setSelection([shape.id], shape.id);
             dragMode = "single";
 
             if (shape.type === "rect") {
@@ -373,8 +400,7 @@ export function attachEvents(
             selectionStartX = x;
             selectionStartY = y;
 
-            selectedShapeIds = [];
-            selectedShape = null;
+            clearSelection();
 
             render(ctx, canvas, state.getShapes(), null, null, []);
             return;
@@ -570,6 +596,7 @@ export function attachEvents(
 
             const selectedShapes = shapes.filter((s) => isShapeInsideBox(s, currentSelectionBox));
             selectedShapeIds = selectedShapes.map((shape) => shape.id);
+            emitSelectionChange();
 
             render(ctx, canvas, shapes, null, selectionBox, selectedShapes);
             return;
@@ -630,8 +657,7 @@ export function attachEvents(
                     payload: freehandShape,
                 });
 
-                selectedShape = state.getShapes().find((shape) => shape.id === freehandShape.id) || freehandShape;
-                selectedShapeIds = [freehandShape.id];
+                setSelection([freehandShape.id], freehandShape.id);
             }
 
             freehandPoints = [];
@@ -652,10 +678,9 @@ export function attachEvents(
             selectionBox = null;
 
             // pick primary shape (top-most inside selection)
-            const selectedShapes = getSelectedShapesByIds(state.getShapes(), selectedShapeIds);
-            selectedShape = didDragSelection ? selectedShapes[selectedShapes.length - 1] || null : null;
+            const selectedShapes = didDragSelection ? setSelection(selectedShapeIds) : [];
             if (!didDragSelection) {
-                selectedShapeIds = [];
+                clearSelection();
             }
 
             render(
@@ -731,4 +756,10 @@ export function attachEvents(
 
         startTextEditing(shape.x, shape.y, shape);
     });
+
+    return {
+        deleteSelection,
+        hasSelection: () => selectedShapeIds.length > 0,
+        getSelectedIds: () => [...selectedShapeIds],
+    };
 }

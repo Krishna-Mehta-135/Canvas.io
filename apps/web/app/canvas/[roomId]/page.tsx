@@ -71,8 +71,10 @@ const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}>
 
 export default function CanvasPage() {
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
+    const controlsRef = useRef<ReturnType<typeof attachEvents> | null>(null);
     const toolRef = useRef<Tool>("select");
     const [activeTool, setActiveTool] = useState<Tool>("select");
+    const [selectedCount, setSelectedCount] = useState(0);
 
     useEffect(() => {
         toolRef.current = activeTool;
@@ -91,14 +93,21 @@ export default function CanvasPage() {
 
         const state = new CanvasState();
 
-        attachEvents(canvas, ctx, state, {
+        controlsRef.current = attachEvents(canvas, ctx, state, {
             getTool: () => toolRef.current,
             onToolChange: (tool) => {
                 toolRef.current = tool;
                 setActiveTool(tool);
             },
+            onSelectionChange: (selectedIds) => {
+                setSelectedCount(selectedIds.length);
+            },
         });
     }, []);
+
+    const handleDeleteSelected = () => {
+        controlsRef.current?.deleteSelection();
+    };
 
     return (
         <div className="relative h-screen w-screen bg-[#121212]">
@@ -126,6 +135,29 @@ export default function CanvasPage() {
                             </button>
                         );
                     })}
+                    <div className="mx-1 h-8 w-px bg-white/10" />
+                    <button
+                        type="button"
+                        onClick={handleDeleteSelected}
+                        disabled={selectedCount === 0}
+                        title="Delete selected shapes (Delete/Backspace)"
+                        className={`group flex min-w-14 flex-col items-center rounded-xl border px-2 py-1.5 transition ${
+                            selectedCount > 0
+                                ? "border-red-300/30 bg-red-500/15 text-white hover:border-red-200/50 hover:bg-red-500/20"
+                                : "cursor-not-allowed border-transparent bg-[#232323] text-white/40"
+                        }`}
+                    >
+                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M3 6h18" />
+                            <path d="M8 6V4h8v2" />
+                            <path d="M19 6l-1 14H6L5 6" />
+                            <path d="M10 11v6" />
+                            <path d="M14 11v6" />
+                        </svg>
+                        <span className={`mt-1 text-[10px] ${selectedCount > 0 ? "text-white/80" : "text-white/35"}`}>
+                            Del
+                        </span>
+                    </button>
                 </div>
             </div>
             <canvas ref={canvasRef} />

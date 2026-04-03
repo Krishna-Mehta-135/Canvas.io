@@ -45,6 +45,7 @@ export type Shape =
         fontSize: number;
         width: number;
         height: number;
+        parentId?: string;
     })
     | (BaseShape & {
         type: "freehand";

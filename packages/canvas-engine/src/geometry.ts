@@ -350,52 +350,11 @@ export function resizeShape(shape: Shape, handle: Handle, x: number, y: number, 
         const heightScale = nextHeight / oldHeight;
         const nextFontSize = Math.max(8, shape.fontSize * heightScale);
 
-        const lines = shape.text.split("\n");
-        const longestLineLength = lines.reduce((max, line) => Math.max(max, line.length), 0);
-
-        // Approximate text content bounds to avoid shrinking selection below readable text.
-        const minWidth = Math.max(8, longestLineLength * nextFontSize * 0.62 + 8);
-        const lineHeight = nextFontSize * 1.25;
-        const minHeight = Math.max(lineHeight, lines.length * lineHeight);
-
-        let nextX = normalized.x1;
-        let nextY = normalized.y1;
-        let nextWidth = normalized.x2 - normalized.x1;
-        let nextHeightClamped = nextHeight;
-
-        if (nextWidth < minWidth) {
-            const isLeftHandle = handle === "left" || handle === "top-left" || handle === "bottom-left";
-            const isCenterResize = fromCenter;
-
-            if (isLeftHandle) {
-                nextX = normalized.x2 - minWidth;
-            } else if (isCenterResize) {
-                const centerX = (normalized.x1 + normalized.x2) / 2;
-                nextX = centerX - minWidth / 2;
-            }
-
-            nextWidth = minWidth;
-        }
-
-        if (nextHeightClamped < minHeight) {
-            const isTopHandle = handle === "top" || handle === "top-left" || handle === "top-right";
-            const isCenterResize = fromCenter;
-
-            if (isTopHandle) {
-                nextY = normalized.y2 - minHeight;
-            } else if (isCenterResize) {
-                const centerY = (normalized.y1 + normalized.y2) / 2;
-                nextY = centerY - minHeight / 2;
-            }
-
-            nextHeightClamped = minHeight;
-        }
-
         return {
-            x: nextX,
-            y: nextY,
-            width: nextWidth,
-            height: nextHeightClamped,
+            x: normalized.x1,
+            y: normalized.y1,
+            width: Math.max(8, normalized.x2 - normalized.x1),
+            height: nextHeight,
             fontSize: nextFontSize,
         };
     }

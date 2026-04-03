@@ -21,13 +21,14 @@ import {getMousePos} from "./utils";
 import {CanvasState} from "./state";
 import {getShapeAtPoint} from "./interaction/hitDetection";
 import {dispatch} from "./store";
-import {resizeShape} from "./geometry";
+import {convertToPoints, resizeShape} from "./geometry";
 import {AttachEventsController, AttachEventsOptions, isDrawableTool, Tool} from "./interaction/tools";
 import {createPreviewShape} from "./interaction/preview";
 import {getCursorForHandle} from "./interaction/cursor";
 import {getResizeTarget} from "./interaction/resizeTarget";
 import {createInlineTextEditor} from "./interaction/textEditor";
 import {handleGlobalKeydown} from "./interaction/keyboard";
+import {getWrappedTextLines} from "./textLayout";
 import {
     getSelectedShapesByIds,
     getSelectionBox,
@@ -138,7 +139,12 @@ export function attachEvents(
         render(ctx, canvas, state.getShapes(), null, null, []);
     };
 
-    const startTextEditing = (x: number, y: number, existing?: Extract<Shape, {type: "text"}>) => {
+    const startTextEditing = (
+        x: number,
+        y: number,
+        existing?: Extract<Shape, {type: "text"}>,
+        parentShape?: Exclude<Shape, Extract<Shape, {type: "text"}>>
+    ) => {
         if (activeTextEditorCleanup) {
             activeTextEditorCleanup();
             activeTextEditorCleanup = null;
@@ -146,6 +152,10 @@ export function attachEvents(
 
         const fontSize = existing?.fontSize ?? 24;
         const lineHeight = Math.round(fontSize * 1.25);
+
+        const parentBox = parentShape ? convertToPoints(parentShape) : null;
+        const parentPadding = 8;
+        const maxPreviewWidth = parentBox ? Math.max(8, parentBox.x2 - x - parentPadding) : Number.MAX_SAFE_INTEGER;
 
         activeTextEditorCleanup = createInlineTextEditor({
             canvas,
@@ -167,9 +177,19 @@ export function attachEvents(
                 ctx.fillStyle = "#ffffff";
                 ctx.font = `${fontSize}px Virgil, Caveat, ui-rounded, sans-serif`;
                 ctx.textBaseline = "top";
-                const lines = text.split("\n");
-                lines.forEach((line, index) => {
-                    ctx.fillText(line, x, y + index * lineHeight);
+                                const previewWidth = existing ? existing.width : maxPreviewWidth;
+                                const previewHeight = existing
+                                        ? existing.height
+                                        : parentBox
+                                            ? Math.max(8, parentBox.y2 - y - parentPadding)
+                                            : Number.MAX_SAFE_INTEGER;
+                const wrappedLines = getWrappedTextLines(ctx, text, previewWidth);
+                const maxY = y + previewHeight;
+
+                wrappedLines.forEach((line, index) => {
+                    const drawY = y + index * lineHeight;
+                    if (drawY + lineHeight > maxY) return;
+                    ctx.fillText(line, x, drawY);
                 });
             },
             onCommit: ({text, width, height, fontSize: newFontSize}) => {
@@ -224,9 +244,20 @@ export function attachEvents(
                     y,
                     text: trimmed,
                     fontSize: newFontSize,
-                    width,
+                    width: Math.max(8, Math.min(width, maxPreviewWidth)),
                     height,
+                    parentId: parentShape?.id,
                 };
+
+                ctx.save();
+                ctx.font = `${newFontSize}px Virgil, Caveat, ui-rounded, sans-serif`;
+                const wrappedLines = getWrappedTextLines(ctx, trimmed, textShape.width);
+                ctx.restore();
+                const wrappedLineHeight = newFontSize * 1.25;
+                const contentHeight = Math.max(wrappedLineHeight, wrappedLines.length * wrappedLineHeight);
+                textShape.height = parentBox
+                    ? Math.min(contentHeight, Math.max(8, parentBox.y2 - y - parentPadding))
+                    : contentHeight;
 
                 dispatch(state, {
                     type: "ADD_SHAPE",
@@ -341,10 +372,18 @@ export function attachEvents(
             return;
         }
 
-        if (!shape && getActiveTool() === "text") {
+        // TEXT TOOL: click anywhere to place text, including on top of other shapes.
+        // Existing text shape click enters edit mode for that shape.
+        if (getActiveTool() === "text") {
             e.stopPropagation();
             e.preventDefault();
-            startTextEditing(x, y);
+
+            if (shape?.type === "text") {
+                startTextEditing(shape.x, shape.y, shape);
+            } else {
+                startTextEditing(x, y, undefined, shape || undefined);
+            }
+
             return;
         }
 

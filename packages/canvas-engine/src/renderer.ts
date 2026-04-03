@@ -17,6 +17,7 @@ Rendering model:
 */
 
 import {Shape} from "./types";
+import {getWrappedTextLines} from "./textLayout";
 
 const DEFAULT_STROKE_WIDTH = 2;
 const HANDLE_COLOR = "#8d8ac5";
@@ -132,10 +133,11 @@ function drawText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "t
     ctx.textBaseline = "top";
 
     const lineHeight = shape.fontSize * 1.25;
-    const lines = shape.text.split("\n");
+    const wrappedLines = getWrappedTextLines(ctx, shape.text, shape.width);
 
-    lines.forEach((line, index) => {
-        ctx.fillText(line, shape.x, shape.y + index * lineHeight);
+    wrappedLines.forEach((line, index) => {
+        const y = shape.y + index * lineHeight;
+        ctx.fillText(line, shape.x, y);
     });
 }
 

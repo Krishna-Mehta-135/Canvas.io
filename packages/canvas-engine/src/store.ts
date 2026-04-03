@@ -18,6 +18,7 @@ Think of it as:
 
 import {CanvasState} from "./state";
 import {Shape} from "./types";
+import {convertToPoints} from "./geometry";
 
 /*
 Actions = description of WHAT happened (not HOW)
@@ -72,6 +73,51 @@ IMPORTANT:
 export function dispatch(state: CanvasState, action: Action) {
     const shapes = state.getShapes();
 
+    const syncTextChildrenToParent = (
+        prevShapes: Shape[],
+        nextShapes: Shape[],
+        parentId: string,
+        skipIds: Set<string> = new Set()
+    ) => {
+        const prevParent = prevShapes.find((shape) => shape.id === parentId);
+        const nextParent = nextShapes.find((shape) => shape.id === parentId);
+        if (!prevParent || !nextParent) return nextShapes;
+
+        const prevBox = convertToPoints(prevParent);
+        const nextBox = convertToPoints(nextParent);
+
+        const prevWidth = Math.max(1, prevBox.x2 - prevBox.x1);
+        const prevHeight = Math.max(1, prevBox.y2 - prevBox.y1);
+        const nextWidth = Math.max(1, nextBox.x2 - nextBox.x1);
+        const nextHeight = Math.max(1, nextBox.y2 - nextBox.y1);
+
+        return nextShapes.map((shape) => {
+            if (shape.type !== "text") return shape;
+            if (shape.parentId !== parentId) return shape;
+            if (skipIds.has(shape.id)) return shape;
+
+            const relX = (shape.x - prevBox.x1) / prevWidth;
+            const relY = (shape.y - prevBox.y1) / prevHeight;
+            const relWidth = shape.width / prevWidth;
+            const relHeight = shape.height / prevHeight;
+
+            const nextX = nextBox.x1 + relX * nextWidth;
+            const nextY = nextBox.y1 + relY * nextHeight;
+            const nextTextWidth = Math.max(8, relWidth * nextWidth);
+            const nextTextHeight = Math.max(8, relHeight * nextHeight);
+            const fontScale = nextTextHeight / Math.max(1, shape.height);
+
+            return {
+                ...shape,
+                x: nextX,
+                y: nextY,
+                width: nextTextWidth,
+                height: nextTextHeight,
+                fontSize: Math.max(8, shape.fontSize * fontScale),
+            };
+        });
+    };
+
     switch (action.type) {
         case "ADD_SHAPE": {
             const newShapes = [...shapes, action.payload];
@@ -82,7 +128,7 @@ export function dispatch(state: CanvasState, action: Action) {
         case "MOVE_SHAPE": {
             const {id, updates} = action.payload;
 
-            const newShapes = shapes.map((s) => {
+            let newShapes = shapes.map((s) => {
                 if (s.id !== id) return s;
 
                 return {
@@ -90,6 +136,8 @@ export function dispatch(state: CanvasState, action: Action) {
                     ...updates,
                 } as Shape;
             });
+
+            newShapes = syncTextChildrenToParent(shapes, newShapes, id);
 
             state.setShapes(newShapes);
             break;
@@ -99,7 +147,7 @@ export function dispatch(state: CanvasState, action: Action) {
             const {ids, dx, dy} = action.payload;
             const selectedSet = new Set(ids);
 
-            const newShapes = shapes.map((shape) => {
+            let newShapes = shapes.map((shape) => {
                 if (!selectedSet.has(shape.id)) return shape;
 
                 if (shape.type === "rect") {
@@ -144,6 +192,10 @@ export function dispatch(state: CanvasState, action: Action) {
                     y2: shape.y2 + dy,
                 };
             });
+
+            for (const parentId of ids) {
+                newShapes = syncTextChildrenToParent(shapes, newShapes, parentId, selectedSet);
+            }
 
             state.setShapes(newShapes);
             break;
@@ -160,7 +212,7 @@ export function dispatch(state: CanvasState, action: Action) {
             const {ids, dx, dy} = action.payload;
             const selectedSet = new Set(ids);
 
-            const newShapes = shapes.map((shape) => {
+            let newShapes = shapes.map((shape) => {
                 if (!selectedSet.has(shape.id)) return shape;
 
                 if (shape.type === "rect") {
@@ -205,6 +257,10 @@ export function dispatch(state: CanvasState, action: Action) {
                     y2: shape.y2 + dy,
                 };
             });
+
+            for (const parentId of ids) {
+                newShapes = syncTextChildrenToParent(shapes, newShapes, parentId, selectedSet);
+            }
 
             state.setShapes(newShapes);
             break;

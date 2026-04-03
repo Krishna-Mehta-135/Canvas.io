@@ -24,6 +24,7 @@ export function getWrappedTextLines(
         for (const ch of line) {
             const candidate = current + ch;
 
+            // Character-level wrapping keeps behavior predictable for long tokens without spaces.
             if (current.length > 0 && ctx.measureText(candidate).width > width) {
                 wrapped.push(current);
                 current = ch;

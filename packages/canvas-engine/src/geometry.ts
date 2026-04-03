@@ -350,6 +350,7 @@ export function resizeShape(shape: Shape, handle: Handle, x: number, y: number, 
         const heightScale = nextHeight / oldHeight;
         const nextFontSize = Math.max(8, shape.fontSize * heightScale);
 
+        // Width is allowed to shrink so text can reflow to the next line inside the text box.
         return {
             x: normalized.x1,
             y: normalized.y1,

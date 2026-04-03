@@ -99,6 +99,11 @@ export function attachEvents(
         options.onToolChange?.(tool);
     };
 
+    const resetToSelectTool = () => {
+        if (getActiveTool() === "select") return;
+        updateTool("select");
+    };
+
     const emitSelectionChange = () => {
         options.onSelectionChange?.([...selectedShapeIds]);
     };
@@ -123,6 +128,37 @@ export function attachEvents(
         selectedShapeIds = [];
         selectedShape = null;
         emitSelectionChange();
+    };
+
+    const getSelectionBounds = (ids: string[]) => {
+        if (ids.length === 0) return null;
+
+        const selectedShapes = getSelectedShapesByIds(state.getShapes(), ids);
+        if (selectedShapes.length === 0) return null;
+
+        const first = convertToPoints(selectedShapes[0]!);
+        let minX = first.x1;
+        let minY = first.y1;
+        let maxX = first.x2;
+        let maxY = first.y2;
+
+        for (let i = 1; i < selectedShapes.length; i++) {
+            const shape = selectedShapes[i];
+            if (!shape) continue;
+            const box = convertToPoints(shape);
+            minX = Math.min(minX, box.x1);
+            minY = Math.min(minY, box.y1);
+            maxX = Math.max(maxX, box.x2);
+            maxY = Math.max(maxY, box.y2);
+        }
+
+        // Expanded by selection padding so hit area matches visible selection outline.
+        return {
+            x1: minX - SELECTION_PADDING,
+            y1: minY - SELECTION_PADDING,
+            x2: maxX + SELECTION_PADDING,
+            y2: maxY + SELECTION_PADDING,
+        };
     };
 
     const deleteSelection = () => {
@@ -153,6 +189,7 @@ export function attachEvents(
         const fontSize = existing?.fontSize ?? 24;
         const lineHeight = Math.round(fontSize * 1.25);
 
+        // Parent box constrains initial text width/height when text is bound to a parent shape.
         const parentBox = parentShape ? convertToPoints(parentShape) : null;
         const parentPadding = 8;
         const maxPreviewWidth = parentBox ? Math.max(8, parentBox.x2 - x - parentPadding) : Number.MAX_SAFE_INTEGER;
@@ -183,6 +220,7 @@ export function attachEvents(
                                         : parentBox
                                             ? Math.max(8, parentBox.y2 - y - parentPadding)
                                             : Number.MAX_SAFE_INTEGER;
+                // Use the same wrapping helper as final renderer so preview matches committed output.
                 const wrappedLines = getWrappedTextLines(ctx, text, previewWidth);
                 const maxY = y + previewHeight;
 
@@ -234,6 +272,7 @@ export function attachEvents(
                         null,
                         getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
                     );
+                    resetToSelectTool();
                     return;
                 }
 
@@ -273,6 +312,7 @@ export function attachEvents(
                     null,
                     getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
                 );
+                resetToSelectTool();
             },
             onCancel: () => {
                 activeTextEditorCleanup = null;
@@ -284,6 +324,7 @@ export function attachEvents(
                     null,
                     getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
                 );
+                resetToSelectTool();
             },
         });
     };
@@ -355,6 +396,30 @@ export function attachEvents(
         }
 
         const shape = getShapeAtPoint(shapes, x, y);
+
+        // Allow dragging multi-selection from empty space inside the selection bounds.
+        if (!shape && getActiveTool() === "select" && selectedShapeIds.length > 1) {
+            const bounds = getSelectionBounds(selectedShapeIds);
+            const isInsideBounds =
+                !!bounds && x >= bounds.x1 && x <= bounds.x2 && y >= bounds.y1 && y <= bounds.y2;
+
+            if (isInsideBounds) {
+                isDragging = true;
+                dragMode = "multi";
+                prevX = x;
+                prevY = y;
+
+                render(
+                    ctx,
+                    canvas,
+                    state.getShapes(),
+                    selectedShape,
+                    null,
+                    getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
+                );
+                return;
+            }
+        }
 
         if (shape && getActiveTool() === "select" && e.shiftKey) {
             const exists = selectedShapeIds.includes(shape.id);
@@ -708,6 +773,7 @@ export function attachEvents(
                 null,
                 getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
             );
+            resetToSelectTool();
             return;
         }
 
@@ -759,6 +825,7 @@ export function attachEvents(
                 null,
                 getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
             );
+            resetToSelectTool();
             return;
         }
 
@@ -777,6 +844,7 @@ export function attachEvents(
         isDrawing = false;
         activeTool = null;
         previewShape = null;
+        resetToSelectTool();
 
         render(
             ctx,

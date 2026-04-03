@@ -83,6 +83,7 @@ export function dispatch(state: CanvasState, action: Action) {
         const nextParent = nextShapes.find((shape) => shape.id === parentId);
         if (!prevParent || !nextParent) return nextShapes;
 
+        // Compare parent bounds before/after action to move child text proportionally.
         const prevBox = convertToPoints(prevParent);
         const nextBox = convertToPoints(nextParent);
 
@@ -96,6 +97,7 @@ export function dispatch(state: CanvasState, action: Action) {
             if (shape.parentId !== parentId) return shape;
             if (skipIds.has(shape.id)) return shape;
 
+            // Store child text in normalized parent-space so transform propagation is shape-agnostic.
             const relX = (shape.x - prevBox.x1) / prevWidth;
             const relY = (shape.y - prevBox.y1) / prevHeight;
             const relWidth = shape.width / prevWidth;
@@ -105,6 +107,7 @@ export function dispatch(state: CanvasState, action: Action) {
             const nextY = nextBox.y1 + relY * nextHeight;
             const nextTextWidth = Math.max(8, relWidth * nextWidth);
             const nextTextHeight = Math.max(8, relHeight * nextHeight);
+            // Scale font with resulting text box height for visual consistency.
             const fontScale = nextTextHeight / Math.max(1, shape.height);
 
             return {

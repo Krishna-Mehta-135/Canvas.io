@@ -2,26 +2,47 @@
 
 This package is split by responsibility to keep interaction logic isolated from rendering/state primitives.
 
+## Current interaction model
+
+- Selection:
+  - Click to select one shape.
+  - Shift+click toggles shape membership in current selection.
+  - Marquee drag selects fully enclosed shapes.
+  - Multi-selection can be dragged by clicking either a selected shape OR empty space inside the selection bounds.
+- Keyboard:
+  - Tool switching shortcuts.
+  - Delete/backspace removal.
+  - Arrow nudging (shift for larger step).
+  - Undo/redo dispatch.
+- Text:
+  - Inline canvas editing with live wrapped preview.
+  - Text can be parent-bound to clicked shapes (`parentId`).
+  - Parent move/resize/nudge propagates to child text.
+  - Text wraps by width and reflows during resize.
+  - After text/draw/freehand completion, active tool resets to select.
+
 ## Top-level source files
 
 - src/index.ts
   - Public package exports used by other apps.
 - src/events.ts
-  - Main event coordinator. Routes mouse/keyboard input to drag, resize, select, or draw flows.
+  - Main event coordinator. Routes mouse/keyboard input to drag, resize, select, draw, and text flows.
 - src/renderer.ts
-  - Pure drawing layer. Renders shapes, selection outlines, handles, and marquee box.
+  - Pure drawing layer. Renders shapes, wrapped text, selection outlines, handles, and marquee box.
 - src/store.ts
-  - State transition controller. Applies actions (add shape, move one shape, move selected group).
+  - State transition controller. Applies actions and parent-child text propagation updates.
 - src/state.ts
   - Undo/redo snapshot store for shape arrays.
 - src/types.ts
-  - Shape and handle type definitions.
+  - Shape and handle type definitions, including optional text `parentId`.
 - src/geometry.ts
-  - Pure resize/box conversion math.
+  - Pure resize/box conversion math, including text resize/reflow behavior.
 - src/interaction/hitDetection.ts
   - Shape hit-testing and resize-handle hit-testing.
 - src/utils.ts
   - Shared canvas utility helpers (for example, mouse position translation).
+- src/textLayout.ts
+  - Shared width-based text wrapping helper used by render and text preview.
 
 ## Interaction helpers (moved under folder)
 
@@ -35,9 +56,14 @@ This package is split by responsibility to keep interaction logic isolated from 
   - Resolve top-most resize target with selected-shape priority.
 - src/interaction/selection.ts
   - Marquee selection math and selected-id helpers.
+- src/interaction/keyboard.ts
+  - Global keyboard shortcut dispatching.
+- src/interaction/textEditor.ts
+  - Inline text editor lifecycle over canvas.
 
 ## Why this layout
 
 - Keeps src/events.ts focused on orchestration, not math or mapping logic.
 - Makes interaction helpers independently testable.
 - Reduces top-level file noise by grouping related event helper modules.
+- Allows text layout and parent-child sync to remain shared and deterministic across render, preview, and store updates.

@@ -34,31 +34,23 @@ const createRoom = asyncHandler(async (req, res) => {
     }
 });
 
-const getMessages = asyncHandler(async (req, res) => {
+const getShapes = asyncHandler(async (req, res) => {
     const roomId = Number(req.params.roomId);
 
     if (isNaN(roomId)) {
         throw new ApiError(400, "Invalid roomId");
     }
-    const messages = await prismaClient.chat.findMany({
+
+    const shapes = await prismaClient.shape.findMany({
         where: {
             roomId,
         },
         orderBy: {
-            id: "desc",
-        },
-        take: 50,
-        include: {
-            user: {
-                select: {
-                    id: true,
-                    name: true,
-                },
-            },
+            id: "asc", // important
         },
     });
 
-    res.status(200).json(new ApiResponse(200, messages.reverse(), "Messages fetched successfully"));
+    res.status(200).json(new ApiResponse(200, shapes, "Shapes fetched successfully"));
 });
 
 const getRoomIdFromSlug = asyncHandler(async (req, res) => {
@@ -77,8 +69,8 @@ const getRoomIdFromSlug = asyncHandler(async (req, res) => {
     if (!room) {
         throw new ApiError(404, "Room not found");
     }
-    
+
     res.status(200).json(new ApiResponse(200, room, "RoomId successfully fetched from slug"));
 });
 
-export {createRoom, getMessages, getRoomIdFromSlug};
+export {createRoom, getShapes, getRoomIdFromSlug};

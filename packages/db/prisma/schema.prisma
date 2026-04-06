@@ -5,17 +5,18 @@
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "./generated/prisma"
 }
 
 datasource db {
-  provider = "postgresql"  
-  url      = env("DATABASE_URL")
+  provider = "postgresql"
+  // url      = env("DATABASE_URL")
 }
 
 model User {
-  id       String @id @default(uuid())
-  email    String @unique
+  id       String  @id @default(uuid())
+  email    String  @unique
   password String
   name     String
   photo    String?
@@ -30,6 +31,7 @@ model Room {
   adminId   String
   admin     User     @relation(fields: [adminId], references: [id])
   chats     Chat[]
+  shapes    Shape[]
 }
 
 model Chat {
@@ -39,4 +41,15 @@ model Chat {
   userId  String
   room    Room   @relation(fields: [roomId], references: [id])
   user    User   @relation(fields: [userId], references: [id])
+}
+
+model Shape {
+  id        String   @id @default(uuid())
+  roomId    Int
+  type      String
+  props     Json
+  deleted   Boolean
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  room      Room     @relation(fields: [roomId], references: [id])
 }

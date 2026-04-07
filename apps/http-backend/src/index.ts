@@ -1,6 +1,4 @@
-import dotenv from "dotenv";
-dotenv.config();
-
+import "@repo/backend-common/config";
 import app from "./app";
 import { prismaClient } from "@repo/db/client";
 

@@ -46,6 +46,10 @@ export function authenticate(req: Request, res: Response, next: NextFunction) {
 
         next();
     } catch (error) {
-        next(error);
+        if (error instanceof ApiError) {
+            return next(error);
+        }
+
+        return next(new ApiError(401, "Unauthorized"));
     }
 }

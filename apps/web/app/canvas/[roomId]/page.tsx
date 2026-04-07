@@ -1,9 +1,12 @@
 "use client";
 
 import {ReactNode, useEffect, useRef, useState} from "react";
+import {useParams} from "next/navigation";
+import axios, {AxiosError} from "axios";
 import {attachEvents} from "@repo/canvas-engine";
 import {CanvasState} from "@repo/canvas-engine";
-import type {Tool} from "@repo/canvas-engine";
+import type {Shape, Tool} from "@repo/canvas-engine";
+import {HTTP_BACKEND} from "../../../config";
 
 const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}> = [
     {
@@ -70,8 +73,17 @@ const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}>
 ];
 
 export default function CanvasPage() {
+    const params = useParams<{roomId: string}>();
+    const roomId = Array.isArray(params?.roomId) ? params.roomId[0] : params?.roomId;
+
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const controlsRef = useRef<ReturnType<typeof attachEvents> | null>(null);
+    const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const latestShapesRef = useRef<Shape[]>([]);
+    const isHydratingRef = useRef(true);
+    const isRoomMissingRef = useRef(false);
+    const resolvedRoomIdRef = useRef<number | null>(null);
+
     const toolRef = useRef<Tool>("select");
     const [activeTool, setActiveTool] = useState<Tool>("select");
     const [selectedCount, setSelectedCount] = useState(0);
@@ -81,6 +93,12 @@ export default function CanvasPage() {
     }, [activeTool]);
 
     useEffect(() => {
+        if (!roomId) return;
+
+        isHydratingRef.current = true;
+        isRoomMissingRef.current = false;
+        resolvedRoomIdRef.current = null;
+        let isUnmounted = false;
         const canvas = canvasRef.current;
         if (!canvas) return;
 
@@ -93,17 +111,205 @@ export default function CanvasPage() {
 
         const state = new CanvasState();
 
-        controlsRef.current = attachEvents(canvas, ctx, state, {
-            getTool: () => toolRef.current,
-            onToolChange: (tool) => {
-                toolRef.current = tool;
-                setActiveTool(tool);
-            },
-            onSelectionChange: (selectedIds) => {
-                setSelectedCount(selectedIds.length);
-            },
+        const getShapesById = async (id: number) => {
+            const response = await axios.get(`${HTTP_BACKEND}/room/${id}/shapes`, {
+                withCredentials: true,
+            });
+
+            const persistedShapes = response.data?.data;
+            return Array.isArray(persistedShapes) ? (persistedShapes as Shape[]) : [];
+        };
+
+        const resolveRoomIdAndShapes = async (): Promise<{resolvedRoomId: number; shapes: Shape[]}> => {
+            try {
+                const roomBySlug = await axios.get(`${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(roomId)}`, {
+                    withCredentials: true,
+                });
+
+                const resolvedRoomId = Number(roomBySlug.data?.data?.id);
+                if (!Number.isFinite(resolvedRoomId)) {
+                    throw new Error("Invalid room id returned from slug lookup");
+                }
+
+                const shapes = await getShapesById(resolvedRoomId);
+
+                return {
+                    resolvedRoomId,
+                    shapes,
+                };
+            } catch (error) {
+                const axiosError = error as AxiosError<{message?: string}>;
+                if (axiosError.response?.status !== 404) {
+                    throw error;
+                }
+
+                try {
+                    const createRoomResponse = await axios.post(
+                        `${HTTP_BACKEND}/room`,
+                        {slug: roomId},
+                        {withCredentials: true}
+                    );
+
+                    const resolvedRoomId = Number(createRoomResponse.data?.data?.id);
+                    if (!Number.isFinite(resolvedRoomId)) {
+                        throw new Error("Invalid room id returned while creating room");
+                    }
+
+                    return {
+                        resolvedRoomId,
+                        shapes: [],
+                    };
+                } catch (createError) {
+                    const createAxiosError = createError as AxiosError<{message?: string}>;
+                    if (createAxiosError.response?.status !== 409) {
+                        throw createError;
+                    }
+
+                    const roomBySlug = await axios.get(
+                        `${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(roomId)}`,
+                        {
+                            withCredentials: true,
+                        }
+                    );
+
+                    const resolvedRoomId = Number(roomBySlug.data?.data?.id);
+                    if (!Number.isFinite(resolvedRoomId)) {
+                        throw new Error("Invalid room id returned from slug lookup");
+                    }
+
+                    const shapes = await getShapesById(resolvedRoomId);
+
+                    return {
+                        resolvedRoomId,
+                        shapes,
+                    };
+                }
+            }
+        };
+
+        const persistShapes = async (shapes: Shape[]) => {
+            latestShapesRef.current = shapes;
+
+            if (isHydratingRef.current) {
+                return;
+            }
+
+            if (isRoomMissingRef.current) {
+                return;
+            }
+
+            if (resolvedRoomIdRef.current === null) {
+                return;
+            }
+
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+            }
+
+            saveTimeoutRef.current = setTimeout(async () => {
+                try {
+                    await axios.put(
+                        `${HTTP_BACKEND}/room/${resolvedRoomIdRef.current}/shapes`,
+                        {
+                            shapes: latestShapesRef.current,
+                        },
+                        {
+                            withCredentials: true,
+                        }
+                    );
+                } catch (error) {
+                    const axiosError = error as AxiosError<{message?: string}>;
+                    if (axiosError.response?.status === 404) {
+                        isRoomMissingRef.current = true;
+                        console.warn("Persistence disabled: room was not found.");
+                        return;
+                    }
+
+                    console.error("Failed to save shapes", error);
+                }
+            }, 300);
+        };
+
+        // Subscribe the page (not shapes) to CanvasState updates.
+        // The callback receives Shape[] as payload and schedules persistence.
+        const unsubscribe = state.subscribe((shapes) => {
+            void persistShapes(shapes);
         });
-    }, []);
+
+        const loadShapes = async () => {
+            try {
+                const {resolvedRoomId, shapes} = await resolveRoomIdAndShapes();
+                resolvedRoomIdRef.current = resolvedRoomId;
+
+                if (!isUnmounted) {
+                    state.hydrateShapes(shapes);
+                }
+            } catch (error) {
+                const axiosError = error as AxiosError<{message?: string}>;
+                if (axiosError.response?.status === 404) {
+                    isRoomMissingRef.current = true;
+                    return;
+                }
+
+                console.error("Failed to load shapes", error);
+            } finally {
+                isHydratingRef.current = false;
+            }
+        };
+
+        const initializeCanvas = async () => {
+            await loadShapes();
+
+            if (isUnmounted) {
+                return;
+            }
+
+            controlsRef.current = attachEvents(canvas, ctx, state, {
+                getTool: () => toolRef.current,
+                onToolChange: (tool) => {
+                    toolRef.current = tool;
+                    setActiveTool(tool);
+                },
+                onSelectionChange: (selectedIds) => {
+                    setSelectedCount(selectedIds.length);
+                },
+            });
+        };
+
+        void initializeCanvas();
+
+        return () => {
+            isUnmounted = true;
+
+            // Stop listening to state updates when this page unmounts.
+            // Without this, a stale callback could keep firing saves.
+            unsubscribe();
+
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = null;
+
+                if (!isRoomMissingRef.current && resolvedRoomIdRef.current !== null) {
+                    void axios.put(
+                        `${HTTP_BACKEND}/room/${resolvedRoomIdRef.current}/shapes`,
+                        {
+                            shapes: latestShapesRef.current,
+                        },
+                        {
+                            withCredentials: true,
+                        }
+                    ).catch((error) => {
+                        const axiosError = error as AxiosError<{message?: string}>;
+                        if (axiosError.response?.status === 404 || axiosError.response?.status === 401) {
+                            return;
+                        }
+
+                        console.error("Failed to flush shapes on unmount", error);
+                    });
+                }
+            }
+        };
+    }, [roomId]);
 
     const handleDeleteSelected = () => {
         controlsRef.current?.deleteSelection();

@@ -55,6 +55,8 @@ export function attachEvents(
     state: CanvasState,
     options: AttachEventsOptions = {}
 ): AttachEventsController {
+    render(ctx, canvas, state.getShapes(), null, null, []);
+
     let isDrawing = false;
     let startX = 0;
     let startY = 0;

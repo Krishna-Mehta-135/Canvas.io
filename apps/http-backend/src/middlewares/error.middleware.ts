@@ -15,8 +15,10 @@ export const errorHandler = (
         })
     }
 
+    console.error("Unhandled API error:", err);
+
     return res.status(500).json({
     success: false,
-    message: "Internal Server Error"
+    message: process.env.NODE_ENV === "development" ? err?.message || "Internal Server Error" : "Internal Server Error"
     });
 }

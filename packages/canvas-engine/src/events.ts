@@ -870,5 +870,10 @@ export function attachEvents(
         deleteSelection,
         hasSelection: () => selectedShapeIds.length > 0,
         getSelectedIds: () => [...selectedShapeIds],
+        rerender: () => {
+            const shapes = state.getShapes();
+            const selected = getSelectedShapesByIds(shapes, selectedShapeIds);
+            render(ctx, canvas, shapes, selectedShape, selectionBox, selected);
+        },
     };
 }

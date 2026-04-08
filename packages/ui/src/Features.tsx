@@ -41,9 +41,9 @@ const features = [
 
 export default function Features() {
     return (
-        <section id="features" className="scroll-mt-24 py-24 lg:py-28 bg-white">
+        <section id="features" className="scroll-mt-20 py-16 lg:py-20 bg-white">
             <div className="max-w-6xl mx-auto px-5 sm:px-8 lg:px-10">
-                <div className="text-center mb-16">
+            <div className="text-center mb-10">
                     <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-5">Everything you need to sketch</h2>
                     <p className="text-xl text-gray-600 max-w-2xl mx-auto">
                         Powerful features wrapped in a simple, intuitive interface.

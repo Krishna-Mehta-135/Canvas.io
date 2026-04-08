@@ -26,4 +26,5 @@ export type AttachEventsController = {
     deleteSelection: () => void;
     hasSelection: () => boolean;
     getSelectedIds: () => string[];
+    rerender: () => void;
 };

@@ -2,7 +2,7 @@ import {ArrowRight, Sparkles} from "lucide-react";
 
 export default function CTA() {
     return (
-        <section id="pricing" className="scroll-mt-24 py-28 lg:py-32 bg-linear-to-br from-blue-600 via-cyan-500 to-blue-600 relative overflow-hidden">
+        <section id="pricing" className="scroll-mt-20 py-16 lg:py-20 bg-linear-to-br from-blue-600 via-cyan-500 to-blue-600 relative overflow-hidden">
             <div className="absolute inset-0 opacity-10">
                 <svg className="w-full h-full" viewBox="0 0 100 100">
                     <pattern id="grid" width="10" height="10" patternUnits="userSpaceOnUse">
@@ -33,12 +33,6 @@ export default function CTA() {
                     >
                         Launch Canvas
                         <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                    </a>
-                    <a
-                        href="#docs"
-                        className="w-full sm:w-auto px-8 py-4 bg-transparent text-white rounded-lg font-semibold text-lg hover:bg-white/10 transition-all border-2 border-white flex items-center justify-center"
-                    >
-                        View Documentation
                     </a>
                 </div>
 

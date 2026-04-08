@@ -26,9 +26,6 @@ export default function Header() {
                         <a href="#pricing" className="text-gray-600 hover:text-gray-900 font-medium transition-colors">
                             Pricing
                         </a>
-                        <a href="#docs" className="text-gray-600 hover:text-gray-900 font-medium transition-colors">
-                            Docs
-                        </a>
                         <a href="/signin" className="text-gray-700 hover:text-gray-900 font-medium transition-colors">
                             Sign in
                         </a>
@@ -56,9 +53,6 @@ export default function Header() {
                             </a>
                             <a href="#pricing" className="text-gray-600 hover:text-gray-900 font-medium">
                                 Pricing
-                            </a>
-                            <a href="#docs" className="text-gray-600 hover:text-gray-900 font-medium">
-                                Docs
                             </a>
                             <a
                                 href="/signin"

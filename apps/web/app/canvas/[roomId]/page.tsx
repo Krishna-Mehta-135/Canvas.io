@@ -7,6 +7,7 @@ import {attachEvents} from "@repo/canvas-engine";
 import {CanvasState} from "@repo/canvas-engine";
 import type {Shape, Tool} from "@repo/canvas-engine";
 import {HTTP_BACKEND} from "../../../config";
+import {ThemeToggle, useTheme} from "../../components/ThemeToggle";
 
 const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}> = [
     {
@@ -87,10 +88,16 @@ export default function CanvasPage() {
     const toolRef = useRef<Tool>("select");
     const [activeTool, setActiveTool] = useState<Tool>("select");
     const [selectedCount, setSelectedCount] = useState(0);
+    const {theme} = useTheme();
+    const isDark = theme === "dark";
 
     useEffect(() => {
         toolRef.current = activeTool;
     }, [activeTool]);
+
+    useEffect(() => {
+        controlsRef.current?.rerender();
+    }, [theme]);
 
     useEffect(() => {
         if (!roomId) return;
@@ -326,8 +333,17 @@ export default function CanvasPage() {
     };
 
     return (
-        <div className="relative h-screen w-screen bg-[#121212]">
-            <div className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-2xl border border-white/10 bg-[#191919]/95 p-2 shadow-[0_12px_30px_rgba(0,0,0,0.45)] backdrop-blur">
+        <div className={`relative h-screen w-screen ${isDark ? "bg-[#121212]" : "bg-[#eef2f7]"}`}>
+            <div className="absolute right-4 top-4 z-20">
+                <ThemeToggle />
+            </div>
+            <div
+                className={`absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-2xl p-2 backdrop-blur ${
+                    isDark
+                        ? "border border-white/10 bg-[#191919]/95 shadow-[0_12px_30px_rgba(0,0,0,0.45)]"
+                        : "border border-slate-300/70 bg-white/90 shadow-[0_12px_24px_rgba(15,23,42,0.12)]"
+                }`}
+            >
                 <div className="flex items-center gap-1">
                     {TOOLS.map((tool) => {
                         const isActive = activeTool === tool.id;
@@ -340,18 +356,32 @@ export default function CanvasPage() {
                                 title={`${tool.label} (${tool.shortcut})`}
                                 className={`group flex min-w-14 flex-col items-center rounded-xl border px-2 py-1.5 transition ${
                                     isActive
-                                        ? "border-[#8d8ac5] bg-[#8d8ac5]/20 text-white"
-                                        : "border-transparent bg-[#232323] text-white/85 hover:border-white/20 hover:text-white"
+                                        ? isDark
+                                            ? "border-[#8d8ac5] bg-[#8d8ac5]/20 text-white"
+                                            : "border-blue-300 bg-blue-50 text-slate-900"
+                                        : isDark
+                                            ? "border-transparent bg-[#232323] text-white/85 hover:border-white/20 hover:text-white"
+                                            : "border-transparent bg-slate-100 text-slate-700 hover:border-slate-300 hover:text-slate-900"
                                 }`}
                             >
                                 {tool.icon}
-                                <span className={`mt-1 text-[10px] ${isActive ? "text-white/90" : "text-white/55"}`}>
+                                <span
+                                    className={`mt-1 text-[10px] ${
+                                        isActive
+                                            ? isDark
+                                                ? "text-white/90"
+                                                : "text-slate-700"
+                                            : isDark
+                                                ? "text-white/55"
+                                                : "text-slate-500"
+                                    }`}
+                                >
                                     {tool.shortcut}
                                 </span>
                             </button>
                         );
                     })}
-                    <div className="mx-1 h-8 w-px bg-white/10" />
+                    <div className={`mx-1 h-8 w-px ${isDark ? "bg-white/10" : "bg-slate-300"}`} />
                     <button
                         type="button"
                         onClick={handleDeleteSelected}
@@ -359,8 +389,12 @@ export default function CanvasPage() {
                         title="Delete selected shapes (Delete/Backspace)"
                         className={`group flex min-w-14 flex-col items-center rounded-xl border px-2 py-1.5 transition ${
                             selectedCount > 0
-                                ? "border-red-300/30 bg-red-500/15 text-white hover:border-red-200/50 hover:bg-red-500/20"
-                                : "cursor-not-allowed border-transparent bg-[#232323] text-white/40"
+                                ? isDark
+                                    ? "border-red-300/30 bg-red-500/15 text-white hover:border-red-200/50 hover:bg-red-500/20"
+                                    : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+                                : isDark
+                                    ? "cursor-not-allowed border-transparent bg-[#232323] text-white/40"
+                                    : "cursor-not-allowed border-transparent bg-slate-100 text-slate-400"
                         }`}
                     >
                         <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
@@ -370,7 +404,17 @@ export default function CanvasPage() {
                             <path d="M10 11v6" />
                             <path d="M14 11v6" />
                         </svg>
-                        <span className={`mt-1 text-[10px] ${selectedCount > 0 ? "text-white/80" : "text-white/35"}`}>
+                        <span
+                            className={`mt-1 text-[10px] ${
+                                selectedCount > 0
+                                    ? isDark
+                                        ? "text-white/80"
+                                        : "text-red-700"
+                                    : isDark
+                                        ? "text-white/35"
+                                        : "text-slate-400"
+                            }`}
+                        >
                             Del
                         </span>
                     </button>

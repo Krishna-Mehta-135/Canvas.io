@@ -24,6 +24,28 @@ const HANDLE_COLOR = "#8d8ac5";
 const SELECTION_PADDING = 6;
 const HANDLE_SIZE = 12;
 
+function getThemePalette() {
+    if (typeof document === "undefined") {
+        return {
+            background: "#121212",
+            stroke: "#f8fafc",
+        };
+    }
+
+    const theme = document.documentElement.getAttribute("data-theme");
+    if (theme === "light") {
+        return {
+            background: "#f8f9fb",
+            stroke: "#1f2937",
+        };
+    }
+
+    return {
+        background: "#121212",
+        stroke: "#f8fafc",
+    };
+}
+
 type SelectionBox = {
     x: number;
     y: number;
@@ -86,7 +108,7 @@ function drawRoundedRect(
  * Smaller shapes → smaller radius for better visual balance.
  */
 function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "rect"}>) {
-    ctx.strokeStyle = shape.stroke || "white";
+    ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
     ctx.lineWidth = DEFAULT_STROKE_WIDTH;
 
     const radius = Math.min(20, shape.width / 3, shape.height / 3);
@@ -103,7 +125,7 @@ function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {typ
  * - radiusX, radiusY
  */
 function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "circle"}>) {
-    ctx.strokeStyle = shape.stroke || "white";
+    ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
     ctx.lineWidth = DEFAULT_STROKE_WIDTH;
 
     ctx.beginPath();
@@ -118,7 +140,7 @@ function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: 
  * Lines have no area → only stroke matters.
  */
 function drawLine(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "line"}>) {
-    ctx.strokeStyle = shape.stroke || "white";
+    ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
     ctx.lineWidth = DEFAULT_STROKE_WIDTH;
 
     ctx.beginPath();
@@ -128,7 +150,7 @@ function drawLine(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "l
 }
 
 function drawText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "text"}>) {
-    ctx.fillStyle = shape.stroke || "white";
+    ctx.fillStyle = shape.stroke || getThemePalette().stroke;
     ctx.font = `${shape.fontSize}px Virgil, Caveat, ui-rounded, sans-serif`;
     ctx.textBaseline = "top";
 
@@ -144,7 +166,7 @@ function drawText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "t
 function drawFreehand(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "freehand"}>) {
     if (shape.points.length < 2) return;
 
-    ctx.strokeStyle = shape.stroke || "white";
+    ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
     ctx.lineWidth = DEFAULT_STROKE_WIDTH;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
@@ -349,8 +371,10 @@ export function render(
     selectionBox: SelectionBox | null = null,
     selectedShapes: Shape[] = []
 ) {
+    const palette = getThemePalette();
+
     // Background
-    ctx.fillStyle = "#121212";
+    ctx.fillStyle = palette.background;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     shapes.forEach((shape) => {

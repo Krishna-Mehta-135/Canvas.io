@@ -1,8 +1,8 @@
 export default function Showcase() {
     return (
-        <section id="showcase" className="scroll-mt-24 py-28 lg:py-32 bg-linear-to-b from-white to-gray-50">
+        <section id="showcase" className="scroll-mt-20 py-16 lg:py-20 bg-linear-to-b from-white to-gray-50">
             <div className="max-w-6xl mx-auto px-5 sm:px-8 lg:px-10">
-                <div className="text-center mb-14">
+            <div className="text-center mb-10">
                     <h2 className="text-4xl sm:text-5xl font-bold text-gray-900 mb-4">From ideas to diagrams</h2>
                     <p className="text-xl text-gray-600 max-w-2xl mx-auto">
                         Sketch flowcharts, wireframes, system designs, and more.
@@ -119,8 +119,6 @@ export default function Showcase() {
                         </svg>
                     </ShowcaseCard>
                 </div>
-
-                <div id="docs" className="sr-only scroll-mt-24" aria-hidden="true" />
             </div>
         </section>
     );

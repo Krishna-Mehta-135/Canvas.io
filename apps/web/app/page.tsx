@@ -1,3 +1,5 @@
+"use client";
+
 import Header from '@repo/ui/Header';
 import Hero from '@repo/ui/Hero';
 import Features from '@repo/ui/Features';
@@ -7,9 +9,9 @@ import Footer from '@repo/ui/Footer';
 
 function App() {
   return (
-    <div className="min-h-screen bg-linear-to-b from-slate-50 via-white to-white text-slate-900">
+    <div className="home-surface">
       <Header />
-      <main className="landing-main relative pt-20">
+      <main className="landing-main relative pt-0">
         <Hero />
         <Features />
         <Showcase />

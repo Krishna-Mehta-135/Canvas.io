@@ -6,13 +6,22 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --home-background: linear-gradient(180deg, #f8fafc 0%, #ffffff 60%, #ffffff 100%);
+  --home-foreground: #0f172a;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root[data-theme="light"] {
+  --background: #ffffff;
+  --foreground: #171717;
+  --home-background: linear-gradient(180deg, #f8fafc 0%, #ffffff 60%, #ffffff 100%);
+  --home-foreground: #0f172a;
+}
+
+:root[data-theme="dark"] {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --home-background: linear-gradient(180deg, #0f172a 0%, #020617 65%, #020617 100%);
+  --home-foreground: #e2e8f0;
 }
 
 html,
@@ -24,6 +33,13 @@ body {
 body {
   color: var(--foreground);
   background: var(--background);
+}
+
+.home-surface {
+  min-height: 100vh;
+  background: var(--home-background);
+  color: var(--home-foreground);
+  transition: background 220ms ease, color 220ms ease;
 }
 
 @layer base {
@@ -47,15 +63,18 @@ a {
   display: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
 
-  .imgLight {
-    display: none;
-  }
-  .imgDark {
-    display: unset;
-  }
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+html[data-theme="dark"] .imgLight {
+  display: none;
+}
+
+html[data-theme="dark"] .imgDark {
+  display: unset;
 }

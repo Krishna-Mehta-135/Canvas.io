@@ -6,7 +6,7 @@ export default function Hero() {
             <div className="absolute -top-20 -left-12 h-72 w-72 rounded-full bg-amber-300/20 blur-3xl" />
             <div className="absolute top-16 right-0 h-72 w-72 rounded-full bg-cyan-300/25 blur-3xl" />
 
-            <div className="max-w-6xl mx-auto px-5 sm:px-8 lg:px-10 pt-28 pb-20 sm:pt-36 sm:pb-28 lg:pt-40 lg:pb-32">
+            <div className="max-w-6xl mx-auto px-5 sm:px-8 lg:px-10 pt-20 pb-12 sm:pt-24 sm:pb-16 lg:pt-26 lg:pb-18">
                 <div className="grid lg:grid-cols-2 gap-14 lg:gap-16 items-center">
                     <div className="text-center lg:text-left">
                         <div className="inline-flex items-center gap-2 px-4 py-2 bg-amber-100 rounded-full mb-8 border-2 border-amber-900/10">

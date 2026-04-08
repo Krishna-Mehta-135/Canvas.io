@@ -121,8 +121,18 @@ export default function CanvasPage() {
         };
 
         const resolveRoomIdAndShapes = async (): Promise<{resolvedRoomId: number; shapes: Shape[]}> => {
+            const requestedSlug = roomId.trim();
+            const isSlugValid = requestedSlug.length >= 3 && requestedSlug.length <= 20;
+            const effectiveSlug = isSlugValid
+                ? requestedSlug
+                : crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+
+            if (!isSlugValid) {
+                window.history.replaceState(null, "", `/canvas/${effectiveSlug}`);
+            }
+
             try {
-                const roomBySlug = await axios.get(`${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(roomId)}`, {
+                const roomBySlug = await axios.get(`${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(effectiveSlug)}`, {
                     withCredentials: true,
                 });
 
@@ -146,7 +156,7 @@ export default function CanvasPage() {
                 try {
                     const createRoomResponse = await axios.post(
                         `${HTTP_BACKEND}/room`,
-                        {slug: roomId},
+                        {slug: effectiveSlug},
                         {withCredentials: true}
                     );
 
@@ -166,7 +176,7 @@ export default function CanvasPage() {
                     }
 
                     const roomBySlug = await axios.get(
-                        `${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(roomId)}`,
+                        `${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(effectiveSlug)}`,
                         {
                             withCredentials: true,
                         }

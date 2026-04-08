@@ -36,8 +36,9 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                 withCredentials: true, // sends + receives cookies
             });
 
-            // After successful auth, redirect to the app
-            window.location.href = "/dashboard";
+            // Room slug must satisfy backend validation (3-20 chars).
+            const roomSlug = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+            window.location.href = `/canvas/${roomSlug}`;
         } catch (err) {
             const axiosError = err as AxiosError<{ message: string }>;
             const message =

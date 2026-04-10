@@ -1,92 +1,151 @@
 # Canvas.io
 
-**Canvas.io** is a fast, highly interactive, and privacy-focused virtual whiteboarding application. Built from the ground up for low-latency visual collaboration, Canvas.io gives individuals and distributed teams an infinite canvas to sketch ideas, map out complex systems, draw diagrams, and brainstorm with a natural, hand-drawn feel.
+![Node >=18](https://img.shields.io/badge/node-%3E%3D18-339933?logo=nodedotjs&logoColor=white)
+![pnpm 10](https://img.shields.io/badge/pnpm-10-F69220?logo=pnpm&logoColor=white)
+![Turborepo](https://img.shields.io/badge/turbo-monorepo-EF4444?logo=turborepo&logoColor=white)
+![Next.js 16](https://img.shields.io/badge/next.js-16-000000?logo=nextdotjs&logoColor=white)
+![Prisma](https://img.shields.io/badge/prisma-ORM-2D3748?logo=prisma&logoColor=white)
 
-Whether you're outlining software architectures, wireframing user interfaces, or just mapping your thoughts, everything updates in real-time across all connected clients.
+Canvas.io is a real-time collaborative whiteboard built as a Turborepo monorepo.
+It combines a modern Next.js frontend, an Express API, and a WebSocket realtime server, plus shared internal packages for types, DB access, UI, and canvas behavior.
 
-## Key Features
+## Table of Contents
 
-- **Infinite Canvas Workspace**: Pan and zoom seamlessly across an endless grid.
-- **Rich Drawing Tools**: Access standard whiteboard tools including freehand drawing, rectangles, circles, arrows, lines, and text.
-- **Real-Time Multiplayer**: Experience true collaborative drawing with live, multi-user cursor tracking, instant shape synchronization, and presence awareness.
-- **Hand-drawn Aesthetics**: Diagrams render with a natural, sketched finish giving your work a personalized touch.
-- **End-to-End Privacy First**: Built with user data security at the core, featuring robust authentication boundaries and private room architecture.
+- [What You Get](#what-you-get)
+- [Architecture](#architecture)
+- [Monorepo Structure](#monorepo-structure)
+- [Quick Start](#quick-start)
+- [Environment Variables](#environment-variables)
+- [Scripts](#scripts)
+- [Service Endpoints](#service-endpoints)
+- [Troubleshooting](#troubleshooting)
 
----
+## What You Get
 
-## Architecture & Tech Stack
+- Infinite canvas UX with room-based collaboration
+- Real-time transport via WebSocket server
+- REST endpoints for auth, room lifecycle, and shape persistence
+- Shared workspace packages for consistency across services
+- Docker-powered local Postgres setup
 
-Canvas.io is structured as a modern [Turborepo](https://turbo.build/repo) monorepo. It splits concerns into dedicated services to handle the demanding requirements of a real-time drawing app.
+## Architecture
 
-### Core Applications (`apps/`)
+```mermaid
+flowchart LR
+	U[Browser Client] -->|HTTP| W[apps/web Next.js]
+	W -->|REST calls| H[apps/http-backend Express]
+	W -->|WS events| S[apps/ws-backend WebSocket]
+	H -->|Prisma| D[(PostgreSQL)]
+	S -->|Prisma| D
+	H --> C[packages/common]
+	S --> C
+	W --> E[packages/canvas-engine]
+```
 
-- **`apps/web` (Next.js 15 Frontend)**  
-  The main user-facing application. It statically handles the landing pages, marketing, user dashboards, and authentication. More importantly, it hosts the complex HTML Canvas / WebGL rendering engine where all the drawing, panning, zooming, and client-side interactions happen.
+## Monorepo Structure
 
-- **`apps/ws-backend` (Node.js/WebSocket Server)**  
-  The high-performance, real-time message broker of the platform. This server manages active WebSocket connections for users collaborating in a specific room. It instantly broadcasts shape creation, deletion, dragging events, and live cursor positions to all connected peers, ensuring a lag-free collaborative experience.
+### Apps
 
-- **`apps/http-backend` (Express.js REST API)**  
-  Handles traditional HTTP workloads such as user authentication (signup, signin via secure HTTP-only cookies), room creation, initial room state fetching, and user asset management. 
+| Path | Purpose |
+| --- | --- |
+| `apps/web` | Next.js frontend (auth, canvas UI, room pages) |
+| `apps/http-backend` | Express REST API |
+| `apps/ws-backend` | WebSocket realtime backend |
 
-### Shared Packages (`packages/`)
+### Packages
 
-To ensure absolute consistency across the frontend, REST API, and WebSocket server, Canvas.io heavily utilizes shared internal packages:
+| Path | Purpose |
+| --- | --- |
+| `packages/db` | Prisma schema, client, migrations |
+| `packages/common` | Shared types/schemas |
+| `packages/canvas-engine` | Reusable canvas interaction/rendering logic |
+| `packages/ui` | Shared UI components |
+| `packages/backend-common` | Shared backend env/config loading |
+| `packages/eslint-config` | Shared lint config |
+| `packages/typescript-config` | Shared TS config |
 
-- **`@repo/ui`**: A shared React component design system built with Tailwind CSS v4 to keep the UI consistent.
-- **`@repo/common`**: The source of truth for runtime validation definitions (using Zod) and shared TypeScript types for drawing events, shapes, messages, and payloads.
-- **`@repo/db`**: The centralized Prisma ORM client and underlying database schema (PostgreSQL), used by both the HTTP and WS backends for persistence.
-- **Config packages**: `@repo/backend-common`, `@repo/eslint-config`, and `@repo/typescript-config` manage shared boilerplate for linting, compilation, and backend environment variables.
+## Quick Start
 
----
-
-## Local Development Guide
-
-### Prerequisites
-
-- [Node.js](https://nodejs.org/en/) (v18+)
-- [pnpm](https://pnpm.io/) (v8+)
-- [PostgreSQL](https://www.postgresql.org/) database running locally or via Docker
-
-### 1. Setup
-
-Clone the repository and install all workspace dependencies:
+### 1. Install dependencies
 
 ```bash
-git clone <your-repo-url>
-cd canvas.io
 pnpm install
 ```
 
-### 2. Environment Variables
-
-You must create `.env` files in the necessary applications (`apps/http-backend`, `apps/ws-backend`, and `@repo/db`). You will configure at minimum:
-
-- `DATABASE_URL` (for Prisma to connect to PostgreSQL)
-- `JWT_SECRET` (for secure cookie-based auth token generation)
-
-### 3. Database Initialization
-
-Generate the Prisma client and push your schema to the database to set up the tables:
+### 2. Start local PostgreSQL
 
 ```bash
-pnpm --filter @repo/db generate
-pnpm --filter @repo/db push
+pnpm db:up
 ```
 
-### 4. Running the Stack
+### 3. Configure environment
 
-To spin up all apps and packages in parallel via Turborepo, run:
+Create `.env` (or `.env.local`) in repo root:
+
+```env
+JWT_SECRET=replace-with-a-long-random-secret
+PORT=3001
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/canvas
+```
+
+### 4. Generate Prisma client and apply migrations
+
+```bash
+pnpm --filter @repo/db db:generate
+pnpm --filter @repo/db db:migrate
+```
+
+### 5. Start the monorepo
 
 ```bash
 pnpm dev
 ```
 
-The system will start simultaneously:
-- **Frontend App**: `http://localhost:3000`
-- **HTTP/REST API**: `http://localhost:3001`
-- **WebSocket Server**: `ws://localhost:8080` (or your configured WS port)
+## Environment Variables
 
-## Contributing
+| Variable | Required | Used By | Notes |
+| --- | --- | --- | --- |
+| `JWT_SECRET` | Yes | `apps/http-backend`, `apps/ws-backend` | Required for auth token signing/verification |
+| `PORT` | Yes | `apps/http-backend` | Set to `3001` to match frontend API config |
+| `DATABASE_URL` | Yes | `packages/db` and both backends | PostgreSQL connection string |
 
-We welcome contributions! Please adhere to the established ESLint and Prettier rules, and ensure your PRs pass all type checks (`pnpm build`). When working on multiplayer features, take special care to update `@repo/common` schemas to ensure compatibility between the `web` frontend and `ws-backend`.
+Notes:
+
+- Backend env loading checks root `.env` / `.env.local` and `packages/db/.env` / `packages/db/.env.local`.
+- Current frontend API config points to `http://localhost:3001/api/v1`.
+
+## Scripts
+
+### Root scripts
+
+| Command | Description |
+| --- | --- |
+| `pnpm dev` | Run workspace dev tasks via Turborepo |
+| `pnpm build` | Build all packages/apps |
+| `pnpm lint` | Run lint tasks |
+| `pnpm check-types` | Run type checks across workspace |
+| `pnpm format` | Format `ts`, `tsx`, and `md` files |
+| `pnpm db:up` | Start Postgres container |
+| `pnpm db:down` | Stop Postgres container |
+| `pnpm db:logs` | Follow Postgres logs |
+
+### Database package scripts
+
+| Command | Description |
+| --- | --- |
+| `pnpm --filter @repo/db db:generate` | Generate Prisma client |
+| `pnpm --filter @repo/db db:push` | Push schema to DB (no migration files) |
+| `pnpm --filter @repo/db db:migrate` | Create/apply migrations |
+
+## Service Endpoints
+
+- Web app: `http://localhost:3000`
+- HTTP API base: `http://localhost:3001/api/v1`
+- WebSocket backend: `ws://localhost:8080`
+
+## Troubleshooting
+
+- If auth/canvas requests fail, ensure HTTP backend is running on port `3001`.
+- If Prisma cannot connect, verify `DATABASE_URL` and check DB health with `pnpm db:logs`.
+- If either backend crashes on boot, confirm `JWT_SECRET` is set.
+- If code changes are not reflected in backend dev processes, rebuild/restart that app (current backend `dev` script compiles then starts).

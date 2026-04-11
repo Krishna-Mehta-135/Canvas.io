@@ -40,7 +40,7 @@ function hitEllipse(shape: Extract<Shape, {type: "circle"}>, x: number, y: numbe
     return value <= 1;
 }
 
-function hitLine(shape: Extract<Shape, {type: "line"}>, x: number, y: number) {
+function hitConnector(shape: Extract<Shape, {type: "line" | "arrow"}>, x: number, y: number) {
     const dx = shape.x2 - shape.x1;
     const dy = shape.y2 - shape.y1;
 
@@ -88,7 +88,8 @@ function hitFreehand(shape: Extract<Shape, {type: "freehand"}>, x: number, y: nu
 const hitMap = {
     rect: hitRect,
     circle: hitEllipse,
-    line: hitLine,
+    line: hitConnector,
+    arrow: hitConnector,
     text: hitText,
     freehand: hitFreehand,
 };
@@ -158,7 +159,7 @@ export function getHandleAtPoint(shape: Shape, x: number, y: number, padding = 0
     }
 
     // LINE (endpoints only)
-    if (shape.type === "line") {
+    if (shape.type === "line" || shape.type === "arrow") {
         if (Math.abs(x - shape.x1) <= HANDLE_SIZE && Math.abs(y - shape.y1) <= HANDLE_SIZE) {
             return "start";
         }

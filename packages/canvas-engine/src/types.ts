@@ -14,6 +14,29 @@ type BaseShape = {
     stroke?: string;
 };
 
+/**
+ * Stores an endpoint anchor in normalized target-shape space.
+ * relX/relY are in [0, 1] across the target's current bounding box.
+ */
+type EndpointBinding = {
+    shapeId: string;
+    relX: number;
+    relY: number;
+};
+
+/**
+ * Shared payload for connector-like shapes.
+ * Bindings are optional so free endpoints remain supported.
+ */
+type ConnectorShape = BaseShape & {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    startBinding?: EndpointBinding;
+    endBinding?: EndpointBinding;
+};
+
 // FINAL shape (stored in state)
 export type Shape =
     | (BaseShape & {
@@ -30,13 +53,12 @@ export type Shape =
           radiusX: number;
           radiusY: number;
       })
-    | (BaseShape & {
-          type: "line";
-          x1: number;
-          y1: number;
-          x2: number;
-          y2: number;
-    })
+        | (ConnectorShape & {
+                    type: "line";
+            })
+        | (ConnectorShape & {
+                    type: "arrow";
+            })
     | (BaseShape & {
         type: "text";
         x: number;
@@ -76,6 +98,13 @@ export type PreviewShape =
           y2: number;
         }
         | {
+            type: "arrow";
+            x1: number;
+            y1: number;
+            x2: number;
+            y2: number;
+        }
+        | {
             type: "freehand";
             points: Array<{x: number; y: number}>;
       };
@@ -85,7 +114,7 @@ export type PreviewShape =
  *
  * Includes:
  * - box handles (rect / ellipse)
- * - line endpoints
+ * - connector endpoints (line / arrow)
  */
 export type Handle =
     | "top-left"

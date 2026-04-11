@@ -67,7 +67,7 @@ export function createPreviewShape(
         };
     }
 
-    if (tool === "line") {
+    if (tool === "line" || tool === "arrow") {
         if (preserveAspect) {
             const dx = currentX - startX;
             const dy = currentY - startY;
@@ -77,7 +77,7 @@ export function createPreviewShape(
             const distance = Math.hypot(dx, dy);
 
             return {
-                type: "line",
+                type: tool,
                 x1: startX,
                 y1: startY,
                 x2: startX + Math.cos(snappedAngle) * distance,
@@ -86,7 +86,7 @@ export function createPreviewShape(
         }
 
         return {
-            type: "line",
+            type: tool,
             x1: startX,
             y1: startY,
             x2: currentX,

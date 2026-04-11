@@ -40,7 +40,7 @@ export function convertToPoints(shape: Shape) {
         };
     }
 
-    if (shape.type === "line") {
+    if (shape.type === "line" || shape.type === "arrow") {
         return {
             x1: shape.x1,
             y1: shape.y1,
@@ -116,7 +116,7 @@ export function convertBackToShape(shape: Shape, box: any) {
         };
     }
 
-    if (shape.type === "line") {
+    if (shape.type === "line" || shape.type === "arrow") {
         return {
             x1,
             y1,
@@ -156,7 +156,7 @@ export function resizeShape(shape: Shape, handle: Handle, x: number, y: number, 
     const {fromCenter = false, preserveAspect = false} = options;
 
     // ================= LINE =================
-    if (shape.type === "line") {
+    if (shape.type === "line" || shape.type === "arrow") {
         if (handle === "start") {
             return {
                 x1: x,

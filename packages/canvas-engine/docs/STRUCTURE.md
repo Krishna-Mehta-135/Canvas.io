@@ -11,9 +11,14 @@ This package is split by responsibility to keep interaction logic isolated from 
   - Multi-selection can be dragged by clicking either a selected shape OR empty space inside the selection bounds.
 - Keyboard:
   - Tool switching shortcuts.
+  - `A` shortcut switches to arrow connector tool.
   - Delete/backspace removal.
   - Arrow nudging (shift for larger step).
   - Undo/redo dispatch.
+- Connectors (line + arrow):
+  - Endpoint drag/resize uses shared connector logic.
+  - Endpoints can bind to nearby non-connector shapes.
+  - Bound endpoints recompute from relative anchors when target shapes move/resize.
 - Text:
   - Inline canvas editing with live wrapped preview.
   - Text can be parent-bound to clicked shapes (`parentId`).
@@ -29,12 +34,13 @@ This package is split by responsibility to keep interaction logic isolated from 
   - Main event coordinator. Routes mouse/keyboard input to drag, resize, select, draw, and text flows.
 - src/renderer.ts
   - Pure drawing layer. Renders shapes, wrapped text, selection outlines, handles, and marquee box.
+  - Arrow draw path includes computed arrowhead wings.
 - src/store.ts
-  - State transition controller. Applies actions and parent-child text propagation updates.
+  - State transition controller. Applies actions, connector binding sync, and parent-child text propagation updates.
 - src/state.ts
   - Undo/redo snapshot store for shape arrays.
 - src/types.ts
-  - Shape and handle type definitions, including optional text `parentId`.
+  - Shape and handle type definitions, including connector endpoint bindings and optional text `parentId`.
 - src/geometry.ts
   - Pure resize/box conversion math, including text resize/reflow behavior.
 - src/interaction/hitDetection.ts

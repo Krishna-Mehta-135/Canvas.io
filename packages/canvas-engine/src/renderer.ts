@@ -66,6 +66,7 @@ const drawMap: {
     rect: drawRectangle,
     circle: drawCircle,
     line: drawLine,
+    arrow: drawArrow,
     text: drawText,
     freehand: drawFreehand,
 };
@@ -149,6 +150,39 @@ function drawLine(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "l
     ctx.stroke();
 }
 
+function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "arrow"}>) {
+    ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
+    ctx.lineWidth = DEFAULT_STROKE_WIDTH;
+
+    const dx = shape.x2 - shape.x1;
+    const dy = shape.y2 - shape.y1;
+    const length = Math.hypot(dx, dy);
+
+    if (length <= 0.001) return;
+
+    const ux = dx / length;
+    const uy = dy / length;
+    const headLength = Math.min(18, Math.max(10, length * 0.25));
+    const spread = Math.PI / 7;
+    const cos = Math.cos(spread);
+    const sin = Math.sin(spread);
+
+    // Rotate the unit direction vector around the arrow tip to form arrowhead wings.
+    const leftX = shape.x2 - (ux * cos - uy * sin) * headLength;
+    const leftY = shape.y2 - (uy * cos + ux * sin) * headLength;
+    const rightX = shape.x2 - (ux * cos + uy * sin) * headLength;
+    const rightY = shape.y2 - (uy * cos - ux * sin) * headLength;
+
+    ctx.beginPath();
+    ctx.moveTo(shape.x1, shape.y1);
+    ctx.lineTo(shape.x2, shape.y2);
+    ctx.moveTo(shape.x2, shape.y2);
+    ctx.lineTo(leftX, leftY);
+    ctx.moveTo(shape.x2, shape.y2);
+    ctx.lineTo(rightX, rightY);
+    ctx.stroke();
+}
+
 function drawText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "text"}>) {
     ctx.fillStyle = shape.stroke || getThemePalette().stroke;
     ctx.font = `${shape.fontSize}px Virgil, Caveat, ui-rounded, sans-serif`;
@@ -215,7 +249,7 @@ function getBoundingBox(shape: Shape) {
         };
     }
 
-    if (shape.type === "line") {
+    if (shape.type === "line" || shape.type === "arrow") {
         const x = Math.min(shape.x1, shape.x2);
         const y = Math.min(shape.y1, shape.y2);
         const width = Math.abs(shape.x2 - shape.x1);
@@ -282,7 +316,7 @@ function drawHandle(ctx: CanvasRenderingContext2D, x: number, y: number) {
  * inward tweak → fine visual alignment adjustment
  */
 function getHandlePoints(shape: Shape) {
-    if (shape.type === "line") {
+    if (shape.type === "line" || shape.type === "arrow") {
         return [
             {x: shape.x1, y: shape.y1},
             {x: shape.x2, y: shape.y2},

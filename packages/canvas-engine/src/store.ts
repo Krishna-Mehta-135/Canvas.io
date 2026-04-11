@@ -20,6 +20,117 @@ import {CanvasState} from "./state";
 import {Shape} from "./types";
 import {convertToPoints} from "./geometry";
 
+type ConnectorShape = Extract<Shape, {type: "line" | "arrow"}>;
+
+function isConnectorShape(shape: Shape): shape is ConnectorShape {
+    return shape.type === "line" || shape.type === "arrow";
+}
+
+function isBindableTarget(shape: Shape) {
+    return shape.type !== "line" && shape.type !== "arrow";
+}
+
+function clamp01(value: number) {
+    return Math.max(0, Math.min(1, value));
+}
+
+// Converts an absolute endpoint into normalized anchor space of a target shape.
+function getRelativeBindingForPoint(shape: Shape, x: number, y: number) {
+    const box = convertToPoints(shape);
+    const width = Math.max(1, box.x2 - box.x1);
+    const height = Math.max(1, box.y2 - box.y1);
+
+    return {
+        shapeId: shape.id,
+        relX: clamp01((x - box.x1) / width),
+        relY: clamp01((y - box.y1) / height),
+    };
+}
+
+function getPointFromBinding(
+    binding: ConnectorShape["startBinding"],
+    shapeById: Map<string, Shape>
+): {x: number; y: number} | null {
+    if (!binding) return null;
+
+    const target = shapeById.get(binding.shapeId);
+    if (!target || !isBindableTarget(target)) return null;
+
+    const box = convertToPoints(target);
+    const width = box.x2 - box.x1;
+    const height = box.y2 - box.y1;
+
+    return {
+        x: box.x1 + clamp01(binding.relX) * width,
+        y: box.y1 + clamp01(binding.relY) * height,
+    };
+}
+
+// Chooses the visually top-most candidate so endpoint attachment matches user intent.
+function findTopBindableShapeAtPoint(shapes: Shape[], x: number, y: number, excludeId: string) {
+    const SNAP_TOLERANCE = 10;
+
+    for (let i = shapes.length - 1; i >= 0; i--) {
+        const shape = shapes[i];
+        if (!shape || shape.id === excludeId || !isBindableTarget(shape)) continue;
+
+        const box = convertToPoints(shape);
+        const isInside =
+            x >= box.x1 - SNAP_TOLERANCE &&
+            x <= box.x2 + SNAP_TOLERANCE &&
+            y >= box.y1 - SNAP_TOLERANCE &&
+            y <= box.y2 + SNAP_TOLERANCE;
+
+        if (isInside) return shape;
+    }
+
+    return null;
+}
+
+function attachConnectorBindings(connector: ConnectorShape, shapes: Shape[]): ConnectorShape {
+    const startTarget = findTopBindableShapeAtPoint(shapes, connector.x1, connector.y1, connector.id);
+    const endTarget = findTopBindableShapeAtPoint(shapes, connector.x2, connector.y2, connector.id);
+
+    return {
+        ...connector,
+        startBinding: startTarget ? getRelativeBindingForPoint(startTarget, connector.x1, connector.y1) : undefined,
+        endBinding: endTarget ? getRelativeBindingForPoint(endTarget, connector.x2, connector.y2) : undefined,
+    };
+}
+
+function refreshBindingsForConnectorIds(shapes: Shape[], connectorIds: string[]) {
+    if (connectorIds.length === 0) return shapes;
+
+    const targetIds = new Set(connectorIds);
+
+    return shapes.map((shape) => {
+        if (!targetIds.has(shape.id) || !isConnectorShape(shape)) return shape;
+        return attachConnectorBindings(shape, shapes);
+    });
+}
+
+// Reprojects all currently bound connector endpoints using latest shape bounds.
+function applyConnectorBindings(shapes: Shape[]) {
+    const shapeById = new Map(shapes.map((shape) => [shape.id, shape] as const));
+
+    return shapes.map((shape) => {
+        if (!isConnectorShape(shape)) return shape;
+
+        const startPoint = getPointFromBinding(shape.startBinding, shapeById);
+        const endPoint = getPointFromBinding(shape.endBinding, shapeById);
+
+        return {
+            ...shape,
+            x1: startPoint?.x ?? shape.x1,
+            y1: startPoint?.y ?? shape.y1,
+            x2: endPoint?.x ?? shape.x2,
+            y2: endPoint?.y ?? shape.y2,
+            startBinding: shape.startBinding && !startPoint ? undefined : shape.startBinding,
+            endBinding: shape.endBinding && !endPoint ? undefined : shape.endBinding,
+        };
+    });
+}
+
 /*
 Actions = description of WHAT happened (not HOW)
 
@@ -123,7 +234,13 @@ export function dispatch(state: CanvasState, action: Action) {
 
     switch (action.type) {
         case "ADD_SHAPE": {
-            const newShapes = [...shapes, action.payload];
+            let newShapes = [...shapes, action.payload];
+
+            if (isConnectorShape(action.payload)) {
+                newShapes = refreshBindingsForConnectorIds(newShapes, [action.payload.id]);
+            }
+
+            newShapes = applyConnectorBindings(newShapes);
             state.setShapes(newShapes);
             break;
         }
@@ -141,6 +258,8 @@ export function dispatch(state: CanvasState, action: Action) {
             });
 
             newShapes = syncTextChildrenToParent(shapes, newShapes, id);
+            newShapes = refreshBindingsForConnectorIds(newShapes, [id]);
+            newShapes = applyConnectorBindings(newShapes);
 
             state.setShapes(newShapes);
             break;
@@ -200,13 +319,16 @@ export function dispatch(state: CanvasState, action: Action) {
                 newShapes = syncTextChildrenToParent(shapes, newShapes, parentId, selectedSet);
             }
 
+            newShapes = refreshBindingsForConnectorIds(newShapes, ids);
+            newShapes = applyConnectorBindings(newShapes);
+
             state.setShapes(newShapes);
             break;
         }
 
         case "DELETE_SHAPES": {
             const selectedSet = new Set(action.payload.ids);
-            const newShapes = shapes.filter((shape) => !selectedSet.has(shape.id));
+            const newShapes = applyConnectorBindings(shapes.filter((shape) => !selectedSet.has(shape.id)));
             state.setShapes(newShapes);
             break;
         }
@@ -264,6 +386,9 @@ export function dispatch(state: CanvasState, action: Action) {
             for (const parentId of ids) {
                 newShapes = syncTextChildrenToParent(shapes, newShapes, parentId, selectedSet);
             }
+
+            newShapes = refreshBindingsForConnectorIds(newShapes, ids);
+            newShapes = applyConnectorBindings(newShapes);
 
             state.setShapes(newShapes);
             break;

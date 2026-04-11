@@ -51,6 +51,17 @@ const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}>
         ),
     },
     {
+        id: "arrow",
+        label: "Arrow",
+        shortcut: "A",
+        icon: (
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M5 18L18 6" />
+                <path d="M12 6h6v6" />
+            </svg>
+        ),
+    },
+    {
         id: "text",
         label: "Text",
         shortcut: "4",

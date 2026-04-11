@@ -50,7 +50,7 @@ export function isShapeInsideBox(shape: Shape, box: SelectionBox) {
         return sx1 >= x && sx2 <= x2 && sy1 >= y && sy2 <= y2;
     }
 
-    if (shape.type === "line") {
+    if (shape.type === "line" || shape.type === "arrow") {
         return (
             shape.x1 >= x &&
             shape.x1 <= x2 &&

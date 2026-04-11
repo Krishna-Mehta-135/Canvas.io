@@ -484,7 +484,7 @@ export function attachEvents(
             } else if (shape.type === "circle") {
                 offsetX = x - shape.centerX;
                 offsetY = y - shape.centerY;
-            } else if (shape.type === "line") {
+            } else if (shape.type === "line" || shape.type === "arrow") {
                 prevX = x;
                 prevY = y;
             } else if (shape.type === "text") {
@@ -627,9 +627,9 @@ export function attachEvents(
                         },
                     },
                 });
-            } else if (selected.type === "line") {
+            } else if (selected.type === "line" || selected.type === "arrow") {
                 const current = state.getShapes().find((s) => s.id === selected.id);
-                if (!current || current.type !== "line") return;
+                if (!current || (current.type !== "line" && current.type !== "arrow")) return;
 
                 const dx = x - prevX;
                 const dy = y - prevY;

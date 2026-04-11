@@ -29,6 +29,7 @@ import {getResizeTarget} from "./interaction/resizeTarget";
 import {createInlineTextEditor} from "./interaction/textEditor";
 import {handleGlobalKeydown} from "./interaction/keyboard";
 import {getWrappedTextLines} from "./textLayout";
+import {getFittedTextFontSize} from "./textMetrics";
 import {
     getSelectedShapesByIds,
     getSelectionBox,
@@ -38,6 +39,13 @@ import {
 } from "./interaction/selection";
 
 const SELECTION_PADDING = 6;
+
+function getPreviewTextColor() {
+    if (typeof document === "undefined") return "#f8fafc";
+
+    const theme = document.documentElement.getAttribute("data-theme");
+    return theme === "light" ? "#1f2937" : "#f8fafc";
+}
 
 /* ---------------- EVENTS ---------------- */
 
@@ -189,17 +197,28 @@ export function attachEvents(
         }
 
         const fontSize = existing?.fontSize ?? 24;
-        const lineHeight = Math.round(fontSize * 1.25);
+        const initialLineHeight = Math.round(fontSize * 1.25);
 
         // Parent box constrains initial text width/height when text is bound to a parent shape.
         const parentBox = parentShape ? convertToPoints(parentShape) : null;
         const parentPadding = 8;
-        const maxPreviewWidth = parentBox ? Math.max(8, parentBox.x2 - x - parentPadding) : Number.MAX_SAFE_INTEGER;
+        const textStartX = parentBox
+            ? Math.min(Math.max(x, parentBox.x1 + parentPadding), Math.max(parentBox.x1 + parentPadding, parentBox.x2 - parentPadding - 8))
+            : x;
+        const textStartY = parentBox
+            ? Math.min(
+                Math.max(y, parentBox.y1 + parentPadding),
+                Math.max(parentBox.y1 + parentPadding, parentBox.y2 - parentPadding - initialLineHeight)
+            )
+            : y;
+        const maxPreviewWidth = parentBox
+            ? Math.max(8, parentBox.x2 - textStartX - parentPadding)
+            : Number.MAX_SAFE_INTEGER;
 
         activeTextEditorCleanup = createInlineTextEditor({
             canvas,
-            x,
-            y,
+            x: textStartX,
+            y: textStartY,
             ctx,
             initialText: existing?.text ?? "",
             fontSize,
@@ -212,24 +231,33 @@ export function attachEvents(
 
                 render(ctx, canvas, previewShapes, null, null, []);
                 
-                // Draw the live text preview - fully white and visible
-                ctx.fillStyle = "#ffffff";
-                ctx.font = `${fontSize}px Virgil, Caveat, ui-rounded, sans-serif`;
+                // Draw using current theme color so preview remains visible in light and dark modes.
+                ctx.fillStyle = existing?.stroke || getPreviewTextColor();
                 ctx.textBaseline = "top";
-                                const previewWidth = existing ? existing.width : maxPreviewWidth;
-                                const previewHeight = existing
-                                        ? existing.height
-                                        : parentBox
-                                            ? Math.max(8, parentBox.y2 - y - parentPadding)
-                                            : Number.MAX_SAFE_INTEGER;
+                const previewWidth = existing ? existing.width : maxPreviewWidth;
+                const previewHeight = existing
+                    ? existing.height
+                    : parentBox
+                        ? Math.max(8, parentBox.y2 - textStartY - parentPadding)
+                        : Number.MAX_SAFE_INTEGER;
+
+                const fittedPreviewFontSize = getFittedTextFontSize(
+                    ctx,
+                    text,
+                    previewWidth,
+                    previewHeight,
+                    existing?.fontSize ?? fontSize
+                );
+                const previewLineHeight = fittedPreviewFontSize * 1.25;
+                ctx.font = `${fittedPreviewFontSize}px Virgil, Caveat, ui-rounded, sans-serif`;
                 // Use the same wrapping helper as final renderer so preview matches committed output.
                 const wrappedLines = getWrappedTextLines(ctx, text, previewWidth);
-                const maxY = y + previewHeight;
+                const maxY = textStartY + previewHeight;
 
                 wrappedLines.forEach((line, index) => {
-                    const drawY = y + index * lineHeight;
-                    if (drawY + lineHeight > maxY) return;
-                    ctx.fillText(line, x, drawY);
+                    const drawY = textStartY + index * previewLineHeight;
+                    if (drawY + previewLineHeight > maxY) return;
+                    ctx.fillText(line, textStartX, drawY);
                 });
             },
             onCommit: ({text, width, height, fontSize: newFontSize}) => {
@@ -281,8 +309,8 @@ export function attachEvents(
                 const textShape: Extract<Shape, {type: "text"}> = {
                     id: crypto.randomUUID(),
                     type: "text",
-                    x,
-                    y,
+                    x: textStartX,
+                    y: textStartY,
                     text: trimmed,
                     fontSize: newFontSize,
                     width: Math.max(8, Math.min(width, maxPreviewWidth)),
@@ -297,7 +325,7 @@ export function attachEvents(
                 const wrappedLineHeight = newFontSize * 1.25;
                 const contentHeight = Math.max(wrappedLineHeight, wrappedLines.length * wrappedLineHeight);
                 textShape.height = parentBox
-                    ? Math.min(contentHeight, Math.max(8, parentBox.y2 - y - parentPadding))
+                    ? Math.min(contentHeight, Math.max(8, parentBox.y2 - textStartY - parentPadding))
                     : contentHeight;
 
                 dispatch(state, {
@@ -387,7 +415,7 @@ export function attachEvents(
         const {x, y} = getMousePos(canvas, e);
         const shapes = state.getShapes();
 
-        const resizeTarget = getResizeTarget(shapes, x, y, selectedShape, SELECTION_PADDING);
+        const resizeTarget = getResizeTarget(shapes, x, y, selectedShape, SELECTION_PADDING, ctx);
 
         // RESIZE
         if (resizeTarget) {
@@ -397,7 +425,7 @@ export function attachEvents(
             return;
         }
 
-        const shape = getShapeAtPoint(shapes, x, y);
+        const shape = getShapeAtPoint(shapes, x, y, ctx);
 
         // Allow dragging multi-selection from empty space inside the selection bounds.
         if (!shape && getActiveTool() === "select" && selectedShapeIds.length > 1) {
@@ -530,8 +558,8 @@ export function attachEvents(
         const {x, y} = getMousePos(canvas, e);
 
         const shapes = state.getShapes();
-        const resizeTarget = getResizeTarget(shapes, x, y, selectedShape, SELECTION_PADDING);
-        const shape = getShapeAtPoint(shapes, x, y);
+        const resizeTarget = getResizeTarget(shapes, x, y, selectedShape, SELECTION_PADDING, ctx);
+        const shape = getShapeAtPoint(shapes, x, y, ctx);
 
         // CURSOR
         if (resizeTarget) {
@@ -860,7 +888,7 @@ export function attachEvents(
 
     canvas.addEventListener("dblclick", (e) => {
         const {x, y} = getMousePos(canvas, e);
-        const shape = getShapeAtPoint(state.getShapes(), x, y);
+        const shape = getShapeAtPoint(state.getShapes(), x, y, ctx);
         if (!shape || shape.type !== "text") return;
 
         startTextEditing(shape.x, shape.y, shape);

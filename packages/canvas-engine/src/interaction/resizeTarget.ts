@@ -12,13 +12,14 @@ export function getResizeTarget(
     x: number,
     y: number,
     selectedShape: Shape | null,
-    padding: number
+    padding: number,
+    ctx?: CanvasRenderingContext2D
 ): {shape: Shape; handle: Handle} | null {
     if (selectedShape) {
         const selected = shapes.find((s) => s.id === selectedShape.id);
 
         if (selected) {
-            const selectedHandle = getHandleAtPoint(selected, x, y, padding);
+            const selectedHandle = getHandleAtPoint(selected, x, y, padding, ctx);
             if (selectedHandle) {
                 return {shape: selected, handle: selectedHandle};
             }
@@ -29,7 +30,7 @@ export function getResizeTarget(
         const shape = shapes[i];
         if (!shape) continue;
 
-        const handle = getHandleAtPoint(shape, x, y, padding);
+        const handle = getHandleAtPoint(shape, x, y, padding, ctx);
         if (handle) {
             return {shape, handle};
         }

@@ -18,6 +18,7 @@ Rendering model:
 
 import {Shape} from "./types";
 import {getWrappedTextLines} from "./textLayout";
+import {getTextRenderMetrics} from "./textMetrics";
 
 const DEFAULT_STROKE_WIDTH = 2;
 const HANDLE_COLOR = "#8d8ac5";
@@ -185,13 +186,11 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "
 
 function drawText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "text"}>) {
     ctx.fillStyle = shape.stroke || getThemePalette().stroke;
-    ctx.font = `${shape.fontSize}px Virgil, Caveat, ui-rounded, sans-serif`;
+    const {fittedFontSize, lineHeight, visibleLines} = getTextRenderMetrics(ctx, shape);
+    ctx.font = `${fittedFontSize}px Virgil, Caveat, ui-rounded, sans-serif`;
     ctx.textBaseline = "top";
 
-    const lineHeight = shape.fontSize * 1.25;
-    const wrappedLines = getWrappedTextLines(ctx, shape.text, shape.width);
-
-    wrappedLines.forEach((line, index) => {
+    visibleLines.forEach((line, index) => {
         const y = shape.y + index * lineHeight;
         ctx.fillText(line, shape.x, y);
     });
@@ -230,7 +229,7 @@ function drawFreehand(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type
  * Bounding box represents geometric limits,
  * NOT interaction logic.
  */
-function getBoundingBox(shape: Shape) {
+function getBoundingBox(shape: Shape, ctx?: CanvasRenderingContext2D) {
     if (shape.type === "rect") {
         return {
             x: shape.x,
@@ -259,6 +258,16 @@ function getBoundingBox(shape: Shape) {
     }
 
     if (shape.type === "text") {
+        if (ctx) {
+            const {textWidth, textHeight} = getTextRenderMetrics(ctx, shape);
+            return {
+                x: shape.x,
+                y: shape.y,
+                width: textWidth,
+                height: textHeight,
+            };
+        }
+
         return {
             x: shape.x,
             y: shape.y,
@@ -315,7 +324,7 @@ function drawHandle(ctx: CanvasRenderingContext2D, x: number, y: number) {
  * padding → pushes handles slightly outward
  * inward tweak → fine visual alignment adjustment
  */
-function getHandlePoints(shape: Shape) {
+function getHandlePoints(shape: Shape, ctx: CanvasRenderingContext2D) {
     if (shape.type === "line" || shape.type === "arrow") {
         return [
             {x: shape.x1, y: shape.y1},
@@ -323,7 +332,7 @@ function getHandlePoints(shape: Shape) {
         ];
     }
 
-    const {x, y, width, height} = getBoundingBox(shape);
+    const {x, y, width, height} = getBoundingBox(shape, ctx);
     const x1 = x - SELECTION_PADDING;
     const y1 = y - SELECTION_PADDING;
     const x2 = x + width + SELECTION_PADDING;
@@ -355,7 +364,7 @@ function getHandlePoints(shape: Shape) {
 function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape) {
     ctx.save();
 
-    const {x, y, width, height} = getBoundingBox(shape);
+    const {x, y, width, height} = getBoundingBox(shape, ctx);
 
     ctx.strokeStyle = HANDLE_COLOR;
     ctx.lineWidth = 1;
@@ -367,7 +376,7 @@ function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape) {
         height + SELECTION_PADDING * 2
     );
     
-    const handles = getHandlePoints(shape);
+    const handles = getHandlePoints(shape, ctx);
     handles.forEach((p) => drawHandle(ctx, p.x, p.y));
 
     ctx.restore();

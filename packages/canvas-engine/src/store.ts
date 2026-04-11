@@ -209,17 +209,17 @@ export function dispatch(state: CanvasState, action: Action) {
             if (skipIds.has(shape.id)) return shape;
 
             // Store child text in normalized parent-space so transform propagation is shape-agnostic.
-            const relX = (shape.x - prevBox.x1) / prevWidth;
-            const relY = (shape.y - prevBox.y1) / prevHeight;
-            const relWidth = shape.width / prevWidth;
-            const relHeight = shape.height / prevHeight;
+            const relX = clamp01((shape.x - prevBox.x1) / prevWidth);
+            const relY = clamp01((shape.y - prevBox.y1) / prevHeight);
+            const relWidth = clamp01(shape.width / prevWidth);
+            const relHeight = clamp01(shape.height / prevHeight);
 
             const nextX = nextBox.x1 + relX * nextWidth;
             const nextY = nextBox.y1 + relY * nextHeight;
-            const nextTextWidth = Math.max(8, relWidth * nextWidth);
-            const nextTextHeight = Math.max(8, relHeight * nextHeight);
-            // Scale font with resulting text box height for visual consistency.
-            const fontScale = nextTextHeight / Math.max(1, shape.height);
+            const maxWidthFromX = Math.max(8, nextBox.x2 - nextX);
+            const maxHeightFromY = Math.max(8, nextBox.y2 - nextY);
+            const nextTextWidth = Math.max(8, Math.min(relWidth * nextWidth, maxWidthFromX));
+            const nextTextHeight = Math.max(8, Math.min(relHeight * nextHeight, maxHeightFromY));
 
             return {
                 ...shape,
@@ -227,7 +227,8 @@ export function dispatch(state: CanvasState, action: Action) {
                 y: nextY,
                 width: nextTextWidth,
                 height: nextTextHeight,
-                fontSize: Math.max(8, shape.fontSize * fontScale),
+                // Preserve authored font size; renderer performs fit-to-box only when overflow would occur.
+                fontSize: shape.fontSize,
             };
         });
     };

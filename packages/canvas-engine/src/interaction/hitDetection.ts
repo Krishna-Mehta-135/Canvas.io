@@ -13,6 +13,7 @@ Used by:
 */
 
 import {Handle, Shape} from "../types";
+import {getTextRenderMetrics} from "../textMetrics";
 
 /**
  * Pixel tolerance for hit detection
@@ -52,8 +53,13 @@ function hitConnector(shape: Extract<Shape, {type: "line" | "arrow"}>, x: number
     return distance < HIT_THRESHOLD;
 }
 
-function hitText(shape: Extract<Shape, {type: "text"}>, x: number, y: number) {
-    return x >= shape.x && x <= shape.x + shape.width && y >= shape.y && y <= shape.y + shape.height;
+function hitText(shape: Extract<Shape, {type: "text"}>, x: number, y: number, ctx?: CanvasRenderingContext2D) {
+    if (!ctx) {
+        return x >= shape.x && x <= shape.x + shape.width && y >= shape.y && y <= shape.y + shape.height;
+    }
+
+    const {textWidth, textHeight} = getTextRenderMetrics(ctx, shape);
+    return x >= shape.x && x <= shape.x + textWidth && y >= shape.y && y <= shape.y + textHeight;
 }
 
 function hitFreehand(shape: Extract<Shape, {type: "freehand"}>, x: number, y: number) {
@@ -96,13 +102,13 @@ const hitMap = {
 
 /* ---------------- SHAPE DETECTION ---------------- */
 
-export function getShapeAtPoint(shapes: Shape[], x: number, y: number): Shape | null {
+export function getShapeAtPoint(shapes: Shape[], x: number, y: number, ctx?: CanvasRenderingContext2D): Shape | null {
     for (let i = shapes.length - 1; i >= 0; i--) {
         const shape = shapes[i];
         if (!shape) continue;
 
         const fn = hitMap[shape.type];
-        if (fn(shape as any, x, y)) return shape;
+        if (fn(shape as any, x, y, ctx)) return shape;
     }
 
     return null;
@@ -110,7 +116,13 @@ export function getShapeAtPoint(shapes: Shape[], x: number, y: number): Shape | 
 
 /* ---------------- HANDLE DETECTION ---------------- */
 
-export function getHandleAtPoint(shape: Shape, x: number, y: number, padding = 0): Handle | null {
+export function getHandleAtPoint(
+    shape: Shape,
+    x: number,
+    y: number,
+    padding = 0,
+    ctx?: CanvasRenderingContext2D
+): Handle | null {
     // RECT
     if (shape.type === "rect") {
         return getBoxHandle(
@@ -134,11 +146,24 @@ export function getHandleAtPoint(shape: Shape, x: number, y: number, padding = 0
     }
 
     if (shape.type === "text") {
+        const bounds = ctx
+            ? (() => {
+                  const {textWidth, textHeight} = getTextRenderMetrics(ctx, shape);
+                  return {
+                      width: textWidth,
+                      height: textHeight,
+                  };
+              })()
+            : {
+                  width: shape.width,
+                  height: shape.height,
+              };
+
         return getBoxHandle(
             shape.x - padding,
             shape.y - padding,
-            shape.x + shape.width + padding,
-            shape.y + shape.height + padding,
+            shape.x + bounds.width + padding,
+            shape.y + bounds.height + padding,
             x,
             y
         );

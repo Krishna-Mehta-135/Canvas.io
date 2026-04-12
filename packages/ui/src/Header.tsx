@@ -17,13 +17,13 @@ export default function Header() {
                     </a>
 
                     <div className="hidden md:flex items-center gap-8">
-                        <a href="#features" className="text-gray-600 hover:text-gray-900 font-medium transition-colors">
+                        <a href="#features" className="text-gray-700 hover:text-gray-900 font-medium transition-colors">
                             Features
                         </a>
-                        <a href="#showcase" className="text-gray-600 hover:text-gray-900 font-medium transition-colors">
+                        <a href="#showcase" className="text-gray-700 hover:text-gray-900 font-medium transition-colors">
                             Examples
                         </a>
-                        <a href="#pricing" className="text-gray-600 hover:text-gray-900 font-medium transition-colors">
+                        <a href="#pricing" className="text-gray-700 hover:text-gray-900 font-medium transition-colors">
                             Pricing
                         </a>
                         <a href="/signin" className="text-gray-700 hover:text-gray-900 font-medium transition-colors">

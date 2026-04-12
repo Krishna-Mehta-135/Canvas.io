@@ -72,6 +72,9 @@ importers:
       '@repo/canvas-engine':
         specifier: workspace:*
         version: link:../../packages/canvas-engine
+      '@repo/common':
+        specifier: workspace:*
+        version: link:../../packages/common
       '@repo/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -137,6 +140,12 @@ importers:
       '@repo/backend-common':
         specifier: 'workspace: *'
         version: link:../../packages/backend-common
+      '@repo/canvas-engine':
+        specifier: 'workspace: *'
+        version: link:../../packages/canvas-engine
+      '@repo/common':
+        specifier: 'workspace: *'
+        version: link:../../packages/common
       '@repo/db':
         specifier: 'workspace: *'
         version: link:../../packages/db
@@ -179,6 +188,9 @@ importers:
         specifier: ^4.3.6
         version: 4.3.6
     devDependencies:
+      '@repo/canvas-engine':
+        specifier: 'workspace: *'
+        version: link:../canvas-engine
       '@repo/typescript-config':
         specifier: 'workspace: *'
         version: link:../typescript-config

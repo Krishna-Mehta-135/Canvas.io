@@ -95,6 +95,13 @@ const replaceShapes = asyncHandler(async (req, res) => {
     }
 
     try {
+        // Deduplicate shapes by ID (keep last occurrence) to avoid unique constraint violations
+        const uniqueShapesMap = new Map();
+        for (const shape of shapes) {
+            uniqueShapesMap.set(shape.id, shape);
+        }
+        const uniqueShapes = Array.from(uniqueShapesMap.values());
+        
         await prismaClient.$transaction(async (tx) => {
             await tx.shape.deleteMany({
                 where: {
@@ -102,15 +109,18 @@ const replaceShapes = asyncHandler(async (req, res) => {
                 },
             });
 
-            if (shapes.length > 0) {
+            if (uniqueShapes.length > 0) {
                 await tx.shape.createMany({
-                    data: shapes.map((shape) => ({
-                        id: shape.id,
+                    data: uniqueShapes.map((shape) => ({
+                        // Database id must be globally unique across all rooms.
+                        // Keep client shape.id inside props unchanged for canvas logic.
+                        id: `${roomId}:${shape.id}`,
                         roomId,
                         type: shape.type,
                         props: shape,
                         deleted: false,
                     })),
+                    skipDuplicates: true,
                 });
             }
         });
@@ -124,6 +134,7 @@ const replaceShapes = asyncHandler(async (req, res) => {
         }
 
         if (typeof err?.code === "string" && err.code.startsWith("P")) {
+            console.error(`Prisma error ${err.code} while persisting shapes for roomId ${roomId}:`, err);
             throw new ApiError(503, "Shape storage is temporarily unavailable");
         }
 
@@ -153,4 +164,33 @@ const getRoomIdFromSlug = asyncHandler(async (req, res) => {
     res.status(200).json(new ApiResponse(200, room, "RoomId successfully fetched from slug"));
 });
 
-export {createRoom, getShapes, replaceShapes, getRoomIdFromSlug};
+const getInviteLink = asyncHandler(async (req, res) => {
+    const roomId = Number(req.params.roomId);
+
+    if (isNaN(roomId)) {
+        throw new ApiError(400, "Invalid roomId");
+    }
+
+    const room = await prismaClient.room.findUnique({
+        where: {
+            id: roomId,
+        },
+    });
+
+    if (!room) {
+        throw new ApiError(404, "Room not found");
+    }
+
+    // Generate invite link using the room slug
+    const inviteLink = `${req.protocol}://${req.get("host")}/canvas/${room.slug}`;
+
+    res.status(200).json(
+        new ApiResponse(
+            200,
+            { inviteLink, roomSlug: room.slug },
+            "Invite link generated successfully"
+        )
+    );
+});
+
+export {createRoom, getShapes, replaceShapes, getRoomIdFromSlug, getInviteLink};

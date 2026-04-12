@@ -8,6 +8,7 @@ import {CanvasState} from "@repo/canvas-engine";
 import type {Shape, Tool} from "@repo/canvas-engine";
 import {HTTP_BACKEND} from "../../../config";
 import {ThemeToggle, useTheme} from "../../components/ThemeToggle";
+import {useCanvasSync} from "../../../hooks/useCanvasSync";
 
 const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}> = [
     {
@@ -99,6 +100,11 @@ export default function CanvasPage() {
     const toolRef = useRef<Tool>("select");
     const [activeTool, setActiveTool] = useState<Tool>("select");
     const [selectedCount, setSelectedCount] = useState(0);
+    const [inviteLink, setInviteLink] = useState<string | null>(null);
+    const [syncStatus, setSyncStatus] = useState<"connected" | "disconnected" | "error">("disconnected");
+    const stateRef = useRef<CanvasState | null>(null);
+    const [canvasState, setCanvasState] = useState<CanvasState | null>(null);
+    const [resolvedRoomId, setResolvedRoomId] = useState<number | null>(null);
     const {theme} = useTheme();
     const isDark = theme === "dark";
 
@@ -116,6 +122,8 @@ export default function CanvasPage() {
         isHydratingRef.current = true;
         isRoomMissingRef.current = false;
         resolvedRoomIdRef.current = null;
+        setResolvedRoomId(null);
+        setInviteLink(null);
         let isUnmounted = false;
         const canvas = canvasRef.current;
         if (!canvas) return;
@@ -128,6 +136,8 @@ export default function CanvasPage() {
         canvas.height = window.innerHeight;
 
         const state = new CanvasState();
+        stateRef.current = state;
+        setCanvasState(state);
 
         const getShapesById = async (id: number) => {
             const response = await axios.get(`${HTTP_BACKEND}/room/${id}/shapes`, {
@@ -261,6 +271,8 @@ export default function CanvasPage() {
         // Subscribe the page (not shapes) to CanvasState updates.
         // The callback receives Shape[] as payload and schedules persistence.
         const unsubscribe = state.subscribe((shapes) => {
+            // Ensure remote websocket updates repaint immediately without requiring focus.
+            controlsRef.current?.rerender();
             void persistShapes(shapes);
         });
 
@@ -268,6 +280,7 @@ export default function CanvasPage() {
             try {
                 const {resolvedRoomId, shapes} = await resolveRoomIdAndShapes();
                 resolvedRoomIdRef.current = resolvedRoomId;
+                setResolvedRoomId(resolvedRoomId);
 
                 if (!isUnmounted) {
                     state.hydrateShapes(shapes);
@@ -339,8 +352,52 @@ export default function CanvasPage() {
         };
     }, [roomId]);
 
+    // Initialize WebSocket sync when state and room are ready
+    const syncResult = useCanvasSync({
+        roomId: resolvedRoomId ?? 0,
+        state: canvasState,
+        enabled: canvasState !== null && resolvedRoomId !== null,
+    });
+
+    useEffect(() => {
+        setSyncStatus(syncResult.isConnected ? "connected" : "disconnected");
+    }, [syncResult.isConnected]);
+
+    // Fetch and display invite link
+    useEffect(() => {
+        if (resolvedRoomId === null) return;
+
+        const fetchInviteLink = async () => {
+            try {
+                const response = await axios.get(
+                    `${HTTP_BACKEND}/room/${resolvedRoomId}/invite`,
+                    {
+                        withCredentials: true,
+                    }
+                );
+                const link = response.data?.data?.inviteLink;
+                console.log("[Invite] Fetched invite link:", link);
+                setInviteLink(link || `${window.location.origin}/canvas/${roomId}`);
+            } catch (error) {
+                console.error("Failed to fetch invite link:", error);
+                // Fallback: use current room slug as invite link
+                setInviteLink(`${window.location.origin}/canvas/${roomId}`);
+            }
+        };
+
+        void fetchInviteLink();
+    }, [roomId, resolvedRoomId]);
+
     const handleDeleteSelected = () => {
         controlsRef.current?.deleteSelection();
+    };
+
+    const handleCopyInvite = () => {
+        if (inviteLink) {
+            navigator.clipboard.writeText(inviteLink).then(() => {
+                alert("Invite link copied to clipboard!");
+            });
+        }
     };
 
     return (
@@ -431,6 +488,59 @@ export default function CanvasPage() {
                     </button>
                 </div>
             </div>
+
+            {/* Sync Status and Invite Link */}
+            <div className="absolute bottom-4 right-4 z-20 flex flex-col gap-2">
+                {/* Sync Status Indicator */}
+                <div
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
+                        syncStatus === "connected"
+                            ? isDark
+                                ? "bg-green-500/20 text-green-300"
+                                : "bg-green-100 text-green-700"
+                            : isDark
+                                ? "bg-yellow-500/20 text-yellow-300"
+                                : "bg-yellow-100 text-yellow-700"
+                    }`}
+                >
+                    <div
+                        className={`h-2 w-2 rounded-full ${
+                            syncStatus === "connected" ? "bg-green-500" : "bg-yellow-500"
+                        }`}
+                    />
+                    {syncStatus === "connected" ? "Connected" : "Connecting..."}
+                </div>
+
+                {/* Invite Link Button */}
+                {inviteLink && (
+                    <button
+                        type="button"
+                        onClick={handleCopyInvite}
+                        title="Copy invite link"
+                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                            isDark
+                                ? "border-blue-300/30 bg-blue-500/15 text-blue-300 hover:border-blue-200/50 hover:bg-blue-500/20"
+                                : "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                        }`}
+                    >
+                        <svg
+                            className="h-4 w-4"
+                            fill="none"
+                            stroke="currentColor"
+                            viewBox="0 0 24 24"
+                        >
+                            <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.658 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+                            />
+                        </svg>
+                        Invite
+                    </button>
+                )}
+            </div>
+
             <canvas ref={canvasRef} />
         </div>
     );

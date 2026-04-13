@@ -17,6 +17,8 @@ export type AttachEventsOptions = {
     getTool?: () => Tool;
     onToolChange?: (tool: Tool) => void;
     onSelectionChange?: (selectedIds: string[]) => void;
+    initialViewport?: import("../utils").Viewport;
+    onViewportChange?: (viewport: import("../utils").Viewport) => void;
 };
 
 /**

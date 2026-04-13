@@ -41,8 +41,29 @@ import {
 const SELECTION_PADDING = 6;
 const MIN_ZOOM = 0.12;
 const MAX_ZOOM = 4;
-const WHEEL_ZOOM_SENSITIVITY = 0.0015;
+const WHEEL_ZOOM_SENSITIVITY = 0.0035;
 const WHEEL_PAN_SENSITIVITY = 1;
+
+function getPixelRatio() {
+    return window.devicePixelRatio || 1;
+}
+
+function resizeCanvasForViewport(canvas: HTMLCanvasElement) {
+    const pixelRatio = getPixelRatio();
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    canvas.style.width = `${width}px`;
+    canvas.style.height = `${height}px`;
+    canvas.width = Math.round(width * pixelRatio);
+    canvas.height = Math.round(height * pixelRatio);
+
+    return {width, height, pixelRatio};
+}
+
+function getScenePixelRatio() {
+    return window.devicePixelRatio || 1;
+}
 
 function getPreviewTextColor() {
     if (typeof document === "undefined") return "#f8fafc";
@@ -67,7 +88,7 @@ export function attachEvents(
     state: CanvasState,
     options: AttachEventsOptions = {}
 ): AttachEventsController {
-    let viewport: Viewport = {
+    let viewport: Viewport = options.initialViewport ?? {
         x: canvas.width / 2,
         y: canvas.height / 2,
         scale: 1,
@@ -78,6 +99,7 @@ export function attachEvents(
     let selectedShapeIds: string[] = [];
 
     const renderScene = () => {
+        const pixelRatio = getScenePixelRatio();
         render(
             ctx,
             canvas,
@@ -85,8 +107,14 @@ export function attachEvents(
             selectedShape,
             selectionBox,
             getSelectedShapesByIds(state.getShapes(), selectedShapeIds),
-            viewport
+            viewport,
+            pixelRatio
         );
+    };
+
+    const setViewport = (nextViewport: Viewport) => {
+        viewport = nextViewport;
+        options.onViewportChange?.(viewport);
     };
 
     renderScene();
@@ -292,7 +320,7 @@ export function attachEvents(
                     ? state.getShapes().filter((shape) => shape.id !== existing.id)
                     : state.getShapes();
 
-                render(ctx, canvas, previewShapes, null, null, [], viewport);
+                render(ctx, canvas, previewShapes, null, null, [], viewport, getScenePixelRatio());
 
                 ctx.save();
                 ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.x, viewport.y);
@@ -466,16 +494,16 @@ export function attachEvents(
     window.addEventListener("resize", () => {
         const previousWidth = canvas.width;
         const previousHeight = canvas.height;
-
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        const {width, height, pixelRatio} = resizeCanvasForViewport(canvas);
 
         if (previousWidth > 0 && previousHeight > 0) {
-            viewport = {
+            const previousCssWidth = previousWidth / pixelRatio;
+            const previousCssHeight = previousHeight / pixelRatio;
+            setViewport({
                 ...viewport,
-                x: viewport.x + (canvas.width - previousWidth) / 2,
-                y: viewport.y + (canvas.height - previousHeight) / 2,
-            };
+                x: viewport.x + (width - previousCssWidth) / 2,
+                y: viewport.y + (height - previousCssHeight) / 2,
+            });
         }
 
         renderScene();
@@ -489,27 +517,30 @@ export function attachEvents(
             const pointer = getMousePos(canvas, e as unknown as MouseEvent);
             lastPointer = pointer;
 
+            const normalizedDeltaY =
+                e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * window.innerHeight : e.deltaY;
+
             if (e.ctrlKey || e.metaKey) {
                 const worldPoint = screenToWorldPoint(pointer, viewport);
-                const zoomFactor = Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY);
+                const zoomFactor = Math.exp(-normalizedDeltaY * WHEEL_ZOOM_SENSITIVITY);
                 const nextScale = clamp(viewport.scale * zoomFactor, MIN_ZOOM, MAX_ZOOM);
 
-                viewport = {
+                setViewport({
                     scale: nextScale,
                     x: pointer.x - worldPoint.x * nextScale,
                     y: pointer.y - worldPoint.y * nextScale,
-                };
+                });
 
                 updateCursor();
                 renderScene();
                 return;
             }
 
-            viewport = {
+            setViewport({
                 ...viewport,
                 x: viewport.x - e.deltaX * WHEEL_PAN_SENSITIVITY,
                 y: viewport.y - e.deltaY * WHEEL_PAN_SENSITIVITY,
-            };
+            });
 
             updateCursor();
             renderScene();
@@ -576,7 +607,7 @@ export function attachEvents(
 
             const selectedShapes = setSelection(nextSelectionIds);
 
-            render(ctx, canvas, shapes, selectedShape, null, selectedShapes, viewport);
+            render(ctx, canvas, shapes, selectedShape, null, selectedShapes, viewport, getScenePixelRatio());
             return;
         }
 
@@ -612,7 +643,7 @@ export function attachEvents(
                 prevX = x;
                 prevY = y;
 
-                render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport);
+                render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio());
                 return;
             }
 
@@ -636,7 +667,7 @@ export function attachEvents(
                 prevY = y;
             }
 
-            render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport);
+            render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio());
             return;
         }
 
@@ -677,11 +708,11 @@ export function attachEvents(
         const shape = getShapeAtPoint(shapes, x, y, ctx);
 
         if (isPanning) {
-            viewport = {
+            setViewport({
                 ...viewport,
                 x: panOriginX + (screenPoint.x - panStartX),
                 y: panOriginY + (screenPoint.y - panStartY),
-            };
+            });
 
             updateCursor();
             renderScene();
@@ -720,7 +751,7 @@ export function attachEvents(
             });
 
             const updated = state.getShapes().find((s) => s.id === shape.id);
-            render(ctx, canvas, state.getShapes(), updated || null, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport);
+            render(ctx, canvas, state.getShapes(), updated || null, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio());
             return;
         }
 
@@ -748,7 +779,7 @@ export function attachEvents(
                 const updatedSelectedShapes = getSelectedShapesByIds(updatedShapes, selectedShapeIds);
                 selectedShape = updatedShapes.find((shape) => shape.id === selectedShape?.id) || selectedShape;
 
-                render(ctx, canvas, updatedShapes, selectedShape, null, updatedSelectedShapes, viewport);
+                render(ctx, canvas, updatedShapes, selectedShape, null, updatedSelectedShapes, viewport, getScenePixelRatio());
                 return;
             }
 
@@ -833,7 +864,7 @@ export function attachEvents(
                 prevY = y;
             }
 
-            render(ctx, canvas, state.getShapes(), selected, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport);
+            render(ctx, canvas, state.getShapes(), selected, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio());
             return;
         }
 
@@ -846,7 +877,7 @@ export function attachEvents(
             selectedShapeIds = selectedShapes.map((shape) => shape.id);
             emitSelectionChange();
 
-            render(ctx, canvas, shapes, null, selectionBox, selectedShapes, viewport);
+            render(ctx, canvas, shapes, null, selectionBox, selectedShapes, viewport, getScenePixelRatio());
             return;
         }
 
@@ -858,7 +889,7 @@ export function attachEvents(
                 points: freehandPoints,
             };
 
-            render(ctx, canvas, [...shapes, {...preview, id: "__preview__"}], selectedShape, null, getSelectedShapesByIds(shapes, selectedShapeIds), viewport);
+            render(ctx, canvas, [...shapes, {...preview, id: "__preview__"}], selectedShape, null, getSelectedShapesByIds(shapes, selectedShapeIds), viewport, getScenePixelRatio());
             return;
         }
 
@@ -875,7 +906,7 @@ export function attachEvents(
             shapesToRender = [...shapes, {...previewShape, id: "__preview__"}];
         }
 
-        render(ctx, canvas, shapesToRender, selectedShape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport);
+        render(ctx, canvas, shapesToRender, selectedShape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio());
     });
 
     /* ---------------- MOUSEUP ---------------- */
@@ -990,7 +1021,7 @@ export function attachEvents(
         rerender: () => {
             const shapes = state.getShapes();
             const selected = getSelectedShapesByIds(shapes, selectedShapeIds);
-            render(ctx, canvas, shapes, selectedShape, selectionBox, selected, viewport);
+            render(ctx, canvas, shapes, selectedShape, selectionBox, selected, viewport, getScenePixelRatio());
         },
     };
 }

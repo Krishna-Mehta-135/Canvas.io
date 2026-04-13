@@ -85,6 +85,55 @@ const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}>
     },
 ];
 
+type StoredViewport = {
+    x: number;
+    y: number;
+    scale: number;
+};
+
+function getViewportStorageKey(roomKey: string) {
+    return `canvas-viewport:${roomKey}`;
+}
+
+function loadStoredViewport(roomKey: string): StoredViewport | null {
+    if (typeof window === "undefined") return null;
+
+    try {
+        const raw = window.localStorage.getItem(getViewportStorageKey(roomKey));
+        if (!raw) return null;
+
+        const parsed = JSON.parse(raw) as Partial<StoredViewport>;
+        if (
+            typeof parsed.x !== "number" ||
+            typeof parsed.y !== "number" ||
+            typeof parsed.scale !== "number" ||
+            !Number.isFinite(parsed.x) ||
+            !Number.isFinite(parsed.y) ||
+            !Number.isFinite(parsed.scale)
+        ) {
+            return null;
+        }
+
+        return {
+            x: parsed.x,
+            y: parsed.y,
+            scale: parsed.scale,
+        };
+    } catch {
+        return null;
+    }
+}
+
+function saveStoredViewport(roomKey: string, viewport: StoredViewport) {
+    if (typeof window === "undefined") return;
+
+    try {
+        window.localStorage.setItem(getViewportStorageKey(roomKey), JSON.stringify(viewport));
+    } catch {
+        // Ignore storage failures; viewport persistence is best-effort.
+    }
+}
+
 export default function CanvasPage() {
     const params = useParams<{roomId: string}>();
     const roomId = Array.isArray(params?.roomId) ? params.roomId[0] : params?.roomId;
@@ -153,9 +202,15 @@ export default function CanvasPage() {
         const ctx = canvas.getContext("2d");
         if (!ctx) return;
 
+        const pixelRatio = window.devicePixelRatio || 1;
+
         // set size
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
+        canvas.style.width = `${window.innerWidth}px`;
+        canvas.style.height = `${window.innerHeight}px`;
+        canvas.width = Math.round(window.innerWidth * pixelRatio);
+        canvas.height = Math.round(window.innerHeight * pixelRatio);
+
+        const initialViewport = loadStoredViewport(roomId);
 
         const state = new CanvasState();
         stateRef.current = state;
@@ -329,12 +384,16 @@ export default function CanvasPage() {
 
             controlsRef.current = attachEvents(canvas, ctx, state, {
                 getTool: () => toolRef.current,
+                initialViewport: initialViewport ?? undefined,
                 onToolChange: (tool) => {
                     toolRef.current = tool;
                     setActiveTool(tool);
                 },
                 onSelectionChange: (selectedIds) => {
                     setSelectedCount(selectedIds.length);
+                },
+                onViewportChange: (viewport) => {
+                    saveStoredViewport(roomId, viewport);
                 },
             });
         };
@@ -444,7 +503,7 @@ export default function CanvasPage() {
                                 type="button"
                                 onClick={() => setActiveTool(tool.id)}
                                 title={`${tool.label} (${tool.shortcut})`}
-                                className={`group flex shrink-0 min-w-[72px] flex-col items-center rounded-2xl border px-3 py-2 transition ${
+                                className={`group flex shrink-0 min-w-18 flex-col items-center rounded-2xl border px-3 py-2 transition ${
                                     isActive
                                         ? isDark
                                             ? "border-[#8d8ac5] bg-[#8d8ac5]/20 text-white"
@@ -477,7 +536,7 @@ export default function CanvasPage() {
                         onClick={handleDeleteSelected}
                         disabled={selectedCount === 0}
                         title="Delete selected shapes (Delete/Backspace)"
-                        className={`group flex shrink-0 min-w-[72px] flex-col items-center rounded-2xl border px-3 py-2 transition ${
+                        className={`group flex shrink-0 min-w-18 flex-col items-center rounded-2xl border px-3 py-2 transition ${
                             selectedCount > 0
                                 ? isDark
                                     ? "border-red-300/30 bg-red-500/15 text-white hover:border-red-200/50 hover:bg-red-500/20"

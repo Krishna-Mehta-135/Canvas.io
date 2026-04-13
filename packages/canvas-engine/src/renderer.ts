@@ -223,35 +223,31 @@ function drawFreehand(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type
     ctx.stroke();
 }
 
-function drawInfiniteGrid(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, viewport: Viewport) {
+function drawInfiniteGrid(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, viewport: Viewport, pixelRatio: number) {
     const targetScreenStep = 48;
-    const worldStep = targetScreenStep / viewport.scale;
+    const screenWidth = canvas.width / pixelRatio;
+    const screenHeight = canvas.height / pixelRatio;
 
-    if (!Number.isFinite(worldStep) || worldStep <= 0) return;
-
-    const topLeft = screenToWorldPoint({x: 0, y: 0}, viewport);
-    const bottomRight = screenToWorldPoint({x: canvas.width, y: canvas.height}, viewport);
-
-    const startX = Math.floor(topLeft.x / worldStep) * worldStep;
-    const endX = Math.ceil(bottomRight.x / worldStep) * worldStep;
-    const startY = Math.floor(topLeft.y / worldStep) * worldStep;
-    const endY = Math.ceil(bottomRight.y / worldStep) * worldStep;
+    const offsetX = ((viewport.x % targetScreenStep) + targetScreenStep) % targetScreenStep;
+    const offsetY = ((viewport.y % targetScreenStep) + targetScreenStep) % targetScreenStep;
 
     ctx.save();
     ctx.strokeStyle = "rgba(148, 163, 184, 0.12)";
-    ctx.lineWidth = 1 / viewport.scale;
+    ctx.lineWidth = 1 / pixelRatio;
 
-    for (let x = startX; x <= endX; x += worldStep) {
+    for (let x = offsetX; x <= screenWidth; x += targetScreenStep) {
+        const snappedX = Math.round(x * pixelRatio) / pixelRatio;
         ctx.beginPath();
-        ctx.moveTo(x, topLeft.y);
-        ctx.lineTo(x, bottomRight.y);
+        ctx.moveTo(snappedX, 0);
+        ctx.lineTo(snappedX, screenHeight);
         ctx.stroke();
     }
 
-    for (let y = startY; y <= endY; y += worldStep) {
+    for (let y = offsetY; y <= screenHeight; y += targetScreenStep) {
+        const snappedY = Math.round(y * pixelRatio) / pixelRatio;
         ctx.beginPath();
-        ctx.moveTo(topLeft.x, y);
-        ctx.lineTo(bottomRight.x, y);
+        ctx.moveTo(0, snappedY);
+        ctx.lineTo(screenWidth, snappedY);
         ctx.stroke();
     }
 
@@ -403,7 +399,7 @@ function getHandlePoints(shape: Shape, ctx: CanvasRenderingContext2D) {
  *
  * Purely visual (does not affect state).
  */
-function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape, viewport: Viewport) {
+function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape, viewport: Viewport, pixelRatio: number) {
     ctx.save();
 
     const {x, y, width, height} = getBoundingBox(shape, ctx);
@@ -416,30 +412,30 @@ function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape, viewport: Vi
     ctx.lineWidth = 1;
 
     ctx.strokeRect(
-        topLeft.x - SELECTION_PADDING,
-        topLeft.y - SELECTION_PADDING,
-        screenWidth + SELECTION_PADDING * 2,
-        screenHeight + SELECTION_PADDING * 2
+        (topLeft.x - SELECTION_PADDING) * pixelRatio,
+        (topLeft.y - SELECTION_PADDING) * pixelRatio,
+        (screenWidth + SELECTION_PADDING * 2) * pixelRatio,
+        (screenHeight + SELECTION_PADDING * 2) * pixelRatio
     );
 
     const handles = getHandlePoints(shape, ctx);
     handles.forEach((p) => {
         const screenPoint = worldToScreenPoint(p, viewport);
-        drawHandle(ctx, screenPoint.x, screenPoint.y);
+        drawHandle(ctx, screenPoint.x * pixelRatio, screenPoint.y * pixelRatio);
     });
 
     ctx.restore();
 }
 
-function drawSelectionBox(ctx: CanvasRenderingContext2D, selectionBox: SelectionBox, viewport: Viewport) {
+function drawSelectionBox(ctx: CanvasRenderingContext2D, selectionBox: SelectionBox, viewport: Viewport, pixelRatio: number) {
     ctx.save();
 
     const start = worldToScreenPoint({x: selectionBox.x, y: selectionBox.y}, viewport);
     const end = worldToScreenPoint({x: selectionBox.x + selectionBox.width, y: selectionBox.y + selectionBox.height}, viewport);
-    const x = Math.min(start.x, end.x);
-    const y = Math.min(start.y, end.y);
-    const width = Math.abs(end.x - start.x);
-    const height = Math.abs(end.y - start.y);
+    const x = Math.min(start.x, end.x) * pixelRatio;
+    const y = Math.min(start.y, end.y) * pixelRatio;
+    const width = Math.abs(end.x - start.x) * pixelRatio;
+    const height = Math.abs(end.y - start.y) * pixelRatio;
 
     ctx.strokeStyle = HANDLE_COLOR;
     ctx.lineWidth = 1;
@@ -469,20 +465,20 @@ export function render(
     selectedShape: Shape | null,
     selectionBox: SelectionBox | null = null,
     selectedShapes: Shape[] = [],
-    viewport: Viewport = DEFAULT_VIEWPORT
+    viewport: Viewport = DEFAULT_VIEWPORT,
+    pixelRatio = 1
 ) {
     const palette = getThemePalette();
 
     ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     ctx.fillStyle = palette.background;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, canvas.width / pixelRatio, canvas.height / pixelRatio);
+    drawInfiniteGrid(ctx, canvas, viewport, pixelRatio);
     ctx.restore();
 
     ctx.save();
-    ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.x, viewport.y);
-
-    drawInfiniteGrid(ctx, canvas, viewport);
+    ctx.setTransform(viewport.scale * pixelRatio, 0, 0, viewport.scale * pixelRatio, viewport.x * pixelRatio, viewport.y * pixelRatio);
 
     shapes.forEach((shape) => {
         const drawFn = drawMap[shape.type];
@@ -495,17 +491,17 @@ export function render(
 
     selectedShapes.forEach((shape) => {
         if (shape === selectedShape) return;
-        drawSelection(ctx, shape, viewport);
+        drawSelection(ctx, shape, viewport, pixelRatio);
     });
 
     if (selectedShape) {
         const primary = shapes.find((shape) => shape.id === selectedShape.id);
         if (primary) {
-            drawSelection(ctx, primary, viewport);
+            drawSelection(ctx, primary, viewport, pixelRatio);
         }
     }
 
     if (selectionBox) {
-        drawSelectionBox(ctx, selectionBox, viewport);
+        drawSelectionBox(ctx, selectionBox, viewport, pixelRatio);
     }
 }

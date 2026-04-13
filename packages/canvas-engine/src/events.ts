@@ -416,6 +416,7 @@ export function attachEvents(
                     height,
                     parentId: parentShape?.id,
                     roughness: DEFAULT_SHAPE_ROUGHNESS,
+                    strokeStyle: "solid",
                 };
 
                 ctx.save();
@@ -664,6 +665,9 @@ export function attachEvents(
             if (shape.type === "rect") {
                 offsetX = x - shape.x;
                 offsetY = y - shape.y;
+            } else if (shape.type === "rhombus") {
+                offsetX = x - shape.x;
+                offsetY = y - shape.y;
             } else if (shape.type === "circle") {
                 offsetX = x - shape.centerX;
                 offsetY = y - shape.centerY;
@@ -705,6 +709,8 @@ export function attachEvents(
         isDrawing = true;
         startX = x;
         startY = y;
+        clearSelection();
+        renderScene();
     });
 
     /* ---------------- MOUSEMOVE ---------------- */
@@ -797,6 +803,17 @@ export function attachEvents(
             const selected = selectedShape;
 
             if (selected.type === "rect") {
+                dispatch(state, {
+                    type: "MOVE_SHAPE",
+                    payload: {
+                        id: selected.id,
+                        updates: {
+                            x: x - offsetX,
+                            y: y - offsetY,
+                        },
+                    },
+                });
+            } else if (selected.type === "rhombus") {
                 dispatch(state, {
                     type: "MOVE_SHAPE",
                     payload: {
@@ -942,6 +959,7 @@ export function attachEvents(
                     type: "freehand",
                     points: freehandPoints,
                     roughness: DEFAULT_SHAPE_ROUGHNESS,
+                    strokeStyle: "solid",
                 };
 
                 dispatch(state, {
@@ -1000,14 +1018,19 @@ export function attachEvents(
             preserveAspect: e.shiftKey,
         });
 
+        const newShapeId = crypto.randomUUID();
+
         dispatch(state, {
             type: "ADD_SHAPE",
             payload: {
                 ...preview,
-                id: crypto.randomUUID(),
+                id: newShapeId,
                 roughness: DEFAULT_SHAPE_ROUGHNESS,
+                strokeStyle: "solid",
             },
         });
+
+        setSelection([newShapeId], newShapeId);
 
         isDrawing = false;
         activeTool = null;

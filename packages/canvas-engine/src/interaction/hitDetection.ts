@@ -41,6 +41,17 @@ function hitEllipse(shape: Extract<Shape, {type: "circle"}>, x: number, y: numbe
     return value <= 1;
 }
 
+function hitRhombus(shape: Extract<Shape, {type: "rhombus"}>, x: number, y: number) {
+    if (shape.width <= 0 || shape.height <= 0) return false;
+
+    const centerX = shape.x + shape.width / 2;
+    const centerY = shape.y + shape.height / 2;
+    const dx = Math.abs(x - centerX);
+    const dy = Math.abs(y - centerY);
+
+    return dx / (shape.width / 2) + dy / (shape.height / 2) <= 1;
+}
+
 function hitConnector(shape: Extract<Shape, {type: "line" | "arrow"}>, x: number, y: number) {
     const dx = shape.x2 - shape.x1;
     const dy = shape.y2 - shape.y1;
@@ -94,6 +105,7 @@ function hitFreehand(shape: Extract<Shape, {type: "freehand"}>, x: number, y: nu
 const hitMap = {
     rect: hitRect,
     circle: hitEllipse,
+    rhombus: hitRhombus,
     line: hitConnector,
     arrow: hitConnector,
     text: hitText,
@@ -125,6 +137,17 @@ export function getHandleAtPoint(
 ): Handle | null {
     // RECT
     if (shape.type === "rect") {
+        return getBoxHandle(
+            shape.x - padding,
+            shape.y - padding,
+            shape.x + shape.width + padding,
+            shape.y + shape.height + padding,
+            x,
+            y
+        );
+    }
+
+    if (shape.type === "rhombus") {
         return getBoxHandle(
             shape.x - padding,
             shape.y - padding,

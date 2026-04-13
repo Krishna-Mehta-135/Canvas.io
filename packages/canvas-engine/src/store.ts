@@ -281,6 +281,14 @@ export function dispatch(state: CanvasState, action: Action) {
                     };
                 }
 
+                if (shape.type === "rhombus") {
+                    return {
+                        ...shape,
+                        x: shape.x + dx,
+                        y: shape.y + dy,
+                    };
+                }
+
                 if (shape.type === "circle") {
                     return {
                         ...shape,
@@ -342,6 +350,14 @@ export function dispatch(state: CanvasState, action: Action) {
                 if (!selectedSet.has(shape.id)) return shape;
 
                 if (shape.type === "rect") {
+                    return {
+                        ...shape,
+                        x: shape.x + dx,
+                        y: shape.y + dy,
+                    };
+                }
+
+                if (shape.type === "rhombus") {
                     return {
                         ...shape,
                         x: shape.x + dx,

@@ -41,6 +41,10 @@ export function isShapeInsideBox(shape: Shape, box: SelectionBox) {
         return shape.x >= x && shape.x + shape.width <= x2 && shape.y >= y && shape.y + shape.height <= y2;
     }
 
+    if (shape.type === "rhombus") {
+        return shape.x >= x && shape.x + shape.width <= x2 && shape.y >= y && shape.y + shape.height <= y2;
+    }
+
     if (shape.type === "circle") {
         const sx1 = shape.centerX - shape.radiusX;
         const sy1 = shape.centerY - shape.radiusY;

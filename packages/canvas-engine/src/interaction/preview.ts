@@ -67,6 +67,27 @@ export function createPreviewShape(
         };
     }
 
+    if (tool === "rhombus") {
+        let nextX = currentX;
+        let nextY = currentY;
+
+        if (preserveAspect) {
+            const dx = currentX - startX;
+            const dy = currentY - startY;
+            const size = Math.max(Math.abs(dx), Math.abs(dy));
+            nextX = startX + Math.sign(dx || 1) * size;
+            nextY = startY + Math.sign(dy || 1) * size;
+        }
+
+        return {
+            type: "rhombus",
+            x: Math.min(startX, nextX),
+            y: Math.min(startY, nextY),
+            width: Math.abs(nextX - startX),
+            height: Math.abs(nextY - startY),
+        };
+    }
+
     if (tool === "line" || tool === "arrow") {
         if (preserveAspect) {
             const dx = currentX - startX;

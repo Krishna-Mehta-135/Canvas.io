@@ -31,6 +31,15 @@ export function convertToPoints(shape: Shape) {
         };
     }
 
+    if (shape.type === "rhombus") {
+        return {
+            x1: shape.x,
+            y1: shape.y,
+            x2: shape.x + shape.width,
+            y2: shape.y + shape.height,
+        };
+    }
+
     if (shape.type === "circle") {
         return {
             x1: shape.centerX - shape.radiusX,
@@ -99,6 +108,15 @@ export function convertBackToShape(shape: Shape, box: any) {
     const {x1, y1, x2, y2} = box;
 
     if (shape.type === "rect") {
+        return {
+            x: x1,
+            y: y1,
+            width: x2 - x1,
+            height: y2 - y1,
+        };
+    }
+
+    if (shape.type === "rhombus") {
         return {
             x: x1,
             y: y1,

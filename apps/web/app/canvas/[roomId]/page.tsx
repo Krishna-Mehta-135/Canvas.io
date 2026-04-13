@@ -17,12 +17,17 @@ const FILL_STYLE_OPTIONS: Array<{value: NonNullable<Shape["fillStyle"]>; label: 
     {value: "cross-hatch", label: "Cross Hatch"},
     {value: "dots", label: "Dots"},
 ];
+const STROKE_STYLE_OPTIONS: Array<{value: NonNullable<Shape["strokeStyle"]>; label: string}> = [
+    {value: "solid", label: "Solid"},
+    {value: "dashed", label: "Dashed"},
+    {value: "dotted", label: "Dotted"},
+];
 
 const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}> = [
     {
         id: "select",
         label: "Select",
-        shortcut: "V",
+        shortcut: "0",
         icon: (
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M6 3l11 7-5 1 3 7-2 1-3-7-4 4z" />
@@ -50,9 +55,19 @@ const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}>
         ),
     },
     {
+        id: "rhombus",
+        label: "Rhombus",
+        shortcut: "3",
+        icon: (
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 4l8 8-8 8-8-8z" />
+            </svg>
+        ),
+    },
+    {
         id: "line",
         label: "Line",
-        shortcut: "3",
+        shortcut: "4",
         icon: (
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M5 18L19 6" />
@@ -62,7 +77,7 @@ const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}>
     {
         id: "arrow",
         label: "Arrow",
-        shortcut: "A",
+        shortcut: "5",
         icon: (
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M5 18L18 6" />
@@ -73,7 +88,7 @@ const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}>
     {
         id: "text",
         label: "Text",
-        shortcut: "4",
+        shortcut: "6",
         icon: (
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M4 6h16" />
@@ -84,7 +99,7 @@ const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}>
     {
         id: "freehand",
         label: "Freehand",
-        shortcut: "5",
+        shortcut: "7",
         icon: (
             <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M3 16c3-8 8 4 12-4 1-2 3-2 6 0" />
@@ -213,6 +228,48 @@ function FillStyleTile({
             }}
             title="Dots"
         />
+    );
+}
+
+function StrokeStyleTile({
+    value,
+    selected,
+    onClick,
+    isDark,
+}: {
+    value: NonNullable<Shape["strokeStyle"]>;
+    selected: boolean;
+    onClick: () => void;
+    isDark: boolean;
+}) {
+    const border = selected
+        ? "border-indigo-500 ring-2 ring-indigo-300 dark:border-indigo-300 dark:ring-indigo-700"
+        : isDark
+            ? "border-white/15 hover:border-white/30"
+            : "border-slate-300 hover:border-slate-500";
+
+    const dashArray = value === "dashed" ? "10 6" : value === "dotted" ? "2 6" : undefined;
+
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className={`h-9 w-14 rounded-md border transition ${border} ${isDark ? "bg-[#1e1e1e]" : "bg-white"}`}
+            title={value}
+        >
+            <svg viewBox="0 0 48 24" className="h-full w-full" fill="none">
+                <line
+                    x1="8"
+                    y1="12"
+                    x2="40"
+                    y2="12"
+                    className={isDark ? "stroke-slate-200" : "stroke-slate-700"}
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeDasharray={dashArray}
+                />
+            </svg>
+        </button>
     );
 }
 
@@ -588,6 +645,7 @@ export default function CanvasPage() {
 
     const strokeValue = primarySelectedShape?.stroke ?? "#f8fafc";
     const fillValue = primarySelectedShape?.fill ?? "#60a5fa";
+    const strokeStyleValue = primarySelectedShape?.strokeStyle ?? "solid";
     const fillStyleValue = primarySelectedShape?.fillStyle ?? "solid";
     const strokeWidthValue = primarySelectedShape?.strokeWidth ?? 2;
     const roughnessValue = primarySelectedShape?.roughness ?? 0;
@@ -712,6 +770,21 @@ export default function CanvasPage() {
                                     className="absolute inset-0 cursor-pointer opacity-0"
                                 />
                             </label>
+                        </div>
+                    </div>
+
+                    <div className="mb-3">
+                        <label className="mb-1 block text-xs font-medium opacity-80">Stroke Style</label>
+                        <div className="flex items-center gap-2">
+                            {STROKE_STYLE_OPTIONS.map((option) => (
+                                <StrokeStyleTile
+                                    key={option.value}
+                                    value={option.value}
+                                    selected={strokeStyleValue === option.value}
+                                    onClick={() => applyToSelectedShapes({strokeStyle: option.value})}
+                                    isDark={isDark}
+                                />
+                            ))}
                         </div>
                     </div>
 

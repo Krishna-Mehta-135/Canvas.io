@@ -12,6 +12,7 @@ Contains:
 type BaseShape = {
     id: string;
     stroke?: string;
+    strokeStyle?: "solid" | "dashed" | "dotted";
     fill?: string;
     fillStyle?: "solid" | "hachure" | "cross-hatch" | "dots";
     strokeWidth?: number;
@@ -58,6 +59,13 @@ export type Shape =
           radiusX: number;
           radiusY: number;
       })
+        | (BaseShape & {
+                    type: "rhombus";
+                    x: number;
+                    y: number;
+                    width: number;
+                    height: number;
+            })
         | (ConnectorShape & {
                     type: "line";
             })
@@ -95,6 +103,13 @@ export type PreviewShape =
           radiusX: number;
           radiusY: number;
       }
+        | {
+                    type: "rhombus";
+                    x: number;
+                    y: number;
+                    width: number;
+                    height: number;
+            }
     | {
           type: "line";
           x1: number;

@@ -24,6 +24,7 @@ import rough from "roughjs/bin/rough";
 import type {Options as RoughOptions} from "roughjs/bin/core";
 
 const DEFAULT_STROKE_WIDTH = 2;
+const ROUGHJS_THRESHOLD = 1.8;
 const HANDLE_COLOR = "#8d8ac5";
 const SELECTION_PADDING = 6;
 const HANDLE_SIZE = 12;
@@ -114,17 +115,42 @@ function getRoughCanvas(ctx: CanvasRenderingContext2D) {
 
 function getRoughOptions(shape: Shape): RoughOptions {
     const roughness = Math.max(0.8, shape.roughness ?? 1);
+    const strokeLineDash = getStrokeDash(shape);
     return {
         stroke: shape.stroke || getThemePalette().stroke,
         strokeWidth: getStrokeWidth(shape),
         roughness,
         bowing: Math.max(0.4, roughness * 0.8),
         seed: hashShapeSeed(shape.id),
+        strokeLineDash,
     };
+}
+
+function shouldUseRoughJs(shape: Shape) {
+    return (shape.roughness ?? 0) >= ROUGHJS_THRESHOLD;
 }
 
 function getStrokeWidth(shape: Shape) {
     return Math.max(1, Math.min(12, shape.strokeWidth ?? DEFAULT_STROKE_WIDTH));
+}
+
+function getStrokeDash(shape: Shape) {
+    const strokeWidth = getStrokeWidth(shape);
+    const style = shape.strokeStyle ?? "solid";
+
+    if (style === "dashed") {
+        return [strokeWidth * 4, strokeWidth * 2.5];
+    }
+
+    if (style === "dotted") {
+        return [strokeWidth, strokeWidth * 2.2];
+    }
+
+    return [];
+}
+
+function applyStrokeStyle(ctx: CanvasRenderingContext2D, shape: Shape) {
+    ctx.setLineDash(getStrokeDash(shape));
 }
 
 function applyRoughness(ctx: CanvasRenderingContext2D, shape: Shape) {
@@ -191,7 +217,7 @@ function getFillPattern(ctx: CanvasRenderingContext2D, style: NonNullable<Shape[
 }
 
 function applyShapeFill(ctx: CanvasRenderingContext2D, shape: Shape) {
-    if ((shape.type !== "rect" && shape.type !== "circle") || !shape.fill) return;
+    if ((shape.type !== "rect" && shape.type !== "circle" && shape.type !== "rhombus") || !shape.fill) return;
 
     const fillColor = withAlpha(shape.fill, getFillOpacity(shape));
 
@@ -203,8 +229,8 @@ function applyShapeFill(ctx: CanvasRenderingContext2D, shape: Shape) {
 
     const pattern = getFillPattern(ctx, shape.fillStyle, fillColor);
     if (pattern) {
-        const anchorX = shape.type === "rect" ? shape.x : shape.centerX - shape.radiusX;
-        const anchorY = shape.type === "rect" ? shape.y : shape.centerY - shape.radiusY;
+        const anchorX = shape.type === "circle" ? shape.centerX - shape.radiusX : shape.x;
+        const anchorY = shape.type === "circle" ? shape.centerY - shape.radiusY : shape.y;
 
         if (typeof pattern.setTransform === "function") {
             pattern.setTransform(new DOMMatrix().translate(anchorX, anchorY));
@@ -233,6 +259,7 @@ const drawMap: {
 } = {
     rect: drawRectangle,
     circle: drawCircle,
+    rhombus: drawRhombus,
     line: drawLine,
     arrow: drawArrow,
     text: drawText,
@@ -269,6 +296,18 @@ function drawRoundedRect(
     ctx.closePath();
 }
 
+function drawRhombusPath(ctx: CanvasRenderingContext2D, x: number, y: number, width: number, height: number) {
+    const midX = x + width / 2;
+    const midY = y + height / 2;
+
+    ctx.beginPath();
+    ctx.moveTo(midX, y);
+    ctx.lineTo(x + width, midY);
+    ctx.lineTo(midX, y + height);
+    ctx.lineTo(x, midY);
+    ctx.closePath();
+}
+
 // -------------------- DRAW SHAPES --------------------
 
 /**
@@ -281,8 +320,7 @@ function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {typ
     ctx.globalAlpha = getShapeOpacity(shape);
 
     const radius = Math.min(20, shape.width / 3, shape.height / 3);
-    const roughness = shape.roughness ?? 0;
-    if (roughness > 0) {
+    if (shouldUseRoughJs(shape)) {
         const rc = getRoughCanvas(ctx);
         if (rc) {
             if (shape.fill) {
@@ -297,6 +335,7 @@ function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {typ
 
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
     ctx.lineWidth = getStrokeWidth(shape);
+    applyStrokeStyle(ctx, shape);
     applyRoughness(ctx, shape);
 
     drawRoundedRect(ctx, shape.x, shape.y, shape.width, shape.height, radius);
@@ -316,8 +355,7 @@ function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: 
     ctx.save();
     ctx.globalAlpha = getShapeOpacity(shape);
 
-    const roughness = shape.roughness ?? 0;
-    if (roughness > 0) {
+    if (shouldUseRoughJs(shape)) {
         const rc = getRoughCanvas(ctx);
         if (rc) {
             if (shape.fill) {
@@ -333,10 +371,50 @@ function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: 
 
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
     ctx.lineWidth = getStrokeWidth(shape);
+    applyStrokeStyle(ctx, shape);
     applyRoughness(ctx, shape);
 
     ctx.beginPath();
     ctx.ellipse(shape.centerX, shape.centerY, shape.radiusX, shape.radiusY, 0, 0, Math.PI * 2);
+    applyShapeFill(ctx, shape);
+    ctx.stroke();
+    ctx.restore();
+}
+
+function drawRhombus(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "rhombus"}>) {
+    ctx.save();
+    ctx.globalAlpha = getShapeOpacity(shape);
+
+    if (shouldUseRoughJs(shape)) {
+        const rc = getRoughCanvas(ctx);
+        if (rc) {
+            if (shape.fill) {
+                drawRhombusPath(ctx, shape.x, shape.y, shape.width, shape.height);
+                applyShapeFill(ctx, shape);
+            }
+
+            const midX = shape.x + shape.width / 2;
+            const midY = shape.y + shape.height / 2;
+            rc.polygon(
+                [
+                    [midX, shape.y],
+                    [shape.x + shape.width, midY],
+                    [midX, shape.y + shape.height],
+                    [shape.x, midY],
+                ],
+                getRoughOptions(shape)
+            );
+            ctx.restore();
+            return;
+        }
+    }
+
+    ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
+    ctx.lineWidth = getStrokeWidth(shape);
+    applyStrokeStyle(ctx, shape);
+    applyRoughness(ctx, shape);
+
+    drawRhombusPath(ctx, shape.x, shape.y, shape.width, shape.height);
     applyShapeFill(ctx, shape);
     ctx.stroke();
     ctx.restore();
@@ -352,8 +430,7 @@ function drawLine(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "l
     ctx.save();
     ctx.globalAlpha = getShapeOpacity(shape);
 
-    const roughness = shape.roughness ?? 0;
-    if (roughness > 0) {
+    if (shouldUseRoughJs(shape)) {
         const rc = getRoughCanvas(ctx);
         if (rc) {
             rc.line(shape.x1, shape.y1, shape.x2, shape.y2, getRoughOptions(shape));
@@ -364,6 +441,7 @@ function drawLine(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "l
 
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
     ctx.lineWidth = getStrokeWidth(shape);
+    applyStrokeStyle(ctx, shape);
     applyRoughness(ctx, shape);
 
     ctx.beginPath();
@@ -377,8 +455,7 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "
     ctx.save();
     ctx.globalAlpha = getShapeOpacity(shape);
 
-    const roughness = shape.roughness ?? 0;
-    const rc = roughness > 0 ? getRoughCanvas(ctx) : null;
+    const rc = shouldUseRoughJs(shape) ? getRoughCanvas(ctx) : null;
 
     const dx = shape.x2 - shape.x1;
     const dy = shape.y2 - shape.y1;
@@ -410,6 +487,7 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "
 
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
     ctx.lineWidth = getStrokeWidth(shape);
+    applyStrokeStyle(ctx, shape);
     applyRoughness(ctx, shape);
 
     ctx.beginPath();
@@ -444,6 +522,7 @@ function drawFreehand(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type
     ctx.save();
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
     ctx.lineWidth = getStrokeWidth(shape);
+    applyStrokeStyle(ctx, shape);
     ctx.globalAlpha = getShapeOpacity(shape);
     applyRoughness(ctx, shape);
     ctx.lineCap = "round";
@@ -522,6 +601,15 @@ function getBoundingBox(shape: Shape, ctx?: CanvasRenderingContext2D) {
             y: shape.centerY - shape.radiusY,
             width: shape.radiusX * 2,
             height: shape.radiusY * 2,
+        };
+    }
+
+    if (shape.type === "rhombus") {
+        return {
+            x: shape.x,
+            y: shape.y,
+            width: shape.width,
+            height: shape.height,
         };
     }
 

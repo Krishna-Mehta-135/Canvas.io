@@ -43,6 +43,7 @@ const MIN_ZOOM = 0.12;
 const MAX_ZOOM = 4;
 const WHEEL_ZOOM_SENSITIVITY = 0.0035;
 const WHEEL_PAN_SENSITIVITY = 1;
+const DEFAULT_SHAPE_ROUGHNESS = 1.2;
 
 function getPixelRatio() {
     return window.devicePixelRatio || 1;
@@ -134,6 +135,7 @@ export function attachEvents(
     let isResizing = false;
     let isFreehandDrawing = false;
     let freehandPoints: Array<{x: number; y: number}> = [];
+    let replayFrameId: number | null = null;
     let isPanning = false;
     let spacePressed = false;
     let panStartX = 0;
@@ -323,7 +325,15 @@ export function attachEvents(
                 render(ctx, canvas, previewShapes, null, null, [], viewport, getScenePixelRatio());
 
                 ctx.save();
-                ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.x, viewport.y);
+                const pixelRatio = getScenePixelRatio();
+                ctx.setTransform(
+                    pixelRatio * viewport.scale,
+                    0,
+                    0,
+                    pixelRatio * viewport.scale,
+                    pixelRatio * viewport.x,
+                    pixelRatio * viewport.y
+                );
 
                 // Draw using current theme color so preview remains visible in light and dark modes.
                 ctx.fillStyle = existing?.stroke || getPreviewTextColor();
@@ -405,6 +415,7 @@ export function attachEvents(
                     width: Math.max(8, Math.min(width, maxPreviewWidth)),
                     height,
                     parentId: parentShape?.id,
+                    roughness: DEFAULT_SHAPE_ROUGHNESS,
                 };
 
                 ctx.save();
@@ -903,7 +914,7 @@ export function attachEvents(
         let shapesToRender = shapes;
 
         if (previewShape) {
-            shapesToRender = [...shapes, {...previewShape, id: "__preview__"}];
+            shapesToRender = [...shapes, {...previewShape, id: "__preview__", roughness: DEFAULT_SHAPE_ROUGHNESS}];
         }
 
         render(ctx, canvas, shapesToRender, selectedShape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio());
@@ -930,6 +941,7 @@ export function attachEvents(
                     id: crypto.randomUUID(),
                     type: "freehand",
                     points: freehandPoints,
+                    roughness: DEFAULT_SHAPE_ROUGHNESS,
                 };
 
                 dispatch(state, {
@@ -993,6 +1005,7 @@ export function attachEvents(
             payload: {
                 ...preview,
                 id: crypto.randomUUID(),
+                roughness: DEFAULT_SHAPE_ROUGHNESS,
             },
         });
 
@@ -1014,6 +1027,54 @@ export function attachEvents(
         startTextEditing(shape.x, shape.y, shape);
     });
 
+    const replayShape = (shapeId: string) => {
+        const target = state.getShapes().find((shape) => shape.id === shapeId);
+        if (!target || target.type !== "freehand" || target.points.length < 2) {
+            return;
+        }
+
+        if (replayFrameId !== null) {
+            cancelAnimationFrame(replayFrameId);
+            replayFrameId = null;
+        }
+
+        const totalPoints = target.points.length;
+        const step = Math.max(1, Math.floor(totalPoints / 80));
+        let visiblePoints = 2;
+
+        const drawFrame = () => {
+            const currentShapes = state.getShapes();
+            const baseShapes = currentShapes.filter((shape) => shape.id !== shapeId);
+            const replayShape = {
+                ...target,
+                id: "__replay__",
+                points: target.points.slice(0, visiblePoints),
+            };
+
+            render(
+                ctx,
+                canvas,
+                [...baseShapes, replayShape],
+                selectedShape,
+                selectionBox,
+                getSelectedShapesByIds(currentShapes, selectedShapeIds),
+                viewport,
+                getScenePixelRatio()
+            );
+
+            if (visiblePoints >= totalPoints) {
+                replayFrameId = null;
+                renderScene();
+                return;
+            }
+
+            visiblePoints = Math.min(totalPoints, visiblePoints + step);
+            replayFrameId = requestAnimationFrame(drawFrame);
+        };
+
+        drawFrame();
+    };
+
     return {
         deleteSelection,
         hasSelection: () => selectedShapeIds.length > 0,
@@ -1023,5 +1084,6 @@ export function attachEvents(
             const selected = getSelectedShapesByIds(shapes, selectedShapeIds);
             render(ctx, canvas, shapes, selectedShape, selectionBox, selected, viewport, getScenePixelRatio());
         },
+        replayShape,
     };
 }

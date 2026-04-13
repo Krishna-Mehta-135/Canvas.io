@@ -29,4 +29,5 @@ export type AttachEventsController = {
     hasSelection: () => boolean;
     getSelectedIds: () => string[];
     rerender: () => void;
+    replayShape: (shapeId: string) => void;
 };

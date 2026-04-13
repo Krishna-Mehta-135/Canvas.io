@@ -10,6 +10,14 @@ import {HTTP_BACKEND} from "../../../config";
 import {ThemeToggle, useTheme} from "../../components/ThemeToggle";
 import {useCanvasSync} from "../../../hooks/useCanvasSync";
 
+const STYLE_SWATCHES = ["#1e1e1e", "#e03131", "#2f9e44", "#1971c2", "#f08c00", "#ffffff"];
+const FILL_STYLE_OPTIONS: Array<{value: NonNullable<Shape["fillStyle"]>; label: string}> = [
+    {value: "solid", label: "Solid"},
+    {value: "hachure", label: "Hachure"},
+    {value: "cross-hatch", label: "Cross Hatch"},
+    {value: "dots", label: "Dots"},
+];
+
 const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}> = [
     {
         id: "select",
@@ -134,6 +142,80 @@ function saveStoredViewport(roomKey: string, viewport: StoredViewport) {
     }
 }
 
+function FillStyleTile({
+    value,
+    selected,
+    onClick,
+    isDark,
+}: {
+    value: NonNullable<Shape["fillStyle"]>;
+    selected: boolean;
+    onClick: () => void;
+    isDark: boolean;
+}) {
+    const base = "relative h-9 w-9 rounded-md border transition";
+    const ring = selected
+        ? "border-indigo-500 ring-2 ring-indigo-300 dark:border-indigo-300 dark:ring-indigo-700"
+        : isDark
+            ? "border-white/15 hover:border-white/30"
+            : "border-slate-300 hover:border-slate-500";
+    const bg = isDark ? "bg-[#1e1e1e]" : "bg-white";
+
+    if (value === "solid") {
+        return (
+            <button
+                type="button"
+                onClick={onClick}
+                className={`${base} ${ring} ${isDark ? "bg-slate-200" : "bg-slate-700"}`}
+                title="Solid"
+            />
+        );
+    }
+
+    if (value === "hachure") {
+        return (
+            <button
+                type="button"
+                onClick={onClick}
+                className={`${base} ${ring} ${bg}`}
+                style={{
+                    backgroundImage:
+                        "repeating-linear-gradient(45deg, rgba(15,23,42,0.55) 0 2px, transparent 2px 7px)",
+                }}
+                title="Hachure"
+            />
+        );
+    }
+
+    if (value === "cross-hatch") {
+        return (
+            <button
+                type="button"
+                onClick={onClick}
+                className={`${base} ${ring} ${bg}`}
+                style={{
+                    backgroundImage:
+                        "repeating-linear-gradient(45deg, rgba(15,23,42,0.55) 0 2px, transparent 2px 7px), repeating-linear-gradient(-45deg, rgba(15,23,42,0.45) 0 2px, transparent 2px 7px)",
+                }}
+                title="Cross Hatch"
+            />
+        );
+    }
+
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className={`${base} ${ring} ${bg}`}
+            style={{
+                backgroundImage: "radial-gradient(circle at 2px 2px, rgba(15,23,42,0.55) 1.4px, transparent 1.5px)",
+                backgroundSize: "8px 8px",
+            }}
+            title="Dots"
+        />
+    );
+}
+
 export default function CanvasPage() {
     const params = useParams<{roomId: string}>();
     const roomId = Array.isArray(params?.roomId) ? params.roomId[0] : params?.roomId;
@@ -149,6 +231,8 @@ export default function CanvasPage() {
     const toolRef = useRef<Tool>("select");
     const [activeTool, setActiveTool] = useState<Tool>("select");
     const [selectedCount, setSelectedCount] = useState(0);
+    const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const [inspectorRevision, setInspectorRevision] = useState(0);
     const [inviteLink, setInviteLink] = useState<string | null>(null);
     const [syncStatus, setSyncStatus] = useState<"connected" | "disconnected" | "error">("disconnected");
     const stateRef = useRef<CanvasState | null>(null);
@@ -350,6 +434,7 @@ export default function CanvasPage() {
         const unsubscribe = state.subscribe((shapes) => {
             // Ensure remote websocket updates repaint immediately without requiring focus.
             controlsRef.current?.rerender();
+            setInspectorRevision((current) => current + 1);
             void persistShapes(shapes);
         });
 
@@ -391,6 +476,7 @@ export default function CanvasPage() {
                 },
                 onSelectionChange: (selectedIds) => {
                     setSelectedCount(selectedIds.length);
+                    setSelectedIds(selectedIds);
                 },
                 onViewportChange: (viewport) => {
                     saveStoredViewport(roomId, viewport);
@@ -473,6 +559,46 @@ export default function CanvasPage() {
         controlsRef.current?.deleteSelection();
     };
 
+    const selectedShapes = (() => {
+        if (!canvasState || selectedIds.length === 0) return [];
+
+        // Depend on inspectorRevision via render so remote/local mutations refresh inspector values.
+        void inspectorRevision;
+        const selectedSet = new Set(selectedIds);
+        return canvasState.getShapes().filter((shape) => selectedSet.has(shape.id));
+    })();
+
+    const primarySelectedShape = selectedShapes[selectedShapes.length - 1] ?? null;
+
+    const applyToSelectedShapes = (updates: Partial<Shape>) => {
+        if (!canvasState || selectedIds.length === 0) return;
+
+        const selectedSet = new Set(selectedIds);
+        const nextShapes = canvasState.getShapes().map((shape) => {
+            if (!selectedSet.has(shape.id)) return shape;
+            return {
+                ...shape,
+                ...updates,
+            } as Shape;
+        });
+
+        canvasState.setShapes(nextShapes);
+        controlsRef.current?.rerender();
+    };
+
+    const strokeValue = primarySelectedShape?.stroke ?? "#f8fafc";
+    const fillValue = primarySelectedShape?.fill ?? "#60a5fa";
+    const fillStyleValue = primarySelectedShape?.fillStyle ?? "solid";
+    const strokeWidthValue = primarySelectedShape?.strokeWidth ?? 2;
+    const roughnessValue = primarySelectedShape?.roughness ?? 0;
+    const opacityValue = primarySelectedShape?.opacity ?? 100;
+    const showReplay = primarySelectedShape?.type === "freehand";
+
+    const handleReplaySelected = () => {
+        if (!primarySelectedShape) return;
+        controlsRef.current?.replayShape(primarySelectedShape.id);
+    };
+
     const handleCopyInvite = () => {
         if (inviteLink) {
             navigator.clipboard.writeText(inviteLink).then(() => {
@@ -486,6 +612,176 @@ export default function CanvasPage() {
             <div className="absolute right-4 top-4 z-20">
                 <ThemeToggle />
             </div>
+
+            {selectedCount > 0 && (
+                <aside
+                    className={`absolute left-4 top-20 z-20 w-72 rounded-2xl p-4 backdrop-blur ${
+                        isDark
+                            ? "border border-white/10 bg-[#191919]/95 text-white shadow-[0_16px_30px_rgba(0,0,0,0.45)]"
+                            : "border border-slate-300/70 bg-white/95 text-slate-900 shadow-[0_16px_28px_rgba(15,23,42,0.14)]"
+                    }`}
+                >
+                    <h3 className="mb-3 text-sm font-semibold">Style</h3>
+
+                    <div className="mb-3">
+                        <label className="text-xs font-medium opacity-80">Stroke</label>
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {STYLE_SWATCHES.map((color) => {
+                                const isSelected = strokeValue.toLowerCase() === color;
+                                const hasVisibleBorder = color === "#ffffff";
+                                return (
+                                    <button
+                                        key={`stroke-${color}`}
+                                        type="button"
+                                        onClick={() => applyToSelectedShapes({stroke: color})}
+                                        className={`h-6 w-6 rounded border ${
+                                            hasVisibleBorder
+                                                ? isDark
+                                                    ? "border-white/30"
+                                                    : "border-slate-400"
+                                                : "border-transparent"
+                                        } ${isSelected ? "ring-2 ring-indigo-400" : ""}`}
+                                        style={{backgroundColor: color}}
+                                        title={`Stroke ${color}`}
+                                    />
+                                );
+                            })}
+                            <label
+                                className={`relative h-6 w-6 cursor-pointer overflow-hidden rounded border ${
+                                    isDark ? "border-white/25" : "border-slate-400"
+                                }`}
+                                title="Custom stroke color"
+                            >
+                                <span
+                                    className="absolute inset-0"
+                                    style={{
+                                        background:
+                                            "conic-gradient(from 0deg, #ff3b30, #ff9500, #ffcc00, #34c759, #0a84ff, #5e5ce6, #bf5af2, #ff2d55, #ff3b30)",
+                                    }}
+                                />
+                                <input
+                                    type="color"
+                                    value={strokeValue}
+                                    onChange={(e) => applyToSelectedShapes({stroke: e.target.value})}
+                                    className="absolute inset-0 cursor-pointer opacity-0"
+                                />
+                            </label>
+                        </div>
+                    </div>
+
+                    <div className="mb-3">
+                        <label className="text-xs font-medium opacity-80">Fill</label>
+                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                            {STYLE_SWATCHES.map((color) => {
+                                const isSelected = fillValue.toLowerCase() === color;
+                                const hasVisibleBorder = color === "#ffffff";
+                                return (
+                                    <button
+                                        key={`fill-${color}`}
+                                        type="button"
+                                        onClick={() => applyToSelectedShapes({fill: color})}
+                                        className={`h-6 w-6 rounded border ${
+                                            hasVisibleBorder
+                                                ? isDark
+                                                    ? "border-white/30"
+                                                    : "border-slate-400"
+                                                : "border-transparent"
+                                        } ${isSelected ? "ring-2 ring-indigo-400" : ""}`}
+                                        style={{backgroundColor: color}}
+                                        title={`Fill ${color}`}
+                                    />
+                                );
+                            })}
+                            <label
+                                className={`relative h-6 w-6 cursor-pointer overflow-hidden rounded border ${
+                                    isDark ? "border-white/25" : "border-slate-400"
+                                }`}
+                                title="Custom fill color"
+                            >
+                                <span
+                                    className="absolute inset-0"
+                                    style={{
+                                        background:
+                                            "conic-gradient(from 0deg, #ff3b30, #ff9500, #ffcc00, #34c759, #0a84ff, #5e5ce6, #bf5af2, #ff2d55, #ff3b30)",
+                                    }}
+                                />
+                                <input
+                                    type="color"
+                                    value={fillValue}
+                                    onChange={(e) => applyToSelectedShapes({fill: e.target.value})}
+                                    className="absolute inset-0 cursor-pointer opacity-0"
+                                />
+                            </label>
+                        </div>
+                    </div>
+
+                    <div className="mb-3">
+                        <label className="mb-1 block text-xs font-medium opacity-80">Fill Style</label>
+                        <div className="flex items-center gap-2">
+                            {FILL_STYLE_OPTIONS.map((option) => (
+                                <FillStyleTile
+                                    key={option.value}
+                                    value={option.value}
+                                    selected={fillStyleValue === option.value}
+                                    onClick={() => applyToSelectedShapes({fillStyle: option.value})}
+                                    isDark={isDark}
+                                />
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="mb-3">
+                        <label className="mb-1 block text-xs font-medium opacity-80">Stroke Width: {strokeWidthValue}px</label>
+                        <input
+                            type="range"
+                            min={1}
+                            max={12}
+                            value={strokeWidthValue}
+                            onChange={(e) => applyToSelectedShapes({strokeWidth: Number(e.target.value)})}
+                            className="w-full"
+                        />
+                    </div>
+
+                    <div className="mb-3">
+                        <label className="mb-1 block text-xs font-medium opacity-80">Sloppiness: {roughnessValue.toFixed(1)}</label>
+                        <input
+                            type="range"
+                            min={0}
+                            max={5}
+                            step={0.5}
+                            value={roughnessValue}
+                            onChange={(e) => applyToSelectedShapes({roughness: Number(e.target.value)})}
+                            className="w-full"
+                        />
+                    </div>
+
+                    <div className="mb-4">
+                        <label className="mb-1 block text-xs font-medium opacity-80">Opacity: {opacityValue}%</label>
+                        <input
+                            type="range"
+                            min={10}
+                            max={100}
+                            value={opacityValue}
+                            onChange={(e) => applyToSelectedShapes({opacity: Number(e.target.value)})}
+                            className="w-full"
+                        />
+                    </div>
+
+                    {showReplay && (
+                        <button
+                            type="button"
+                            onClick={handleReplaySelected}
+                            className={`w-full rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                                isDark
+                                    ? "border-emerald-300/30 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25"
+                                    : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                            }`}
+                        >
+                            Replay Stroke
+                        </button>
+                    )}
+                </aside>
+            )}
             <div
                 className={`absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-3xl p-3 backdrop-blur ${
                     isDark

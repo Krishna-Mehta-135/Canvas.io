@@ -12,6 +12,11 @@ Contains:
 type BaseShape = {
     id: string;
     stroke?: string;
+    fill?: string;
+    fillStyle?: "solid" | "hachure" | "cross-hatch" | "dots";
+    strokeWidth?: number;
+    roughness?: number;
+    opacity?: number;
 };
 
 /**

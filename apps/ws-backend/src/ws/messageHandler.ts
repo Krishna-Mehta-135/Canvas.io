@@ -101,8 +101,6 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
             shapeIds.add(shape.id);
         }
 
-        console.log(`[WS] Persisting ${typedShapes.length} shapes (${shapeIds.size} unique IDs) for roomId ${roomId}`);
-
         try {
             await persistShapes(roomId, typedShapes);
         } catch (error) {

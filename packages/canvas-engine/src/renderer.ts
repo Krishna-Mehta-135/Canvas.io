@@ -19,12 +19,16 @@ Rendering model:
 import {Shape} from "./types";
 import {getWrappedTextLines} from "./textLayout";
 import {getTextRenderMetrics} from "./textMetrics";
-import {Viewport, screenToWorldPoint, worldToScreenPoint} from "./utils";
+import {Viewport, worldToScreenPoint} from "./utils";
+import rough from "roughjs/bin/rough";
+import type {Options as RoughOptions} from "roughjs/bin/core";
 
 const DEFAULT_STROKE_WIDTH = 2;
 const HANDLE_COLOR = "#8d8ac5";
 const SELECTION_PADDING = 6;
 const HANDLE_SIZE = 12;
+const fillPatternCache = new Map<string, CanvasPattern | null>();
+const roughCanvasCache = new WeakMap<HTMLCanvasElement, ReturnType<typeof rough.canvas>>();
 
 function getThemePalette() {
     if (typeof document === "undefined") {
@@ -54,6 +58,162 @@ type SelectionBox = {
     width: number;
     height: number;
 };
+
+function getShapeOpacity(shape: Shape) {
+    const raw = shape.opacity ?? 100;
+    return Math.max(0.05, Math.min(1, raw / 100));
+}
+
+function getFillOpacity(shape: Shape) {
+    const baseOpacity = getShapeOpacity(shape);
+    return Math.max(0.08, Math.min(0.6, baseOpacity * 0.38));
+}
+
+function withAlpha(color: string, alpha: number) {
+    const clampedAlpha = Math.max(0, Math.min(1, alpha));
+    const hex = color.trim().replace("#", "");
+
+    if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+        const r = Number.parseInt(hex.slice(0, 2), 16);
+        const g = Number.parseInt(hex.slice(2, 4), 16);
+        const b = Number.parseInt(hex.slice(4, 6), 16);
+        return `rgba(${r}, ${g}, ${b}, ${clampedAlpha})`;
+    }
+
+    if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+        const r = Number.parseInt(`${hex[0]}${hex[0]}`, 16);
+        const g = Number.parseInt(`${hex[1]}${hex[1]}`, 16);
+        const b = Number.parseInt(`${hex[2]}${hex[2]}`, 16);
+        return `rgba(${r}, ${g}, ${b}, ${clampedAlpha})`;
+    }
+
+    return color;
+}
+
+function hashShapeSeed(id: string) {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+        hash = (hash * 31 + id.charCodeAt(i)) | 0;
+    }
+
+    const normalized = Math.abs(hash) % 2147483646;
+    return normalized + 1;
+}
+
+function getRoughCanvas(ctx: CanvasRenderingContext2D) {
+    const canvas = ctx.canvas;
+    if (!canvas) return null;
+
+    const cached = roughCanvasCache.get(canvas);
+    if (cached) return cached;
+
+    const created = rough.canvas(canvas);
+    roughCanvasCache.set(canvas, created);
+    return created;
+}
+
+function getRoughOptions(shape: Shape): RoughOptions {
+    const roughness = Math.max(0.8, shape.roughness ?? 1);
+    return {
+        stroke: shape.stroke || getThemePalette().stroke,
+        strokeWidth: getStrokeWidth(shape),
+        roughness,
+        bowing: Math.max(0.4, roughness * 0.8),
+        seed: hashShapeSeed(shape.id),
+    };
+}
+
+function getStrokeWidth(shape: Shape) {
+    return Math.max(1, Math.min(12, shape.strokeWidth ?? DEFAULT_STROKE_WIDTH));
+}
+
+function applyRoughness(ctx: CanvasRenderingContext2D, shape: Shape) {
+    const roughness = Math.max(0, Math.min(5, shape.roughness ?? 0));
+    if (roughness <= 0) {
+        ctx.shadowBlur = 0;
+        return;
+    }
+
+    ctx.shadowColor = ctx.strokeStyle as string;
+    ctx.shadowBlur = roughness * 0.7;
+}
+
+function getFillPattern(ctx: CanvasRenderingContext2D, style: NonNullable<Shape["fillStyle"]>, color: string) {
+    const key = `${style}:${color}`;
+    if (fillPatternCache.has(key)) {
+        return fillPatternCache.get(key) ?? null;
+    }
+
+    if (typeof document === "undefined") {
+        fillPatternCache.set(key, null);
+        return null;
+    }
+
+    const patternCanvas = document.createElement("canvas");
+    patternCanvas.width = 16;
+    patternCanvas.height = 16;
+    const pctx = patternCanvas.getContext("2d");
+    if (!pctx) {
+        fillPatternCache.set(key, null);
+        return null;
+    }
+
+    pctx.strokeStyle = color;
+    pctx.fillStyle = color;
+    pctx.lineWidth = 1;
+
+    if (style === "hachure") {
+        pctx.beginPath();
+        pctx.moveTo(0, 16);
+        pctx.lineTo(16, 0);
+        pctx.stroke();
+    }
+
+    if (style === "cross-hatch") {
+        pctx.beginPath();
+        pctx.moveTo(0, 16);
+        pctx.lineTo(16, 0);
+        pctx.moveTo(0, 0);
+        pctx.lineTo(16, 16);
+        pctx.stroke();
+    }
+
+    if (style === "dots") {
+        pctx.beginPath();
+        pctx.arc(4, 4, 1.4, 0, Math.PI * 2);
+        pctx.arc(12, 12, 1.4, 0, Math.PI * 2);
+        pctx.fill();
+    }
+
+    const pattern = ctx.createPattern(patternCanvas, "repeat");
+    fillPatternCache.set(key, pattern);
+    return pattern;
+}
+
+function applyShapeFill(ctx: CanvasRenderingContext2D, shape: Shape) {
+    if ((shape.type !== "rect" && shape.type !== "circle") || !shape.fill) return;
+
+    const fillColor = withAlpha(shape.fill, getFillOpacity(shape));
+
+    if (!shape.fillStyle || shape.fillStyle === "solid") {
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+        return;
+    }
+
+    const pattern = getFillPattern(ctx, shape.fillStyle, fillColor);
+    if (pattern) {
+        const anchorX = shape.type === "rect" ? shape.x : shape.centerX - shape.radiusX;
+        const anchorY = shape.type === "rect" ? shape.y : shape.centerY - shape.radiusY;
+
+        if (typeof pattern.setTransform === "function") {
+            pattern.setTransform(new DOMMatrix().translate(anchorX, anchorY));
+        }
+
+        ctx.fillStyle = pattern;
+        ctx.fill();
+    }
+}
 
 const DEFAULT_VIEWPORT: Viewport = {
     x: 0,
@@ -117,13 +277,32 @@ function drawRoundedRect(
  * Smaller shapes → smaller radius for better visual balance.
  */
 function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "rect"}>) {
-    ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
-    ctx.lineWidth = DEFAULT_STROKE_WIDTH;
+    ctx.save();
+    ctx.globalAlpha = getShapeOpacity(shape);
 
     const radius = Math.min(20, shape.width / 3, shape.height / 3);
+    const roughness = shape.roughness ?? 0;
+    if (roughness > 0) {
+        const rc = getRoughCanvas(ctx);
+        if (rc) {
+            if (shape.fill) {
+                drawRoundedRect(ctx, shape.x, shape.y, shape.width, shape.height, radius);
+                applyShapeFill(ctx, shape);
+            }
+            rc.rectangle(shape.x, shape.y, shape.width, shape.height, getRoughOptions(shape));
+            ctx.restore();
+            return;
+        }
+    }
+
+    ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
+    ctx.lineWidth = getStrokeWidth(shape);
+    applyRoughness(ctx, shape);
 
     drawRoundedRect(ctx, shape.x, shape.y, shape.width, shape.height, radius);
+    applyShapeFill(ctx, shape);
     ctx.stroke();
+    ctx.restore();
 }
 
 /**
@@ -134,12 +313,33 @@ function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {typ
  * - radiusX, radiusY
  */
 function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "circle"}>) {
+    ctx.save();
+    ctx.globalAlpha = getShapeOpacity(shape);
+
+    const roughness = shape.roughness ?? 0;
+    if (roughness > 0) {
+        const rc = getRoughCanvas(ctx);
+        if (rc) {
+            if (shape.fill) {
+                ctx.beginPath();
+                ctx.ellipse(shape.centerX, shape.centerY, shape.radiusX, shape.radiusY, 0, 0, Math.PI * 2);
+                applyShapeFill(ctx, shape);
+            }
+            rc.ellipse(shape.centerX, shape.centerY, shape.radiusX * 2, shape.radiusY * 2, getRoughOptions(shape));
+            ctx.restore();
+            return;
+        }
+    }
+
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
-    ctx.lineWidth = DEFAULT_STROKE_WIDTH;
+    ctx.lineWidth = getStrokeWidth(shape);
+    applyRoughness(ctx, shape);
 
     ctx.beginPath();
     ctx.ellipse(shape.centerX, shape.centerY, shape.radiusX, shape.radiusY, 0, 0, Math.PI * 2);
+    applyShapeFill(ctx, shape);
     ctx.stroke();
+    ctx.restore();
 }
 
 /**
@@ -149,18 +349,36 @@ function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: 
  * Lines have no area → only stroke matters.
  */
 function drawLine(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "line"}>) {
+    ctx.save();
+    ctx.globalAlpha = getShapeOpacity(shape);
+
+    const roughness = shape.roughness ?? 0;
+    if (roughness > 0) {
+        const rc = getRoughCanvas(ctx);
+        if (rc) {
+            rc.line(shape.x1, shape.y1, shape.x2, shape.y2, getRoughOptions(shape));
+            ctx.restore();
+            return;
+        }
+    }
+
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
-    ctx.lineWidth = DEFAULT_STROKE_WIDTH;
+    ctx.lineWidth = getStrokeWidth(shape);
+    applyRoughness(ctx, shape);
 
     ctx.beginPath();
     ctx.moveTo(shape.x1, shape.y1);
     ctx.lineTo(shape.x2, shape.y2);
     ctx.stroke();
+    ctx.restore();
 }
 
 function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "arrow"}>) {
-    ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
-    ctx.lineWidth = DEFAULT_STROKE_WIDTH;
+    ctx.save();
+    ctx.globalAlpha = getShapeOpacity(shape);
+
+    const roughness = shape.roughness ?? 0;
+    const rc = roughness > 0 ? getRoughCanvas(ctx) : null;
 
     const dx = shape.x2 - shape.x1;
     const dy = shape.y2 - shape.y1;
@@ -181,6 +399,19 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "
     const rightX = shape.x2 - (ux * cos + uy * sin) * headLength;
     const rightY = shape.y2 - (uy * cos - ux * sin) * headLength;
 
+    if (rc) {
+        const opts = getRoughOptions(shape);
+        rc.line(shape.x1, shape.y1, shape.x2, shape.y2, opts);
+        rc.line(shape.x2, shape.y2, leftX, leftY, opts);
+        rc.line(shape.x2, shape.y2, rightX, rightY, opts);
+        ctx.restore();
+        return;
+    }
+
+    ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
+    ctx.lineWidth = getStrokeWidth(shape);
+    applyRoughness(ctx, shape);
+
     ctx.beginPath();
     ctx.moveTo(shape.x1, shape.y1);
     ctx.lineTo(shape.x2, shape.y2);
@@ -189,9 +420,12 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "
     ctx.moveTo(shape.x2, shape.y2);
     ctx.lineTo(rightX, rightY);
     ctx.stroke();
+    ctx.restore();
 }
 
 function drawText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "text"}>) {
+    ctx.save();
+    ctx.globalAlpha = getShapeOpacity(shape);
     ctx.fillStyle = shape.stroke || getThemePalette().stroke;
     const {fittedFontSize, lineHeight, visibleLines} = getTextRenderMetrics(ctx, shape);
     ctx.font = `${fittedFontSize}px Virgil, Caveat, ui-rounded, sans-serif`;
@@ -201,13 +435,17 @@ function drawText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "t
         const y = shape.y + index * lineHeight;
         ctx.fillText(line, shape.x, y);
     });
+    ctx.restore();
 }
 
 function drawFreehand(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "freehand"}>) {
     if (shape.points.length < 2) return;
 
+    ctx.save();
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
-    ctx.lineWidth = DEFAULT_STROKE_WIDTH;
+    ctx.lineWidth = getStrokeWidth(shape);
+    ctx.globalAlpha = getShapeOpacity(shape);
+    applyRoughness(ctx, shape);
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
 
@@ -221,6 +459,7 @@ function drawFreehand(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type
     }
 
     ctx.stroke();
+    ctx.restore();
 }
 
 function drawInfiniteGrid(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, viewport: Viewport, pixelRatio: number) {

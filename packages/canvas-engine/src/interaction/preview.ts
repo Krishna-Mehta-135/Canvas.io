@@ -16,7 +16,7 @@ export function createPreviewShape(
     currentX: number,
     currentY: number,
     options: PreviewOptions = {}
-): PreviewShape {
+): PreviewShape | null {
     const {preserveAspect = false} = options;
 
     if (tool === "rect") {
@@ -115,5 +115,5 @@ export function createPreviewShape(
         };
     }
 
-    throw new Error("Unknown tool");
+    return null;
 }

@@ -11,7 +11,7 @@ type KeyboardCallbacks = {
 
 /**
  * Handles global editor keyboard shortcuts and returns true when consumed.
- * Tool keys: 0 select, 1 rect, 2 circle, 3 rhombus, 4 line, 5 arrow, 6 text, 7 freehand.
+ * Tool keys: 0 select, 1 rect, 2 circle, 3 rhombus, 4 line, 5 arrow, 6 text, 7 freehand, 8 eraser.
  */
 export function handleGlobalKeydown(event: KeyboardEvent, callbacks: KeyboardCallbacks) {
     const {updateTool, hasSelection, deleteSelection, nudgeSelection, undo, redo} = callbacks;
@@ -46,6 +46,10 @@ export function handleGlobalKeydown(event: KeyboardEvent, callbacks: KeyboardCal
     }
     if (event.key === "7") {
         updateTool("freehand");
+        return true;
+    }
+    if (event.key === "8") {
+        updateTool("eraser");
         return true;
     }
 

@@ -1,7 +1,7 @@
 /**
  * Active drawing/interaction mode selected from toolbar or shortcuts.
  */
-export type Tool = "select" | "rect" | "circle" | "rhombus" | "line" | "arrow" | "text" | "freehand";
+export type Tool = "select" | "rect" | "circle" | "rhombus" | "line" | "arrow" | "text" | "freehand" | "eraser";
 
 /**
  * Tools that currently create geometry via drag interactions.

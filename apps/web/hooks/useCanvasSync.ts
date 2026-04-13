@@ -154,8 +154,8 @@ export function useCanvasSync({
       }
     };
 
-    ws.onerror = (err) => {
-      console.error("[WS] Error:", err);
+    ws.onerror = () => {
+      console.warn("[WS] WebSocket connection error");
       isConnectedRef.current = false;
       setIsConnected(false);
     };

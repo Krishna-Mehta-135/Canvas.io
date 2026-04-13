@@ -19,7 +19,7 @@ import {render} from "./renderer";
 import {Handle, PreviewShape, Shape} from "./types";
 import {Viewport, clamp, getMousePos, screenToWorldPoint, worldToScreenPoint} from "./utils";
 import {CanvasState} from "./state";
-import {getShapeAtPoint} from "./interaction/hitDetection";
+import {getShapeAtPoint, getShapesAtPoint} from "./interaction/hitDetection";
 import {dispatch} from "./store";
 import {convertToPoints, resizeShape} from "./geometry";
 import {AttachEventsController, AttachEventsOptions, isDrawableTool, Tool} from "./interaction/tools";
@@ -43,7 +43,8 @@ const MIN_ZOOM = 0.12;
 const MAX_ZOOM = 4;
 const WHEEL_ZOOM_SENSITIVITY = 0.0035;
 const WHEEL_PAN_SENSITIVITY = 1;
-const DEFAULT_SHAPE_ROUGHNESS = 1.2;
+const DEFAULT_SHAPE_ROUGHNESS = 1.8;
+const ERASER_SAMPLE_DISTANCE = 6;
 
 function getPixelRatio() {
     return window.devicePixelRatio || 1;
@@ -101,16 +102,33 @@ export function attachEvents(
 
     const renderScene = () => {
         const pixelRatio = getScenePixelRatio();
+        const shapes = state.getShapes();
+        const renderedShapes =
+            isErasing || erasedShapeIds.size > 0
+                ? shapes.map((shape) =>
+                      erasedShapeIds.has(shape.id)
+                          ? {
+                                ...shape,
+                                opacity: Math.min(shape.opacity ?? 100, 25),
+                            }
+                          : shape
+                  )
+                : shapes;
+
         render(
             ctx,
             canvas,
-            state.getShapes(),
+            renderedShapes,
             selectedShape,
             selectionBox,
-            getSelectedShapesByIds(state.getShapes(), selectedShapeIds),
+            getSelectedShapesByIds(renderedShapes, selectedShapeIds),
             viewport,
             pixelRatio
         );
+
+        if (isErasing && eraserPoints.length > 0) {
+            drawEraserTrail(ctx, eraserPoints, viewport, pixelRatio);
+        }
     };
 
     const setViewport = (nextViewport: Viewport) => {
@@ -118,12 +136,11 @@ export function attachEvents(
         options.onViewportChange?.(viewport);
     };
 
-    renderScene();
-
     let isDrawing = false;
     let startX = 0;
     let startY = 0;
     let previewShape: PreviewShape | null = null;
+    let pendingShapeId: string | null = null;
     let isDragging = false;
 
     let offsetX = 0;
@@ -135,6 +152,9 @@ export function attachEvents(
     let isResizing = false;
     let isFreehandDrawing = false;
     let freehandPoints: Array<{x: number; y: number}> = [];
+    let isErasing = false;
+    let eraserPoints: Array<{x: number; y: number}> = [];
+    let erasedShapeIds = new Set<string>();
     let replayFrameId: number | null = null;
     let isPanning = false;
     let spacePressed = false;
@@ -196,6 +216,104 @@ export function attachEvents(
         selectedShape = null;
         emitSelectionChange();
     };
+
+    const stopTransientInteractions = () => {
+        isPanning = false;
+        isErasing = false;
+        isFreehandDrawing = false;
+        isDrawing = false;
+        isDragging = false;
+        isSelecting = false;
+        isResizing = false;
+        dragMode = null;
+        resizeSession = null;
+        eraserPoints = [];
+        erasedShapeIds = new Set();
+        previewShape = null;
+        activeTool = null;
+        freehandPoints = [];
+    };
+
+    const touchEraserPoint = (point: {x: number; y: number}) => {
+        const touchedShapes = getShapesAtPoint(state.getShapes(), point.x, point.y, ctx);
+
+        let changed = false;
+        for (const shape of touchedShapes) {
+            if (erasedShapeIds.has(shape.id)) continue;
+            erasedShapeIds.add(shape.id);
+            changed = true;
+        }
+
+        if (changed) {
+            selectedShapeIds = selectedShapeIds.filter((id) => !erasedShapeIds.has(id));
+            if (selectedShape && selectedShapeIds.indexOf(selectedShape.id) === -1 && erasedShapeIds.has(selectedShape.id)) {
+                selectedShape = null;
+            }
+            emitSelectionChange();
+        }
+    };
+
+    const touchEraserSegment = (from: {x: number; y: number}, to: {x: number; y: number}) => {
+        const distance = Math.hypot(to.x - from.x, to.y - from.y);
+        const steps = Math.max(1, Math.ceil(distance / ERASER_SAMPLE_DISTANCE));
+
+        for (let i = 1; i <= steps; i++) {
+            const t = i / steps;
+            touchEraserPoint({
+                x: from.x + (to.x - from.x) * t,
+                y: from.y + (to.y - from.y) * t,
+            });
+        }
+    };
+
+    const drawEraserTrail = (
+        drawingCtx: CanvasRenderingContext2D,
+        points: Array<{x: number; y: number}>,
+        currentViewport: Viewport,
+        pixelRatio: number
+    ) => {
+        if (points.length === 0) return;
+
+        const screenPoints = points.map((point) => worldToScreenPoint(point, currentViewport));
+
+        drawingCtx.save();
+        drawingCtx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        drawingCtx.strokeStyle = "rgba(148, 163, 184, 0.85)";
+        drawingCtx.fillStyle = "rgba(148, 163, 184, 0.9)";
+        drawingCtx.lineWidth = 7;
+        drawingCtx.lineCap = "round";
+        drawingCtx.lineJoin = "round";
+
+        if (screenPoints.length === 1) {
+            drawingCtx.beginPath();
+            drawingCtx.arc(screenPoints[0]!.x, screenPoints[0]!.y, 3.5, 0, Math.PI * 2);
+            drawingCtx.fill();
+            drawingCtx.restore();
+            return;
+        }
+
+        drawingCtx.beginPath();
+        drawingCtx.moveTo(screenPoints[0]!.x, screenPoints[0]!.y);
+
+        for (let i = 1; i < screenPoints.length; i++) {
+            const prev = screenPoints[i - 1]!;
+            const current = screenPoints[i]!;
+            const midX = (prev.x + current.x) / 2;
+            const midY = (prev.y + current.y) / 2;
+            drawingCtx.quadraticCurveTo(prev.x, prev.y, midX, midY);
+        }
+
+        const lastPoint = screenPoints[screenPoints.length - 1]!;
+        drawingCtx.lineTo(lastPoint.x, lastPoint.y);
+        drawingCtx.stroke();
+
+        drawingCtx.beginPath();
+        drawingCtx.arc(lastPoint.x, lastPoint.y, 3.5, 0, Math.PI * 2);
+        drawingCtx.fill();
+        drawingCtx.restore();
+    };
+
+    renderScene();
 
     const updateCursor = () => {
         if (isPanning) {
@@ -496,6 +614,34 @@ export function attachEvents(
         });
     });
 
+    window.addEventListener("mouseup", () => {
+        if (!isPanning && !isErasing && !isFreehandDrawing && !isDrawing && !isDragging && !isSelecting && !isResizing) {
+            return;
+        }
+
+        // If the pointer is released outside the canvas, the canvas never receives mouseup.
+        // Clear transient interaction state here so selected shapes don't keep tracking the cursor.
+        const shouldRepaint = isErasing || isFreehandDrawing || isDrawing || isDragging || isSelecting || isResizing;
+        stopTransientInteractions();
+        resetToSelectTool();
+        updateCursor();
+
+        if (shouldRepaint) {
+            renderScene();
+        }
+    });
+
+    window.addEventListener("blur", () => {
+        if (!isPanning && !isErasing && !isFreehandDrawing && !isDrawing && !isDragging && !isSelecting && !isResizing) {
+            return;
+        }
+
+        stopTransientInteractions();
+        resetToSelectTool();
+        updateCursor();
+        renderScene();
+    });
+
     window.addEventListener("keyup", (e) => {
         if (e.code === "Space") {
             spacePressed = false;
@@ -575,6 +721,17 @@ export function attachEvents(
             panOriginX = viewport.x;
             panOriginY = viewport.y;
             canvas.style.cursor = "grabbing";
+            return;
+        }
+
+        if (getActiveTool() === "eraser") {
+            e.preventDefault();
+            isErasing = true;
+            eraserPoints = [{x, y}];
+            erasedShapeIds = new Set();
+            clearSelection();
+            touchEraserPoint({x, y});
+            renderScene();
             return;
         }
 
@@ -709,6 +866,7 @@ export function attachEvents(
         isDrawing = true;
         startX = x;
         startY = y;
+        pendingShapeId = crypto.randomUUID();
         clearSelection();
         renderScene();
     });
@@ -732,6 +890,13 @@ export function attachEvents(
             });
 
             updateCursor();
+            renderScene();
+            return;
+        }
+
+        if (isErasing) {
+            eraserPoints = [...eraserPoints, {x, y}];
+            touchEraserPoint({x, y});
             renderScene();
             return;
         }
@@ -922,7 +1087,7 @@ export function attachEvents(
         }
 
         // DRAW PREVIEW
-        if (!isDrawing || !activeTool) return;
+        if (!isDrawing || !activeTool || !isDrawableTool(activeTool)) return;
 
         previewShape = createPreviewShape(activeTool, startX, startY, x, y, {
             preserveAspect: e.shiftKey,
@@ -931,7 +1096,7 @@ export function attachEvents(
         let shapesToRender = shapes;
 
         if (previewShape) {
-            shapesToRender = [...shapes, {...previewShape, id: "__preview__", roughness: DEFAULT_SHAPE_ROUGHNESS}];
+            shapesToRender = [...shapes, {...previewShape, id: pendingShapeId ?? "__preview__", roughness: DEFAULT_SHAPE_ROUGHNESS}];
         }
 
         render(ctx, canvas, shapesToRender, selectedShape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio());
@@ -947,6 +1112,26 @@ export function attachEvents(
         if (isPanning) {
             isPanning = false;
             updateCursor();
+            return;
+        }
+
+        if (isErasing) {
+            isErasing = false;
+
+            if (erasedShapeIds.size > 0) {
+                dispatch(state, {
+                    type: "DELETE_SHAPES",
+                    payload: {
+                        ids: Array.from(erasedShapeIds),
+                    },
+                });
+            }
+
+            eraserPoints = [];
+            erasedShapeIds = new Set();
+            resetToSelectTool();
+            updateCursor();
+            renderScene();
             return;
         }
 
@@ -997,28 +1182,33 @@ export function attachEvents(
             return;
         }
 
-        if (isDragging) {
-            isDragging = false;
-            dragMode = null;
-            return;
-        }
-
-        if (!isDrawing || !activeTool) return;
 
         if (!hasDragged(startX, startY, x, y)) {
             isDrawing = false;
             activeTool = null;
             previewShape = null;
+            pendingShapeId = null;
             renderScene();
             resetToSelectTool();
             return;
         }
 
-        const preview = createPreviewShape(activeTool, startX, startY, x, y, {
+        const drawingTool = activeTool as Tool;
+        const preview = createPreviewShape(drawingTool, startX, startY, x, y, {
             preserveAspect: e.shiftKey,
         });
 
-        const newShapeId = crypto.randomUUID();
+        if (!preview) {
+            isDrawing = false;
+            activeTool = null;
+            previewShape = null;
+            pendingShapeId = null;
+            renderScene();
+            resetToSelectTool();
+            return;
+        }
+
+        const newShapeId = pendingShapeId ?? crypto.randomUUID();
 
         dispatch(state, {
             type: "ADD_SHAPE",
@@ -1035,6 +1225,7 @@ export function attachEvents(
         isDrawing = false;
         activeTool = null;
         previewShape = null;
+        pendingShapeId = null;
         resetToSelectTool();
 
         renderScene();

@@ -106,6 +106,18 @@ const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}>
             </svg>
         ),
     },
+    {
+        id: "eraser",
+        label: "Eraser",
+        shortcut: "8",
+        icon: (
+            <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 15.5l7.5-7.5a2 2 0 012.8 0l5.2 5.2-5.8 5.8H8.2l-4.2-4.2a2 2 0 010-2.8z" />
+                <path d="M12.2 13.2l4.1 4.1" />
+                <path d="M7.2 18.2h4.2" />
+            </svg>
+        ),
+    },
 ];
 
 type StoredViewport = {

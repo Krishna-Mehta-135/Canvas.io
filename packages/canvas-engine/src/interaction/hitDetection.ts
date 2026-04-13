@@ -115,15 +115,23 @@ const hitMap = {
 /* ---------------- SHAPE DETECTION ---------------- */
 
 export function getShapeAtPoint(shapes: Shape[], x: number, y: number, ctx?: CanvasRenderingContext2D): Shape | null {
+    return getShapesAtPoint(shapes, x, y, ctx)[0] ?? null;
+}
+
+export function getShapesAtPoint(shapes: Shape[], x: number, y: number, ctx?: CanvasRenderingContext2D): Shape[] {
+    const hits: Shape[] = [];
+
     for (let i = shapes.length - 1; i >= 0; i--) {
         const shape = shapes[i];
         if (!shape) continue;
 
         const fn = hitMap[shape.type];
-        if (fn(shape as any, x, y, ctx)) return shape;
+        if (fn(shape as any, x, y, ctx)) {
+            hits.push(shape);
+        }
     }
 
-    return null;
+    return hits;
 }
 
 /* ---------------- HANDLE DETECTION ---------------- */

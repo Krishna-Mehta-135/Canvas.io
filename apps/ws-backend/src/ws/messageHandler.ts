@@ -96,7 +96,7 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
             }
 
             if (shapeIds.has(shape.id)) {
-                console.warn(`[WS] Duplicate shape ID detected: ${shape.id}, will deduplicate server-side`);
+                // Deduplicate silently server-side.
             }
             shapeIds.add(shape.id);
         }
@@ -104,7 +104,6 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
         try {
             await persistShapes(roomId, typedShapes);
         } catch (error) {
-            console.error(`[WS] Failed to persist shapes for roomId ${roomId}:`, error);
             ws.send(
                 JSON.stringify({
                     type: "sync_error",

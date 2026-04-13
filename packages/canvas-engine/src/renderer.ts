@@ -114,7 +114,7 @@ function getRoughCanvas(ctx: CanvasRenderingContext2D) {
 }
 
 function getRoughOptions(shape: Shape): RoughOptions {
-    const roughness = Math.max(0.8, shape.roughness ?? 1);
+    const roughness = Math.max(shape.type === "line" || shape.type === "arrow" ? 1.8 : 0.8, shape.roughness ?? 1);
     const strokeLineDash = getStrokeDash(shape);
     return {
         stroke: shape.stroke || getThemePalette().stroke,
@@ -127,7 +127,7 @@ function getRoughOptions(shape: Shape): RoughOptions {
 }
 
 function shouldUseRoughJs(shape: Shape) {
-    return (shape.roughness ?? 0) >= ROUGHJS_THRESHOLD;
+    return shape.type === "line" || shape.type === "arrow" || (shape.roughness ?? 0) >= ROUGHJS_THRESHOLD;
 }
 
 function getStrokeWidth(shape: Shape) {

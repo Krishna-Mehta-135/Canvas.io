@@ -1,8 +1,8 @@
 type InlineTextEditorOptions = {
     canvas: HTMLCanvasElement;
     ctx: CanvasRenderingContext2D;
-    x: number;
-    y: number;
+    screenX: number;
+    screenY: number;
     initialText?: string;
     fontSize?: number;
     onInput?: (text: string) => void;
@@ -16,7 +16,7 @@ type InlineTextEditorOptions = {
  * Returns a cleanup function that removes editor and listeners.
  */
 export function createInlineTextEditor(options: InlineTextEditorOptions) {
-    const {canvas, x, y, initialText = "", fontSize = 24, onInput, onCommit, onCancel} = options;
+    const {canvas, screenX, screenY, initialText = "", fontSize = 24, onInput, onCommit, onCancel} = options;
 
 
 
@@ -42,14 +42,13 @@ export function createInlineTextEditor(options: InlineTextEditorOptions) {
         editor.style.height = `${height}px`;
     };
 
-    // Get canvas position in viewport
     const rect = canvas.getBoundingClientRect();
 
 
 
     editor.style.position = "fixed";
-    editor.style.left = `${rect.left + x}px`;
-    editor.style.top = `${rect.top + y}px`;
+    editor.style.left = `${rect.left + screenX}px`;
+    editor.style.top = `${rect.top + screenY}px`;
     editor.style.padding = "0";
     editor.style.margin = "0";
     editor.style.border = "none";

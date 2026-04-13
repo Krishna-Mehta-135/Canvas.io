@@ -57,7 +57,7 @@ export function ThemeToggle({className = ""}: {className?: string}) {
         <button
             type="button"
             onClick={toggleTheme}
-            className={`grid h-10 w-10 place-items-center rounded-full border text-lg transition ${
+            className={`grid h-12 w-12 shrink-0 place-items-center rounded-full border text-xl transition ${
                 isDark
                     ? "border-slate-500/70 bg-slate-900/85 text-amber-200 hover:bg-slate-800"
                     : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"

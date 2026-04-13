@@ -19,6 +19,7 @@ Rendering model:
 import {Shape} from "./types";
 import {getWrappedTextLines} from "./textLayout";
 import {getTextRenderMetrics} from "./textMetrics";
+import {Viewport, screenToWorldPoint, worldToScreenPoint} from "./utils";
 
 const DEFAULT_STROKE_WIDTH = 2;
 const HANDLE_COLOR = "#8d8ac5";
@@ -52,6 +53,12 @@ type SelectionBox = {
     y: number;
     width: number;
     height: number;
+};
+
+const DEFAULT_VIEWPORT: Viewport = {
+    x: 0,
+    y: 0,
+    scale: 1,
 };
 
 // -------------------- DRAW MAP --------------------
@@ -216,6 +223,41 @@ function drawFreehand(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type
     ctx.stroke();
 }
 
+function drawInfiniteGrid(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, viewport: Viewport) {
+    const targetScreenStep = 48;
+    const worldStep = targetScreenStep / viewport.scale;
+
+    if (!Number.isFinite(worldStep) || worldStep <= 0) return;
+
+    const topLeft = screenToWorldPoint({x: 0, y: 0}, viewport);
+    const bottomRight = screenToWorldPoint({x: canvas.width, y: canvas.height}, viewport);
+
+    const startX = Math.floor(topLeft.x / worldStep) * worldStep;
+    const endX = Math.ceil(bottomRight.x / worldStep) * worldStep;
+    const startY = Math.floor(topLeft.y / worldStep) * worldStep;
+    const endY = Math.ceil(bottomRight.y / worldStep) * worldStep;
+
+    ctx.save();
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.12)";
+    ctx.lineWidth = 1 / viewport.scale;
+
+    for (let x = startX; x <= endX; x += worldStep) {
+        ctx.beginPath();
+        ctx.moveTo(x, topLeft.y);
+        ctx.lineTo(x, bottomRight.y);
+        ctx.stroke();
+    }
+
+    for (let y = startY; y <= endY; y += worldStep) {
+        ctx.beginPath();
+        ctx.moveTo(topLeft.x, y);
+        ctx.lineTo(bottomRight.x, y);
+        ctx.stroke();
+    }
+
+    ctx.restore();
+}
+
 // -------------------- BOUNDING BOX --------------------
 
 /**
@@ -361,35 +403,49 @@ function getHandlePoints(shape: Shape, ctx: CanvasRenderingContext2D) {
  *
  * Purely visual (does not affect state).
  */
-function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape) {
+function drawSelection(ctx: CanvasRenderingContext2D, shape: Shape, viewport: Viewport) {
     ctx.save();
 
     const {x, y, width, height} = getBoundingBox(shape, ctx);
+    const topLeft = worldToScreenPoint({x, y}, viewport);
+    const bottomRight = worldToScreenPoint({x: x + width, y: y + height}, viewport);
+    const screenWidth = bottomRight.x - topLeft.x;
+    const screenHeight = bottomRight.y - topLeft.y;
 
     ctx.strokeStyle = HANDLE_COLOR;
     ctx.lineWidth = 1;
 
     ctx.strokeRect(
-        x - SELECTION_PADDING,
-        y - SELECTION_PADDING,
-        width + SELECTION_PADDING * 2,
-        height + SELECTION_PADDING * 2
+        topLeft.x - SELECTION_PADDING,
+        topLeft.y - SELECTION_PADDING,
+        screenWidth + SELECTION_PADDING * 2,
+        screenHeight + SELECTION_PADDING * 2
     );
-    
+
     const handles = getHandlePoints(shape, ctx);
-    handles.forEach((p) => drawHandle(ctx, p.x, p.y));
+    handles.forEach((p) => {
+        const screenPoint = worldToScreenPoint(p, viewport);
+        drawHandle(ctx, screenPoint.x, screenPoint.y);
+    });
 
     ctx.restore();
 }
 
-function drawSelectionBox(ctx: CanvasRenderingContext2D, selectionBox: SelectionBox) {
+function drawSelectionBox(ctx: CanvasRenderingContext2D, selectionBox: SelectionBox, viewport: Viewport) {
     ctx.save();
+
+    const start = worldToScreenPoint({x: selectionBox.x, y: selectionBox.y}, viewport);
+    const end = worldToScreenPoint({x: selectionBox.x + selectionBox.width, y: selectionBox.y + selectionBox.height}, viewport);
+    const x = Math.min(start.x, end.x);
+    const y = Math.min(start.y, end.y);
+    const width = Math.abs(end.x - start.x);
+    const height = Math.abs(end.y - start.y);
 
     ctx.strokeStyle = HANDLE_COLOR;
     ctx.lineWidth = 1;
     ctx.setLineDash([6, 4]);
 
-    ctx.strokeRect(selectionBox.x, selectionBox.y, selectionBox.width, selectionBox.height);
+    ctx.strokeRect(x, y, width, height);
 
     ctx.restore();
 }
@@ -412,13 +468,21 @@ export function render(
     shapes: Shape[],
     selectedShape: Shape | null,
     selectionBox: SelectionBox | null = null,
-    selectedShapes: Shape[] = []
+    selectedShapes: Shape[] = [],
+    viewport: Viewport = DEFAULT_VIEWPORT
 ) {
     const palette = getThemePalette();
 
-    // Background
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = palette.background;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.restore();
+
+    ctx.save();
+    ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.x, viewport.y);
+
+    drawInfiniteGrid(ctx, canvas, viewport);
 
     shapes.forEach((shape) => {
         const drawFn = drawMap[shape.type];
@@ -427,19 +491,21 @@ export function render(
         drawFn(ctx, shape as any);
     });
 
+    ctx.restore();
+
     selectedShapes.forEach((shape) => {
         if (shape === selectedShape) return;
-        drawSelection(ctx, shape);
+        drawSelection(ctx, shape, viewport);
     });
 
     if (selectedShape) {
         const primary = shapes.find((shape) => shape.id === selectedShape.id);
         if (primary) {
-            drawSelection(ctx, primary);
+            drawSelection(ctx, primary, viewport);
         }
     }
 
     if (selectionBox) {
-        drawSelectionBox(ctx, selectionBox);
+        drawSelectionBox(ctx, selectionBox, viewport);
     }
 }

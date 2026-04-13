@@ -17,7 +17,7 @@
 
 import {render} from "./renderer";
 import {Handle, PreviewShape, Shape} from "./types";
-import {getMousePos} from "./utils";
+import {Viewport, clamp, getMousePos, screenToWorldPoint, worldToScreenPoint} from "./utils";
 import {CanvasState} from "./state";
 import {getShapeAtPoint} from "./interaction/hitDetection";
 import {dispatch} from "./store";
@@ -39,6 +39,10 @@ import {
 } from "./interaction/selection";
 
 const SELECTION_PADDING = 6;
+const MIN_ZOOM = 0.12;
+const MAX_ZOOM = 4;
+const WHEEL_ZOOM_SENSITIVITY = 0.0015;
+const WHEEL_PAN_SENSITIVITY = 1;
 
 function getPreviewTextColor() {
     if (typeof document === "undefined") return "#f8fafc";
@@ -63,14 +67,34 @@ export function attachEvents(
     state: CanvasState,
     options: AttachEventsOptions = {}
 ): AttachEventsController {
-    render(ctx, canvas, state.getShapes(), null, null, []);
+    let viewport: Viewport = {
+        x: canvas.width / 2,
+        y: canvas.height / 2,
+        scale: 1,
+    };
+
+    let selectedShape: Shape | null = null;
+    let selectionBox: SelectionBox | null = null;
+    let selectedShapeIds: string[] = [];
+
+    const renderScene = () => {
+        render(
+            ctx,
+            canvas,
+            state.getShapes(),
+            selectedShape,
+            selectionBox,
+            getSelectedShapesByIds(state.getShapes(), selectedShapeIds),
+            viewport
+        );
+    };
+
+    renderScene();
 
     let isDrawing = false;
     let startX = 0;
     let startY = 0;
     let previewShape: PreviewShape | null = null;
-
-    let selectedShape: Shape | null = null;
     let isDragging = false;
 
     let offsetX = 0;
@@ -82,6 +106,12 @@ export function attachEvents(
     let isResizing = false;
     let isFreehandDrawing = false;
     let freehandPoints: Array<{x: number; y: number}> = [];
+    let isPanning = false;
+    let spacePressed = false;
+    let panStartX = 0;
+    let panStartY = 0;
+    let panOriginX = 0;
+    let panOriginY = 0;
 
     let resizeSession: {
         shape: Shape;
@@ -95,12 +125,9 @@ export function attachEvents(
 
     let selectionStartX = 0;
     let selectionStartY = 0;
-
-    let selectionBox: SelectionBox | null = null;
-
-    let selectedShapeIds: string[] = [];
     let dragMode: "single" | "multi" | null = null;
     let activeTextEditorCleanup: (() => void) | null = null;
+    let lastPointer: {x: number; y: number} | null = null;
 
     const getActiveTool = () => options.getTool?.() ?? currentTool;
 
@@ -138,6 +165,40 @@ export function attachEvents(
         selectedShapeIds = [];
         selectedShape = null;
         emitSelectionChange();
+    };
+
+    const updateCursor = () => {
+        if (isPanning) {
+            canvas.style.cursor = "grabbing";
+            return;
+        }
+
+        if (spacePressed) {
+            canvas.style.cursor = "grab";
+            return;
+        }
+
+        if (!lastPointer) {
+            canvas.style.cursor = "default";
+            return;
+        }
+
+        const worldPoint = screenToWorldPoint(lastPointer, viewport);
+        const shapes = state.getShapes();
+        const resizeTarget = getResizeTarget(shapes, worldPoint.x, worldPoint.y, selectedShape, SELECTION_PADDING, ctx);
+        const shape = getShapeAtPoint(shapes, worldPoint.x, worldPoint.y, ctx);
+
+        if (resizeTarget) {
+            canvas.style.cursor = getCursorForHandle(resizeTarget.handle);
+        } else if (shape) {
+            canvas.style.cursor = "move";
+        } else if (getActiveTool() === "select") {
+            canvas.style.cursor = "default";
+        } else if (getActiveTool() === "text") {
+            canvas.style.cursor = "text";
+        } else {
+            canvas.style.cursor = "crosshair";
+        }
     };
 
     const getSelectionBounds = (ids: string[]) => {
@@ -182,7 +243,7 @@ export function attachEvents(
         });
 
         clearSelection();
-        render(ctx, canvas, state.getShapes(), null, null, []);
+        renderScene();
     };
 
     const startTextEditing = (
@@ -215,10 +276,12 @@ export function attachEvents(
             ? Math.max(8, parentBox.x2 - textStartX - parentPadding)
             : Number.MAX_SAFE_INTEGER;
 
+        const editorPoint = worldToScreenPoint({x: textStartX, y: textStartY}, viewport);
+
         activeTextEditorCleanup = createInlineTextEditor({
             canvas,
-            x: textStartX,
-            y: textStartY,
+            screenX: editorPoint.x,
+            screenY: editorPoint.y,
             ctx,
             initialText: existing?.text ?? "",
             fontSize,
@@ -229,8 +292,11 @@ export function attachEvents(
                     ? state.getShapes().filter((shape) => shape.id !== existing.id)
                     : state.getShapes();
 
-                render(ctx, canvas, previewShapes, null, null, []);
-                
+                render(ctx, canvas, previewShapes, null, null, [], viewport);
+
+                ctx.save();
+                ctx.setTransform(viewport.scale, 0, 0, viewport.scale, viewport.x, viewport.y);
+
                 // Draw using current theme color so preview remains visible in light and dark modes.
                 ctx.fillStyle = existing?.stroke || getPreviewTextColor();
                 ctx.textBaseline = "top";
@@ -259,6 +325,8 @@ export function attachEvents(
                     if (drawY + previewLineHeight > maxY) return;
                     ctx.fillText(line, textStartX, drawY);
                 });
+
+                ctx.restore();
             },
             onCommit: ({text, width, height, fontSize: newFontSize}) => {
                 activeTextEditorCleanup = null;
@@ -274,7 +342,7 @@ export function attachEvents(
                             },
                         });
                         clearSelection();
-                        render(ctx, canvas, state.getShapes(), null, null, []);
+                        renderScene();
                     }
                     return;
                 }
@@ -294,14 +362,7 @@ export function attachEvents(
                     });
 
                     setSelection([existing.id], existing.id);
-                    render(
-                        ctx,
-                        canvas,
-                        state.getShapes(),
-                        selectedShape,
-                        null,
-                        getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
-                    );
+                    renderScene();
                     resetToSelectTool();
                     return;
                 }
@@ -334,26 +395,12 @@ export function attachEvents(
                 });
 
                 setSelection([textShape.id], textShape.id);
-                render(
-                    ctx,
-                    canvas,
-                    state.getShapes(),
-                    selectedShape,
-                    null,
-                    getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
-                );
+                renderScene();
                 resetToSelectTool();
             },
             onCancel: () => {
                 activeTextEditorCleanup = null;
-                render(
-                    ctx,
-                    canvas,
-                    state.getShapes(),
-                    selectedShape,
-                    null,
-                    getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
-                );
+                renderScene();
                 resetToSelectTool();
             },
         });
@@ -367,6 +414,13 @@ export function attachEvents(
             keyboardTarget &&
             (keyboardTarget.tagName === "TEXTAREA" || keyboardTarget.tagName === "INPUT" || keyboardTarget.isContentEditable)
         ) {
+            return;
+        }
+
+        if (e.code === "Space") {
+            e.preventDefault();
+            spacePressed = true;
+            updateCursor();
             return;
         }
 
@@ -387,33 +441,99 @@ export function attachEvents(
                 const updatedShapes = state.getShapes();
                 selectedShape = updatedShapes.find((shape) => shape.id === selectedShape?.id) || selectedShape;
 
-                render(
-                    ctx,
-                    canvas,
-                    updatedShapes,
-                    selectedShape,
-                    null,
-                    getSelectedShapesByIds(updatedShapes, selectedShapeIds)
-                );
+                renderScene();
             },
             undo: () => {
                 state.undo();
                 clearSelection();
-                render(ctx, canvas, state.getShapes(), null);
+                renderScene();
             },
             redo: () => {
                 state.redo();
                 clearSelection();
-                render(ctx, canvas, state.getShapes(), null);
+                renderScene();
             },
         });
     });
 
+    window.addEventListener("keyup", (e) => {
+        if (e.code === "Space") {
+            spacePressed = false;
+            updateCursor();
+        }
+    });
+
+    window.addEventListener("resize", () => {
+        const previousWidth = canvas.width;
+        const previousHeight = canvas.height;
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        if (previousWidth > 0 && previousHeight > 0) {
+            viewport = {
+                ...viewport,
+                x: viewport.x + (canvas.width - previousWidth) / 2,
+                y: viewport.y + (canvas.height - previousHeight) / 2,
+            };
+        }
+
+        renderScene();
+    });
+
+    canvas.addEventListener(
+        "wheel",
+        (e) => {
+            e.preventDefault();
+
+            const pointer = getMousePos(canvas, e as unknown as MouseEvent);
+            lastPointer = pointer;
+
+            if (e.ctrlKey || e.metaKey) {
+                const worldPoint = screenToWorldPoint(pointer, viewport);
+                const zoomFactor = Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY);
+                const nextScale = clamp(viewport.scale * zoomFactor, MIN_ZOOM, MAX_ZOOM);
+
+                viewport = {
+                    scale: nextScale,
+                    x: pointer.x - worldPoint.x * nextScale,
+                    y: pointer.y - worldPoint.y * nextScale,
+                };
+
+                updateCursor();
+                renderScene();
+                return;
+            }
+
+            viewport = {
+                ...viewport,
+                x: viewport.x - e.deltaX * WHEEL_PAN_SENSITIVITY,
+                y: viewport.y - e.deltaY * WHEEL_PAN_SENSITIVITY,
+            };
+
+            updateCursor();
+            renderScene();
+        },
+        {passive: false}
+    );
+
     /* ---------------- MOUSEDOWN ---------------- */
 
     canvas.addEventListener("mousedown", (e) => {
-        const {x, y} = getMousePos(canvas, e);
+        const screenPoint = getMousePos(canvas, e);
+        lastPointer = screenPoint;
+        const {x, y} = screenToWorldPoint(screenPoint, viewport);
         const shapes = state.getShapes();
+
+        if (e.button === 1 || spacePressed) {
+            isPanning = true;
+            panStartX = screenPoint.x;
+            panStartY = screenPoint.y;
+            panOriginX = viewport.x;
+            panOriginY = viewport.y;
+            canvas.style.cursor = "grabbing";
+            return;
+        }
 
         const resizeTarget = getResizeTarget(shapes, x, y, selectedShape, SELECTION_PADDING, ctx);
 
@@ -439,14 +559,7 @@ export function attachEvents(
                 prevX = x;
                 prevY = y;
 
-                render(
-                    ctx,
-                    canvas,
-                    state.getShapes(),
-                    selectedShape,
-                    null,
-                    getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
-                );
+                renderScene();
                 return;
             }
         }
@@ -463,7 +576,7 @@ export function attachEvents(
 
             const selectedShapes = setSelection(nextSelectionIds);
 
-            render(ctx, canvas, shapes, selectedShape, null, selectedShapes);
+            render(ctx, canvas, shapes, selectedShape, null, selectedShapes, viewport);
             return;
         }
 
@@ -499,7 +612,7 @@ export function attachEvents(
                 prevX = x;
                 prevY = y;
 
-                render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds));
+                render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport);
                 return;
             }
 
@@ -523,7 +636,7 @@ export function attachEvents(
                 prevY = y;
             }
 
-            render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds));
+            render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport);
             return;
         }
 
@@ -536,7 +649,7 @@ export function attachEvents(
 
             clearSelection();
 
-            render(ctx, canvas, state.getShapes(), null, null, []);
+            renderScene();
             return;
         }
 
@@ -555,17 +668,32 @@ export function attachEvents(
     /* ---------------- MOUSEMOVE ---------------- */
 
     canvas.addEventListener("mousemove", (e) => {
-        const {x, y} = getMousePos(canvas, e);
+        const screenPoint = getMousePos(canvas, e);
+        lastPointer = screenPoint;
+        const {x, y} = screenToWorldPoint(screenPoint, viewport);
 
         const shapes = state.getShapes();
         const resizeTarget = getResizeTarget(shapes, x, y, selectedShape, SELECTION_PADDING, ctx);
         const shape = getShapeAtPoint(shapes, x, y, ctx);
 
-        // CURSOR
+        if (isPanning) {
+            viewport = {
+                ...viewport,
+                x: panOriginX + (screenPoint.x - panStartX),
+                y: panOriginY + (screenPoint.y - panStartY),
+            };
+
+            updateCursor();
+            renderScene();
+            return;
+        }
+
         if (resizeTarget) {
             canvas.style.cursor = getCursorForHandle(resizeTarget.handle);
         } else if (shape) {
             canvas.style.cursor = "move";
+        } else if (spacePressed) {
+            canvas.style.cursor = "grab";
         } else if (getActiveTool() === "select") {
             canvas.style.cursor = "default";
         } else if (getActiveTool() === "text") {
@@ -592,14 +720,7 @@ export function attachEvents(
             });
 
             const updated = state.getShapes().find((s) => s.id === shape.id);
-            render(
-                ctx,
-                canvas,
-                state.getShapes(),
-                updated || null,
-                null,
-                getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
-            );
+            render(ctx, canvas, state.getShapes(), updated || null, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport);
             return;
         }
 
@@ -627,7 +748,7 @@ export function attachEvents(
                 const updatedSelectedShapes = getSelectedShapesByIds(updatedShapes, selectedShapeIds);
                 selectedShape = updatedShapes.find((shape) => shape.id === selectedShape?.id) || selectedShape;
 
-                render(ctx, canvas, updatedShapes, selectedShape, null, updatedSelectedShapes);
+                render(ctx, canvas, updatedShapes, selectedShape, null, updatedSelectedShapes, viewport);
                 return;
             }
 
@@ -712,14 +833,7 @@ export function attachEvents(
                 prevY = y;
             }
 
-            render(
-                ctx,
-                canvas,
-                state.getShapes(),
-                selected,
-                null,
-                getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
-            );
+            render(ctx, canvas, state.getShapes(), selected, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport);
             return;
         }
 
@@ -732,7 +846,7 @@ export function attachEvents(
             selectedShapeIds = selectedShapes.map((shape) => shape.id);
             emitSelectionChange();
 
-            render(ctx, canvas, shapes, null, selectionBox, selectedShapes);
+            render(ctx, canvas, shapes, null, selectionBox, selectedShapes, viewport);
             return;
         }
 
@@ -744,7 +858,7 @@ export function attachEvents(
                 points: freehandPoints,
             };
 
-            render(ctx, canvas, [...shapes, {...preview, id: "__preview__"}], selectedShape, null, getSelectedShapesByIds(shapes, selectedShapeIds));
+            render(ctx, canvas, [...shapes, {...preview, id: "__preview__"}], selectedShape, null, getSelectedShapesByIds(shapes, selectedShapeIds), viewport);
             return;
         }
 
@@ -761,20 +875,21 @@ export function attachEvents(
             shapesToRender = [...shapes, {...previewShape, id: "__preview__"}];
         }
 
-        render(
-            ctx,
-            canvas,
-            shapesToRender,
-            selectedShape,
-            null,
-            getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
-        );
+        render(ctx, canvas, shapesToRender, selectedShape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport);
     });
 
     /* ---------------- MOUSEUP ---------------- */
 
     canvas.addEventListener("mouseup", (e) => {
-        const {x, y} = getMousePos(canvas, e);
+        const screenPoint = getMousePos(canvas, e);
+        lastPointer = screenPoint;
+        const {x, y} = screenToWorldPoint(screenPoint, viewport);
+
+        if (isPanning) {
+            isPanning = false;
+            updateCursor();
+            return;
+        }
 
         if (isFreehandDrawing) {
             isFreehandDrawing = false;
@@ -795,14 +910,7 @@ export function attachEvents(
             }
 
             freehandPoints = [];
-            render(
-                ctx,
-                canvas,
-                state.getShapes(),
-                selectedShape,
-                null,
-                getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
-            );
+            renderScene();
             resetToSelectTool();
             return;
         }
@@ -818,14 +926,7 @@ export function attachEvents(
                 clearSelection();
             }
 
-            render(
-                ctx,
-                canvas,
-                state.getShapes(),
-                selectedShape,
-                null,
-                getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
-            );
+            renderScene();
             return;
         }
 
@@ -847,14 +948,7 @@ export function attachEvents(
             isDrawing = false;
             activeTool = null;
             previewShape = null;
-            render(
-                ctx,
-                canvas,
-                state.getShapes(),
-                selectedShape,
-                null,
-                getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
-            );
+            renderScene();
             resetToSelectTool();
             return;
         }
@@ -876,18 +970,13 @@ export function attachEvents(
         previewShape = null;
         resetToSelectTool();
 
-        render(
-            ctx,
-            canvas,
-            state.getShapes(),
-            selectedShape,
-            null,
-            getSelectedShapesByIds(state.getShapes(), selectedShapeIds)
-        );
+        renderScene();
     });
 
     canvas.addEventListener("dblclick", (e) => {
-        const {x, y} = getMousePos(canvas, e);
+        const screenPoint = getMousePos(canvas, e);
+        lastPointer = screenPoint;
+        const {x, y} = screenToWorldPoint(screenPoint, viewport);
         const shape = getShapeAtPoint(state.getShapes(), x, y, ctx);
         if (!shape || shape.type !== "text") return;
 
@@ -901,7 +990,7 @@ export function attachEvents(
         rerender: () => {
             const shapes = state.getShapes();
             const selected = getSelectedShapesByIds(shapes, selectedShapeIds);
-            render(ctx, canvas, shapes, selectedShape, selectionBox, selected);
+            render(ctx, canvas, shapes, selectedShape, selectionBox, selected, viewport);
         },
     };
 }

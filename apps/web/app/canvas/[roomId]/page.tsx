@@ -117,6 +117,28 @@ export default function CanvasPage() {
     }, [theme]);
 
     useEffect(() => {
+        const preventBrowserZoom = (event: WheelEvent) => {
+            if (event.ctrlKey || event.metaKey) {
+                event.preventDefault();
+            }
+        };
+
+        const preventGestureZoom = (event: Event) => {
+            event.preventDefault();
+        };
+
+        window.addEventListener("wheel", preventBrowserZoom, {passive: false, capture: true});
+        window.addEventListener("gesturestart", preventGestureZoom as EventListener, {passive: false, capture: true});
+        window.addEventListener("gesturechange", preventGestureZoom as EventListener, {passive: false, capture: true});
+
+        return () => {
+            window.removeEventListener("wheel", preventBrowserZoom, true);
+            window.removeEventListener("gesturestart", preventGestureZoom as EventListener, true);
+            window.removeEventListener("gesturechange", preventGestureZoom as EventListener, true);
+        };
+    }, []);
+
+    useEffect(() => {
         if (!roomId) return;
 
         isHydratingRef.current = true;
@@ -406,13 +428,13 @@ export default function CanvasPage() {
                 <ThemeToggle />
             </div>
             <div
-                className={`absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-2xl p-2 backdrop-blur ${
+                className={`absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-3xl p-3 backdrop-blur ${
                     isDark
                         ? "border border-white/10 bg-[#191919]/95 shadow-[0_12px_30px_rgba(0,0,0,0.45)]"
                         : "border border-slate-300/70 bg-white/90 shadow-[0_12px_24px_rgba(15,23,42,0.12)]"
                 }`}
             >
-                <div className="flex items-center gap-1">
+                <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
                     {TOOLS.map((tool) => {
                         const isActive = activeTool === tool.id;
 
@@ -422,7 +444,7 @@ export default function CanvasPage() {
                                 type="button"
                                 onClick={() => setActiveTool(tool.id)}
                                 title={`${tool.label} (${tool.shortcut})`}
-                                className={`group flex min-w-14 flex-col items-center rounded-xl border px-2 py-1.5 transition ${
+                                className={`group flex shrink-0 min-w-[72px] flex-col items-center rounded-2xl border px-3 py-2 transition ${
                                     isActive
                                         ? isDark
                                             ? "border-[#8d8ac5] bg-[#8d8ac5]/20 text-white"
@@ -432,9 +454,9 @@ export default function CanvasPage() {
                                             : "border-transparent bg-slate-100 text-slate-700 hover:border-slate-300 hover:text-slate-900"
                                 }`}
                             >
-                                {tool.icon}
+                                <span className="flex h-5 w-5 items-center justify-center">{tool.icon}</span>
                                 <span
-                                    className={`mt-1 text-[10px] ${
+                                    className={`mt-1 text-[11px] font-medium ${
                                         isActive
                                             ? isDark
                                                 ? "text-white/90"
@@ -449,13 +471,13 @@ export default function CanvasPage() {
                             </button>
                         );
                     })}
-                    <div className={`mx-1 h-8 w-px ${isDark ? "bg-white/10" : "bg-slate-300"}`} />
+                    <div className={`mx-1 hidden h-10 w-px flex-none sm:block ${isDark ? "bg-white/10" : "bg-slate-300"}`} />
                     <button
                         type="button"
                         onClick={handleDeleteSelected}
                         disabled={selectedCount === 0}
                         title="Delete selected shapes (Delete/Backspace)"
-                        className={`group flex min-w-14 flex-col items-center rounded-xl border px-2 py-1.5 transition ${
+                        className={`group flex shrink-0 min-w-[72px] flex-col items-center rounded-2xl border px-3 py-2 transition ${
                             selectedCount > 0
                                 ? isDark
                                     ? "border-red-300/30 bg-red-500/15 text-white hover:border-red-200/50 hover:bg-red-500/20"
@@ -465,7 +487,7 @@ export default function CanvasPage() {
                                     : "cursor-not-allowed border-transparent bg-slate-100 text-slate-400"
                         }`}
                     >
-                        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2">
+                        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
                             <path d="M3 6h18" />
                             <path d="M8 6V4h8v2" />
                             <path d="M19 6l-1 14H6L5 6" />
@@ -473,7 +495,7 @@ export default function CanvasPage() {
                             <path d="M14 11v6" />
                         </svg>
                         <span
-                            className={`mt-1 text-[10px] ${
+                            className={`mt-1 text-[11px] font-medium ${
                                 selectedCount > 0
                                     ? isDark
                                         ? "text-white/80"
@@ -493,7 +515,7 @@ export default function CanvasPage() {
             <div className="absolute bottom-4 right-4 z-20 flex flex-col gap-2">
                 {/* Sync Status Indicator */}
                 <div
-                    className={`flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium ${
+                    className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium ${
                         syncStatus === "connected"
                             ? isDark
                                 ? "bg-green-500/20 text-green-300"
@@ -517,14 +539,14 @@ export default function CanvasPage() {
                         type="button"
                         onClick={handleCopyInvite}
                         title="Copy invite link"
-                        className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                        className={`flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
                             isDark
                                 ? "border-blue-300/30 bg-blue-500/15 text-blue-300 hover:border-blue-200/50 hover:bg-blue-500/20"
                                 : "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
                         }`}
                     >
                         <svg
-                            className="h-4 w-4"
+                            className="h-5 w-5"
                             fill="none"
                             stroke="currentColor"
                             viewBox="0 0 24 24"
@@ -541,7 +563,7 @@ export default function CanvasPage() {
                 )}
             </div>
 
-            <canvas ref={canvasRef} />
+            <canvas ref={canvasRef} className="block h-full w-full touch-none" />
         </div>
     );
 }

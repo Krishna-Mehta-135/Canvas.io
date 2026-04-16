@@ -1,3 +1,4 @@
+import "@repo/backend-common/config";
 import {WebSocketServer, WebSocket} from "ws";
 import {checkUser} from "./ws/auth.js";
 import {leaveActiveRoom, registerUser, removeUserSocket} from "./ws/connectionState.js";
@@ -5,6 +6,8 @@ import {handleSocketMessage} from "./ws/messageHandler.js";
 import type {AuthenticatedWebSocket} from "./ws/types.js";
 
 const wss = new WebSocketServer({port: 8080});
+
+console.log("WebSocket server online on port 8080");
 
 wss.on("connection", function connection(ws: AuthenticatedWebSocket, request) {
     const userId = checkUser(request);

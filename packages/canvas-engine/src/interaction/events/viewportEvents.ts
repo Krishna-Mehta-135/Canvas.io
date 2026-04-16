@@ -36,7 +36,7 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
         releaseSpacePan,
     } = params;
 
-    window.addEventListener("mouseup", () => {
+    const handleWindowMouseUp = () => {
         if (!isInteractionActive()) {
             return;
         }
@@ -51,9 +51,9 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
         if (shouldRepaint) {
             renderScene();
         }
-    });
+    };
 
-    window.addEventListener("blur", () => {
+    const handleWindowBlur = () => {
         if (!isInteractionActive()) {
             return;
         }
@@ -62,16 +62,16 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
         resetToSelectTool();
         updateCursor();
         renderScene();
-    });
+    };
 
-    window.addEventListener("keyup", (e) => {
+    const handleWindowKeyUp = (e: KeyboardEvent) => {
         if (e.code === "Space") {
             releaseSpacePan();
             updateCursor();
         }
-    });
+    };
 
-    window.addEventListener("resize", () => {
+    const handleWindowResize = () => {
         const previousWidth = canvas.width;
         const previousHeight = canvas.height;
         const {width, height, pixelRatio} = resizeCanvasForViewport(canvas);
@@ -88,46 +88,61 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
         }
 
         renderScene();
-    });
+    };
 
-    canvas.addEventListener(
-        "wheel",
-        (e) => {
-            e.preventDefault();
+    const handleWheel = (e: WheelEvent) => {
+        e.preventDefault();
 
-            const pointer = getMousePos(canvas, e as unknown as MouseEvent);
-            setLastPointer(pointer);
+        const pointer = getMousePos(canvas, e as unknown as MouseEvent);
+        setLastPointer(pointer);
 
-            const normalizedDeltaY =
-                e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * window.innerHeight : e.deltaY;
+        const normalizedDeltaY =
+            e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * window.innerHeight : e.deltaY;
 
-            const viewport = getViewport();
+        const viewport = getViewport();
 
-            if (e.ctrlKey || e.metaKey) {
-                const worldPoint = screenToWorldPoint(pointer, viewport);
-                const zoomFactor = Math.exp(-normalizedDeltaY * WHEEL_ZOOM_SENSITIVITY);
-                const nextScale = clamp(viewport.scale * zoomFactor, MIN_ZOOM, MAX_ZOOM);
-
-                setViewport({
-                    scale: nextScale,
-                    x: pointer.x - worldPoint.x * nextScale,
-                    y: pointer.y - worldPoint.y * nextScale,
-                });
-
-                updateCursor();
-                renderScene();
-                return;
-            }
+        if (e.ctrlKey || e.metaKey) {
+            const worldPoint = screenToWorldPoint(pointer, viewport);
+            const zoomFactor = Math.exp(-normalizedDeltaY * WHEEL_ZOOM_SENSITIVITY);
+            const nextScale = clamp(viewport.scale * zoomFactor, MIN_ZOOM, MAX_ZOOM);
 
             setViewport({
-                ...viewport,
-                x: viewport.x - e.deltaX * WHEEL_PAN_SENSITIVITY,
-                y: viewport.y - e.deltaY * WHEEL_PAN_SENSITIVITY,
+                scale: nextScale,
+                x: pointer.x - worldPoint.x * nextScale,
+                y: pointer.y - worldPoint.y * nextScale,
             });
 
             updateCursor();
             renderScene();
-        },
+            return;
+        }
+
+        setViewport({
+            ...viewport,
+            x: viewport.x - e.deltaX * WHEEL_PAN_SENSITIVITY,
+            y: viewport.y - e.deltaY * WHEEL_PAN_SENSITIVITY,
+        });
+
+        updateCursor();
+        renderScene();
+    };
+
+    window.addEventListener("mouseup", handleWindowMouseUp);
+    window.addEventListener("blur", handleWindowBlur);
+    window.addEventListener("keyup", handleWindowKeyUp);
+    window.addEventListener("resize", handleWindowResize);
+
+    canvas.addEventListener(
+        "wheel",
+        handleWheel,
         {passive: false}
     );
+
+    return () => {
+        window.removeEventListener("mouseup", handleWindowMouseUp);
+        window.removeEventListener("blur", handleWindowBlur);
+        window.removeEventListener("keyup", handleWindowKeyUp);
+        window.removeEventListener("resize", handleWindowResize);
+        canvas.removeEventListener("wheel", handleWheel);
+    };
 }

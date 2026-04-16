@@ -155,6 +155,7 @@ export function attachEvents(
     let selectionStartY = 0;
     let dragMode: "single" | "multi" | null = null;
     let lastPointer: {x: number; y: number} | null = null;
+    let isDestroyed = false;
 
     const getActiveTool = () => options.getTool?.() ?? currentTool;
 
@@ -337,9 +338,7 @@ export function attachEvents(
         renderScene,
     });
 
-    /* ---------------- KEYBOARD ---------------- */
-
-    window.addEventListener("keydown", (e) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
         const keyboardTarget = e.target as HTMLElement | null;
         if (
             keyboardTarget &&
@@ -385,29 +384,9 @@ export function attachEvents(
                 renderScene();
             },
         });
-    });
+    };
 
-    attachViewportEvents({
-        canvas,
-        getViewport: () => viewport,
-        setViewport,
-        setLastPointer: (point) => {
-            lastPointer = point;
-        },
-        updateCursor,
-        renderScene,
-        isInteractionActive: () => isPanning || isErasing || isFreehandDrawing || isDrawing || isDragging || isSelecting || isResizing,
-        shouldRepaintOnReset: () => isErasing || isFreehandDrawing || isDrawing || isDragging || isSelecting || isResizing,
-        resetInteractions: stopTransientInteractions,
-        resetToSelectTool,
-        releaseSpacePan: () => {
-            spacePressed = false;
-        },
-    });
-
-    /* ---------------- MOUSEDOWN ---------------- */
-
-    canvas.addEventListener("mousedown", (e) => {
+    const handleMouseDown = (e: MouseEvent) => {
         const screenPoint = getMousePos(canvas, e);
         lastPointer = screenPoint;
         const {x, y} = screenToWorldPoint(screenPoint, viewport);
@@ -436,7 +415,6 @@ export function attachEvents(
 
         const resizeTarget = getResizeTarget(shapes, x, y, selectedShape, SELECTION_PADDING, ctx);
 
-        // RESIZE
         if (resizeTarget) {
             isResizing = true;
             resizeSession = resizeTarget;
@@ -446,7 +424,6 @@ export function attachEvents(
 
         const shape = getShapeAtPoint(shapes, x, y, ctx);
 
-        // Allow dragging multi-selection from empty space inside the selection bounds.
         if (!shape && getActiveTool() === "select" && selectedShapeIds.length > 1) {
             const bounds = getSelectionBounds(selectedShapeIds);
             const isInsideBounds =
@@ -470,8 +447,6 @@ export function attachEvents(
             return;
         }
 
-        // TEXT TOOL: click anywhere to place text, including on top of other shapes.
-        // Existing text shape click enters edit mode for that shape.
         if (getActiveTool() === "text") {
             e.stopPropagation();
             e.preventDefault();
@@ -491,7 +466,6 @@ export function attachEvents(
             return;
         }
 
-        // ---------------- DRAG ----------------
         if (shape) {
             selectedShape = shape;
             isDragging = true;
@@ -519,7 +493,6 @@ export function attachEvents(
             return;
         }
 
-        // EMPTY CLICK
         if (!shape && getActiveTool() === "select") {
             isSelecting = true;
 
@@ -532,7 +505,6 @@ export function attachEvents(
             return;
         }
 
-        // DRAW
         const active = getActiveTool();
         if (!isDrawableTool(active)) {
             return;
@@ -545,11 +517,9 @@ export function attachEvents(
         pendingShapeId = crypto.randomUUID();
         clearSelection();
         renderScene();
-    });
+    };
 
-    /* ---------------- MOUSEMOVE ---------------- */
-
-    canvas.addEventListener("mousemove", (e) => {
+    const handleMouseMove = (e: MouseEvent) => {
         const screenPoint = getMousePos(canvas, e);
         lastPointer = screenPoint;
         const {x, y} = screenToWorldPoint(screenPoint, viewport);
@@ -577,7 +547,6 @@ export function attachEvents(
 
         updateCursor();
 
-        // RESIZE
         if (isResizing && resizeSession) {
             const {shape, handle} = resizeSession;
 
@@ -599,7 +568,6 @@ export function attachEvents(
             return;
         }
 
-        // DRAG
         if (isDragging && selectedShape) {
             if (dragMode === "multi") {
                 const dx = x - prevX;
@@ -647,7 +615,6 @@ export function attachEvents(
             return;
         }
 
-        // ---------------- SELECTION BOX ----------------
         if (isSelecting) {
             const selectionPreview = renderSelectionDragPreview({
                 x,
@@ -682,7 +649,6 @@ export function attachEvents(
             return;
         }
 
-        // DRAW PREVIEW
         if (!isDrawing || !activeTool || !isDrawableTool(activeTool)) return;
 
         previewShape = renderDrawPreview({
@@ -702,11 +668,9 @@ export function attachEvents(
             viewport,
             getScenePixelRatio,
         });
-    });
+    };
 
-    /* ---------------- MOUSEUP ---------------- */
-
-    canvas.addEventListener("mouseup", (e) => {
+    const handleMouseUp = (e: MouseEvent) => {
         const screenPoint = getMousePos(canvas, e);
         lastPointer = screenPoint;
         const {x, y} = screenToWorldPoint(screenPoint, viewport);
@@ -738,7 +702,6 @@ export function attachEvents(
             isSelecting = false;
             selectionBox = null;
 
-            // pick primary shape (top-most inside selection)
             const selectedShapes = didDragSelection ? setSelection(selectedShapeIds) : [];
             if (!didDragSelection) {
                 clearSelection();
@@ -753,7 +716,6 @@ export function attachEvents(
             resizeSession = null;
             return;
         }
-
 
         finalizeDrawCommit({
             state,
@@ -774,9 +736,9 @@ export function attachEvents(
         activeTool = null;
         previewShape = null;
         pendingShapeId = null;
-    });
+    };
 
-    canvas.addEventListener("dblclick", (e) => {
+    const handleDoubleClick = (e: MouseEvent) => {
         const screenPoint = getMousePos(canvas, e);
         lastPointer = screenPoint;
         const {x, y} = screenToWorldPoint(screenPoint, viewport);
@@ -784,7 +746,32 @@ export function attachEvents(
         if (!shape || shape.type !== "text") return;
 
         startTextEditing(shape.x, shape.y, shape);
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    const detachViewportEvents = attachViewportEvents({
+        canvas,
+        getViewport: () => viewport,
+        setViewport,
+        setLastPointer: (point) => {
+            lastPointer = point;
+        },
+        updateCursor,
+        renderScene,
+        isInteractionActive: () => isPanning || isErasing || isFreehandDrawing || isDrawing || isDragging || isSelecting || isResizing,
+        shouldRepaintOnReset: () => isErasing || isFreehandDrawing || isDrawing || isDragging || isSelecting || isResizing,
+        resetInteractions: stopTransientInteractions,
+        resetToSelectTool,
+        releaseSpacePan: () => {
+            spacePressed = false;
+        },
     });
+
+    canvas.addEventListener("mousedown", handleMouseDown);
+    canvas.addEventListener("mousemove", handleMouseMove);
+    canvas.addEventListener("mouseup", handleMouseUp);
+    canvas.addEventListener("dblclick", handleDoubleClick);
 
     return {
         deleteSelection,
@@ -796,5 +783,19 @@ export function attachEvents(
             render(ctx, canvas, shapes, selectedShape, selectionBox, selected, viewport, getScenePixelRatio());
         },
         replayShape: replayController.replayShape,
+        destroy: () => {
+            if (isDestroyed) {
+                return;
+            }
+
+            isDestroyed = true;
+            window.removeEventListener("keydown", handleKeyDown);
+            canvas.removeEventListener("mousedown", handleMouseDown);
+            canvas.removeEventListener("mousemove", handleMouseMove);
+            canvas.removeEventListener("mouseup", handleMouseUp);
+            canvas.removeEventListener("dblclick", handleDoubleClick);
+            detachViewportEvents();
+            textEditingController.dispose();
+        },
     };
 }

@@ -30,4 +30,5 @@ export type AttachEventsController = {
     getSelectedIds: () => string[];
     rerender: () => void;
     replayShape: (shapeId: string) => void;
+    destroy: () => void;
 };

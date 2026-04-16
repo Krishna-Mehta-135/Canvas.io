@@ -15,7 +15,7 @@ const envCandidates = [
 
 for (const envPath of envCandidates) {
     if (existsSync(envPath)) {
-        dotenv.config({path: envPath});
+        dotenv.config({path: envPath, quiet: true});
     }
 }
 

@@ -558,6 +558,9 @@ export default function CanvasPage() {
         return () => {
             isUnmounted = true;
 
+            controlsRef.current?.destroy();
+            controlsRef.current = null;
+
             // Stop listening to state updates when this page unmounts.
             // Without this, a stale callback could keep firing saves.
             unsubscribe();

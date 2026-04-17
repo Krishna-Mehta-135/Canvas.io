@@ -24,7 +24,7 @@ import rough from "roughjs/bin/rough";
 import type {Options as RoughOptions} from "roughjs/bin/core";
 
 const DEFAULT_STROKE_WIDTH = 2;
-const ROUGHJS_THRESHOLD = 1.8;
+const ROUGHJS_THRESHOLD = 0.5;
 const HANDLE_COLOR = "#8d8ac5";
 const SELECTION_PADDING = 6;
 const HANDLE_SIZE = 12;
@@ -113,12 +113,12 @@ function getRoughCanvas(ctx: CanvasRenderingContext2D) {
     return created;
 }
 
-function getRoughOptions(shape: Shape): RoughOptions {
-    const roughness = Math.max(shape.type === "line" || shape.type === "arrow" ? 1.8 : 0.8, shape.roughness ?? 1);
-    const strokeLineDash = getStrokeDash(shape);
+function getRoughOptions(shape: Shape, viewportScale: number): RoughOptions {
+    const roughness = Math.max(shape.type === "line" || shape.type === "arrow" ? 1.2 : 0.8, getEffectiveRoughness(shape));
+    const strokeLineDash = getStrokeDash(shape, viewportScale);
     return {
         stroke: shape.stroke || getThemePalette().stroke,
-        strokeWidth: getStrokeWidth(shape),
+        strokeWidth: getViewportAdjustedStrokeWidth(shape, viewportScale),
         roughness,
         bowing: Math.max(0.4, roughness * 0.8),
         seed: hashShapeSeed(shape.id),
@@ -127,15 +127,34 @@ function getRoughOptions(shape: Shape): RoughOptions {
 }
 
 function shouldUseRoughJs(shape: Shape) {
-    return shape.type === "line" || shape.type === "arrow" || (shape.roughness ?? 0) >= ROUGHJS_THRESHOLD;
+    return shape.type === "line" || shape.type === "arrow" || getSloppiness(shape) >= ROUGHJS_THRESHOLD;
+}
+
+function getSloppiness(shape: Shape) {
+    return Math.max(0, Math.min(5, shape.roughness ?? 0));
+}
+
+function getEffectiveRoughness(shape: Shape) {
+    const sloppiness = getSloppiness(shape);
+    if (sloppiness <= 0) {
+        return 0;
+    }
+
+    // Make low and mid slider values visibly affect the shape.
+    return 0.9 + sloppiness * 1.1;
 }
 
 function getStrokeWidth(shape: Shape) {
     return Math.max(1, Math.min(12, shape.strokeWidth ?? DEFAULT_STROKE_WIDTH));
 }
 
-function getStrokeDash(shape: Shape) {
-    const strokeWidth = getStrokeWidth(shape);
+function getViewportAdjustedStrokeWidth(shape: Shape, viewportScale: number) {
+    const safeScale = Math.max(0.01, viewportScale || 1);
+    return getStrokeWidth(shape) / safeScale;
+}
+
+function getStrokeDash(shape: Shape, viewportScale = 1) {
+    const strokeWidth = getViewportAdjustedStrokeWidth(shape, viewportScale);
     const style = shape.strokeStyle ?? "solid";
 
     if (style === "dashed") {
@@ -149,19 +168,20 @@ function getStrokeDash(shape: Shape) {
     return [];
 }
 
-function applyStrokeStyle(ctx: CanvasRenderingContext2D, shape: Shape) {
-    ctx.setLineDash(getStrokeDash(shape));
+function applyStrokeStyle(ctx: CanvasRenderingContext2D, shape: Shape, viewportScale = 1) {
+    ctx.setLineDash(getStrokeDash(shape, viewportScale));
 }
 
 function applyRoughness(ctx: CanvasRenderingContext2D, shape: Shape) {
-    const roughness = Math.max(0, Math.min(5, shape.roughness ?? 0));
-    if (roughness <= 0) {
+    const sloppiness = getSloppiness(shape);
+    if (sloppiness <= 0) {
         ctx.shadowBlur = 0;
+        ctx.shadowColor = "transparent";
         return;
     }
 
     ctx.shadowColor = ctx.strokeStyle as string;
-    ctx.shadowBlur = roughness * 0.7;
+    ctx.shadowBlur = sloppiness * 1.8;
 }
 
 function getFillPattern(ctx: CanvasRenderingContext2D, style: NonNullable<Shape["fillStyle"]>, color: string) {
@@ -255,7 +275,7 @@ const DEFAULT_VIEWPORT: Viewport = {
  * Avoids large condition chains and keeps rendering extensible.
  */
 const drawMap: {
-    [K in Shape["type"]]: (ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: K}>) => void;
+    [K in Shape["type"]]: (ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: K}>, viewportScale: number) => void;
 } = {
     rect: drawRectangle,
     circle: drawCircle,
@@ -315,7 +335,7 @@ function drawRhombusPath(ctx: CanvasRenderingContext2D, x: number, y: number, wi
  *
  * Smaller shapes → smaller radius for better visual balance.
  */
-function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "rect"}>) {
+function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "rect"}>, viewportScale: number) {
     ctx.save();
     ctx.globalAlpha = getShapeOpacity(shape);
 
@@ -327,15 +347,15 @@ function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {typ
                 drawRoundedRect(ctx, shape.x, shape.y, shape.width, shape.height, radius);
                 applyShapeFill(ctx, shape);
             }
-            rc.rectangle(shape.x, shape.y, shape.width, shape.height, getRoughOptions(shape));
+            rc.rectangle(shape.x, shape.y, shape.width, shape.height, getRoughOptions(shape, viewportScale));
             ctx.restore();
             return;
         }
     }
 
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
-    ctx.lineWidth = getStrokeWidth(shape);
-    applyStrokeStyle(ctx, shape);
+    ctx.lineWidth = getViewportAdjustedStrokeWidth(shape, viewportScale);
+    applyStrokeStyle(ctx, shape, viewportScale);
     applyRoughness(ctx, shape);
 
     drawRoundedRect(ctx, shape.x, shape.y, shape.width, shape.height, radius);
@@ -351,7 +371,7 @@ function drawRectangle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {typ
  * - centerX, centerY
  * - radiusX, radiusY
  */
-function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "circle"}>) {
+function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "circle"}>, viewportScale: number) {
     ctx.save();
     ctx.globalAlpha = getShapeOpacity(shape);
 
@@ -363,15 +383,15 @@ function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: 
                 ctx.ellipse(shape.centerX, shape.centerY, shape.radiusX, shape.radiusY, 0, 0, Math.PI * 2);
                 applyShapeFill(ctx, shape);
             }
-            rc.ellipse(shape.centerX, shape.centerY, shape.radiusX * 2, shape.radiusY * 2, getRoughOptions(shape));
+            rc.ellipse(shape.centerX, shape.centerY, shape.radiusX * 2, shape.radiusY * 2, getRoughOptions(shape, viewportScale));
             ctx.restore();
             return;
         }
     }
 
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
-    ctx.lineWidth = getStrokeWidth(shape);
-    applyStrokeStyle(ctx, shape);
+    ctx.lineWidth = getViewportAdjustedStrokeWidth(shape, viewportScale);
+    applyStrokeStyle(ctx, shape, viewportScale);
     applyRoughness(ctx, shape);
 
     ctx.beginPath();
@@ -381,7 +401,7 @@ function drawCircle(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: 
     ctx.restore();
 }
 
-function drawRhombus(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "rhombus"}>) {
+function drawRhombus(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "rhombus"}>, viewportScale: number) {
     ctx.save();
     ctx.globalAlpha = getShapeOpacity(shape);
 
@@ -402,7 +422,7 @@ function drawRhombus(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type:
                     [midX, shape.y + shape.height],
                     [shape.x, midY],
                 ],
-                getRoughOptions(shape)
+                getRoughOptions(shape, viewportScale)
             );
             ctx.restore();
             return;
@@ -410,8 +430,8 @@ function drawRhombus(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type:
     }
 
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
-    ctx.lineWidth = getStrokeWidth(shape);
-    applyStrokeStyle(ctx, shape);
+    ctx.lineWidth = getViewportAdjustedStrokeWidth(shape, viewportScale);
+    applyStrokeStyle(ctx, shape, viewportScale);
     applyRoughness(ctx, shape);
 
     drawRhombusPath(ctx, shape.x, shape.y, shape.width, shape.height);
@@ -426,22 +446,22 @@ function drawRhombus(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type:
  * Note:
  * Lines have no area → only stroke matters.
  */
-function drawLine(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "line"}>) {
+function drawLine(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "line"}>, viewportScale: number) {
     ctx.save();
     ctx.globalAlpha = getShapeOpacity(shape);
 
     if (shouldUseRoughJs(shape)) {
         const rc = getRoughCanvas(ctx);
         if (rc) {
-            rc.line(shape.x1, shape.y1, shape.x2, shape.y2, getRoughOptions(shape));
+            rc.line(shape.x1, shape.y1, shape.x2, shape.y2, getRoughOptions(shape, viewportScale));
             ctx.restore();
             return;
         }
     }
 
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
-    ctx.lineWidth = getStrokeWidth(shape);
-    applyStrokeStyle(ctx, shape);
+    ctx.lineWidth = getViewportAdjustedStrokeWidth(shape, viewportScale);
+    applyStrokeStyle(ctx, shape, viewportScale);
     applyRoughness(ctx, shape);
 
     ctx.beginPath();
@@ -451,7 +471,7 @@ function drawLine(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "l
     ctx.restore();
 }
 
-function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "arrow"}>) {
+function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "arrow"}>, viewportScale: number) {
     ctx.save();
     ctx.globalAlpha = getShapeOpacity(shape);
 
@@ -477,7 +497,7 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "
     const rightY = shape.y2 - (uy * cos - ux * sin) * headLength;
 
     if (rc) {
-        const opts = getRoughOptions(shape);
+        const opts = getRoughOptions(shape, viewportScale);
         rc.line(shape.x1, shape.y1, shape.x2, shape.y2, opts);
         rc.line(shape.x2, shape.y2, leftX, leftY, opts);
         rc.line(shape.x2, shape.y2, rightX, rightY, opts);
@@ -486,8 +506,8 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "
     }
 
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
-    ctx.lineWidth = getStrokeWidth(shape);
-    applyStrokeStyle(ctx, shape);
+    ctx.lineWidth = getViewportAdjustedStrokeWidth(shape, viewportScale);
+    applyStrokeStyle(ctx, shape, viewportScale);
     applyRoughness(ctx, shape);
 
     ctx.beginPath();
@@ -501,7 +521,7 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "
     ctx.restore();
 }
 
-function drawText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "text"}>) {
+function drawText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "text"}>, _viewportScale: number) {
     ctx.save();
     ctx.globalAlpha = getShapeOpacity(shape);
     ctx.fillStyle = shape.stroke || getThemePalette().stroke;
@@ -516,13 +536,13 @@ function drawText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "t
     ctx.restore();
 }
 
-function drawFreehand(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "freehand"}>) {
+function drawFreehand(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "freehand"}>, viewportScale: number) {
     if (shape.points.length < 2) return;
 
     ctx.save();
     ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
-    ctx.lineWidth = getStrokeWidth(shape);
-    applyStrokeStyle(ctx, shape);
+    ctx.lineWidth = getViewportAdjustedStrokeWidth(shape, viewportScale);
+    applyStrokeStyle(ctx, shape, viewportScale);
     ctx.globalAlpha = getShapeOpacity(shape);
     applyRoughness(ctx, shape);
     ctx.lineCap = "round";
@@ -811,7 +831,7 @@ export function render(
         const drawFn = drawMap[shape.type];
         if (!drawFn) return;
 
-        drawFn(ctx, shape as any);
+        drawFn(ctx, shape as any, viewport.scale);
     });
 
     ctx.restore();

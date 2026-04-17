@@ -78,3 +78,39 @@ html[data-theme="dark"] .imgLight {
 html[data-theme="dark"] .imgDark {
   display: unset;
 }
+
+.canvas-cursor-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+}
+
+.canvas-cursor-line {
+  position: fixed;
+  left: 0;
+  top: 0;
+  will-change: transform, opacity;
+  transition: opacity 140ms ease;
+}
+
+.canvas-cursor-line {
+  height: 1px;
+  border-radius: 999px;
+  transform-origin: 0 50%;
+  opacity: 0.6;
+}
+
+.canvas-cursor-line-light {
+  background: linear-gradient(90deg, rgba(16, 185, 129, 0.84), rgba(20, 184, 166, 0.14));
+}
+
+.canvas-cursor-line-dark {
+  background: linear-gradient(90deg, rgba(110, 231, 183, 0.88), rgba(45, 212, 191, 0.2));
+}
+
+@media (pointer: coarse) {
+  .canvas-cursor-layer {
+    display: none;
+  }
+}

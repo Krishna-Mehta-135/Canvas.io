@@ -22,6 +22,30 @@ const STROKE_STYLE_OPTIONS: Array<{value: NonNullable<Shape["strokeStyle"]>; lab
     {value: "dashed", label: "Dashed"},
     {value: "dotted", label: "Dotted"},
 ];
+const DRAWING_PERSONAS = [
+    {
+        id: "architect",
+        label: "Architect",
+        roughness: 0,
+        summary: "Crisp and precise strokes",
+        examples: ["Blueprint", "Flowchart", "Wireframe"],
+    },
+    {
+        id: "artist",
+        label: "Artist",
+        roughness: 1.2,
+        summary: "Balanced hand-drawn feel",
+        examples: ["Storyboard", "Sketch note", "Concept map"],
+    },
+    {
+        id: "cartoonist",
+        label: "Cartoonist",
+        roughness: 3.4,
+        summary: "Expressive and playful lines",
+        examples: ["Comic panel", "Doodle scene", "Character board"],
+    },
+] as const;
+const DEFAULT_ROUGHNESS_STORAGE_KEY = "canvas-default-roughness";
 
 const TOOLS: Array<{id: Tool; label: string; shortcut: string; icon: ReactNode}> = [
     {
@@ -285,6 +309,142 @@ function StrokeStyleTile({
     );
 }
 
+function PersonaExampleGlyph({example, isDark}: {example: string; isDark: boolean}) {
+    const strokeClass = isDark ? "stroke-blue-100/90" : "stroke-blue-700";
+    const fillClass = isDark ? "fill-blue-100/80" : "fill-blue-700/80";
+
+    if (example === "Blueprint") {
+        return (
+            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.4" strokeLinecap="round">
+                <path d="M4 4h32M4 8h32M4 12h32M4 16h32M4 20h32" className="opacity-35" />
+                <rect x="8" y="6" width="24" height="12" rx="1.2" />
+            </svg>
+        );
+    }
+
+    if (example === "Flowchart") {
+        return (
+            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="8" width="10" height="7" rx="1" />
+                <path d="M18 7l4 5-4 5-4-5z" />
+                <rect x="27" y="8" width="10" height="7" rx="1" />
+                <path d="M13 11.5h3M22 11.5h5" />
+            </svg>
+        );
+    }
+
+    if (example === "Wireframe") {
+        return (
+            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4" y="3" width="32" height="18" rx="2" />
+                <rect x="7" y="6" width="9" height="4" rx="1" />
+                <path d="M18 7h15M18 10h8" />
+                <rect x="7" y="12" width="26" height="6" rx="1" />
+            </svg>
+        );
+    }
+
+    if (example === "Storyboard") {
+        return (
+            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="10" height="7" rx="1" />
+                <rect x="15" y="4" width="10" height="7" rx="1" />
+                <rect x="27" y="4" width="10" height="7" rx="1" />
+                <path d="M8 13v6M20 13v6M32 13v6" />
+            </svg>
+        );
+    }
+
+    if (example === "Sketch note") {
+        return (
+            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 16c3-7 7 3 11-2 2-2 4 2 8 1 4-1 8-6 13-2" />
+                <path d="M6 6h11M6 9h8" className="opacity-65" />
+            </svg>
+        );
+    }
+
+    if (example === "Concept map") {
+        return (
+            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="20" cy="12" r="3.2" className={fillClass} />
+                <circle cx="8" cy="7" r="2.4" />
+                <circle cx="31" cy="7" r="2.4" />
+                <circle cx="10" cy="18" r="2.4" />
+                <circle cx="30" cy="18" r="2.4" />
+                <path d="M17 10L10 8M23 10l6-2M17 14l-5 3M23 14l5 3" />
+            </svg>
+        );
+    }
+
+    if (example === "Comic panel") {
+        return (
+            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="3" width="34" height="18" rx="2" />
+                <path d="M20 3v18" />
+                <circle cx="11" cy="11" r="3" />
+                <path d="M24 7h10M24 10h8M24 13h11" />
+            </svg>
+        );
+    }
+
+    if (example === "Doodle scene") {
+        return (
+            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 18h32" className="opacity-60" />
+                <path d="M6 18l5-6 4 6" />
+                <circle cx="18" cy="10" r="2.5" />
+                <path d="M24 18c0-4 3-7 6-7s6 3 6 7" />
+            </svg>
+        );
+    }
+
+    if (example === "Character board") {
+        return (
+            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="9" cy="8" r="3" />
+                <path d="M6 18c0-3 2-5 3-5s3 2 3 5" />
+                <circle cx="20" cy="8" r="3" />
+                <path d="M17 18c0-3 2-5 3-5s3 2 3 5" />
+                <circle cx="31" cy="8" r="3" />
+                <path d="M28 18c0-3 2-5 3-5s3 2 3 5" />
+            </svg>
+        );
+    }
+
+    return <div className={`h-7 w-full rounded-sm ${isDark ? "bg-blue-100/10" : "bg-blue-100"}`} />;
+}
+
+function PersonaButtonGlyph({personaId}: {personaId: string}) {
+    if (personaId === "architect") {
+        return (
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4" y="5" width="16" height="14" rx="1.5" />
+                <path d="M4 10h16" />
+                <path d="M10 5v14" />
+            </svg>
+        );
+    }
+
+    if (personaId === "artist") {
+        return (
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 15C6.5 12.5 8.5 16.8 11.5 14.3C13.7 12.5 15.5 9.5 20 10.8" />
+                <path d="M5 9c1.5-.8 3.2-.6 4.5.4" className="opacity-60" />
+                <circle cx="17.8" cy="7.2" r="1.4" fill="currentColor" stroke="none" className="opacity-85" />
+            </svg>
+        );
+    }
+
+    return (
+        <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 16C5.8 19.3 7.2 10.7 9.6 14.5C11.2 17 12.4 8.3 15 11.4C16.3 13 17.5 9.5 20 10.8" />
+            <path d="M4.5 8.8C6.5 6.6 7.2 10.5 9.4 8.9C10.9 7.8 12.1 5.3 14.2 6.8C16.2 8.2 17.8 5.8 19.8 7.1" className="opacity-75" />
+            <path d="M6.2 5.4l1.4 1.4M18.3 4.8l-.9 1.6" className="opacity-70" />
+        </svg>
+    );
+}
+
 export default function CanvasPage() {
     const params = useParams<{roomId: string}>();
     const roomId = Array.isArray(params?.roomId) ? params.roomId[0] : params?.roomId;
@@ -307,6 +467,9 @@ export default function CanvasPage() {
     const stateRef = useRef<CanvasState | null>(null);
     const [canvasState, setCanvasState] = useState<CanvasState | null>(null);
     const [resolvedRoomId, setResolvedRoomId] = useState<number | null>(null);
+    const [hoveredPersonaId, setHoveredPersonaId] = useState<string | null>(null);
+    const [defaultRoughness, setDefaultRoughness] = useState<number>(DRAWING_PERSONAS[1]?.roughness ?? 1);
+    const defaultRoughnessRef = useRef<number>(DRAWING_PERSONAS[1]?.roughness ?? 1);
     const {theme} = useTheme();
     const isDark = theme === "dark";
 
@@ -317,6 +480,28 @@ export default function CanvasPage() {
     useEffect(() => {
         controlsRef.current?.rerender();
     }, [theme]);
+
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        const raw = window.localStorage.getItem(DEFAULT_ROUGHNESS_STORAGE_KEY);
+        if (raw === null) return;
+
+        const parsed = Number(raw);
+        if (!Number.isFinite(parsed)) return;
+
+        const next = Math.max(0, Math.min(5, parsed));
+        setDefaultRoughness(next);
+        defaultRoughnessRef.current = next;
+    }, []);
+
+    useEffect(() => {
+        defaultRoughnessRef.current = defaultRoughness;
+
+        if (typeof window !== "undefined") {
+            window.localStorage.setItem(DEFAULT_ROUGHNESS_STORAGE_KEY, String(defaultRoughness));
+        }
+    }, [defaultRoughness]);
 
     useEffect(() => {
         const preventBrowserZoom = (event: WheelEvent) => {
@@ -538,6 +723,9 @@ export default function CanvasPage() {
 
             controlsRef.current = attachEvents(canvas, ctx, state, {
                 getTool: () => toolRef.current,
+                getDefaultShapeStyle: () => ({
+                    roughness: defaultRoughnessRef.current,
+                }),
                 initialViewport: initialViewport ?? undefined,
                 onToolChange: (tool) => {
                     toolRef.current = tool;
@@ -663,9 +851,11 @@ export default function CanvasPage() {
     const strokeStyleValue = primarySelectedShape?.strokeStyle ?? "solid";
     const fillStyleValue = primarySelectedShape?.fillStyle ?? "solid";
     const strokeWidthValue = primarySelectedShape?.strokeWidth ?? 2;
-    const roughnessValue = primarySelectedShape?.roughness ?? 0;
+    const roughnessValue = primarySelectedShape?.roughness ?? defaultRoughness;
     const opacityValue = primarySelectedShape?.opacity ?? 100;
     const showReplay = primarySelectedShape?.type === "freehand";
+    const activePersona = DRAWING_PERSONAS.find((persona) => Math.abs(persona.roughness - roughnessValue) < 0.25) ?? null;
+    const hoveredPersona = DRAWING_PERSONAS.find((persona) => persona.id === hoveredPersonaId) ?? null;
 
     const handleReplaySelected = () => {
         if (!primarySelectedShape) return;
@@ -831,16 +1021,90 @@ export default function CanvasPage() {
                     </div>
 
                     <div className="mb-3">
-                        <label className="mb-1 block text-xs font-medium opacity-80">Sloppiness: {roughnessValue.toFixed(1)}</label>
-                        <input
-                            type="range"
-                            min={0}
-                            max={5}
-                            step={0.5}
-                            value={roughnessValue}
-                            onChange={(e) => applyToSelectedShapes({roughness: Number(e.target.value)})}
-                            className="w-full"
-                        />
+                        <label className="mb-1 block text-xs font-medium opacity-80">Drawing Persona</label>
+                        <div className="grid grid-cols-3 gap-2">
+                            {DRAWING_PERSONAS.map((persona) => {
+                                const isActive = activePersona?.id === persona.id;
+
+                                return (
+                                    <button
+                                        key={persona.id}
+                                        type="button"
+                                        onClick={() => {
+                                            setDefaultRoughness(persona.roughness);
+                                            if (selectedCount > 0) {
+                                                applyToSelectedShapes({roughness: persona.roughness});
+                                            }
+                                        }}
+                                        onMouseEnter={() => setHoveredPersonaId(persona.id)}
+                                        onMouseLeave={() => setHoveredPersonaId((current) => (current === persona.id ? null : current))}
+                                        title={persona.label}
+                                        className={`rounded-lg border px-2 py-2 text-xs font-semibold transition ${
+                                            isActive
+                                                ? isDark
+                                                    ? "border-blue-300/70 bg-blue-500/20 text-blue-100"
+                                                    : "border-blue-400 bg-blue-100 text-blue-900"
+                                                : isDark
+                                                    ? "border-white/15 bg-[#232323] text-white/75 hover:border-blue-300/45 hover:text-white"
+                                                    : "border-slate-300 bg-white text-slate-700 hover:border-blue-300 hover:text-slate-900"
+                                        }`}
+                                    >
+                                        <span
+                                            className={`mb-1 inline-flex h-4 w-full items-center justify-center ${
+                                                isActive
+                                                    ? isDark
+                                                        ? "text-blue-100"
+                                                        : "text-blue-900"
+                                                    : isDark
+                                                        ? "text-slate-200"
+                                                        : "text-slate-600"
+                                            }`}
+                                        >
+                                            <PersonaButtonGlyph personaId={persona.id} />
+                                        </span>
+                                        {persona.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {hoveredPersona && (
+                            <div
+                                className={`mt-2 rounded-lg border p-2 ${
+                                    isDark ? "border-blue-300/30 bg-blue-500/10" : "border-blue-200 bg-blue-50/80"
+                                }`}
+                            >
+                                <p className={`text-xs font-semibold ${isDark ? "text-blue-200" : "text-blue-800"}`}>
+                                    {hoveredPersona.label}
+                                </p>
+                                <p className={`mb-2 text-[11px] ${isDark ? "text-blue-100/80" : "text-blue-700/85"}`}>
+                                    {hoveredPersona.summary}
+                                </p>
+                                <div className="grid grid-cols-3 gap-1">
+                                    {hoveredPersona.examples.map((example) => (
+                                        <div
+                                            key={`${hoveredPersona.id}-${example}`}
+                                            className={`group relative rounded-md border px-1 py-1 ${
+                                                isDark
+                                                    ? "border-blue-200/30 bg-[#1f2a44]"
+                                                    : "border-blue-200 bg-white"
+                                            }`}
+                                        >
+                                            <PersonaExampleGlyph example={example} isDark={isDark} />
+                                            <span
+                                                className={`pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium opacity-0 shadow transition-opacity group-hover:opacity-100 ${
+                                                    isDark
+                                                        ? "bg-slate-900/95 text-blue-100"
+                                                        : "bg-slate-800 text-blue-50"
+                                                }`}
+                                            >
+                                                {example}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
 
                     <div className="mb-4">

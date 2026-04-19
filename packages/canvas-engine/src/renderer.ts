@@ -26,6 +26,7 @@ import type {Options as RoughOptions} from "roughjs/bin/core";
 const DEFAULT_STROKE_WIDTH = 2;
 const ROUGHJS_THRESHOLD = 0.5;
 const HANDLE_COLOR = "#8d8ac5";
+const CONNECTOR_TARGET_HIGHLIGHT_COLOR = "#3b82f6";
 const SELECTION_PADDING = 6;
 const HANDLE_SIZE = 12;
 const fillPatternCache = new Map<string, CanvasPattern | null>();
@@ -793,6 +794,56 @@ function drawSelectionBox(ctx: CanvasRenderingContext2D, selectionBox: Selection
     ctx.restore();
 }
 
+function drawConnectorTargetHighlight(ctx: CanvasRenderingContext2D, shape: Shape, viewport: Viewport, pixelRatio: number) {
+    if (shape.type === "line" || shape.type === "arrow") return;
+
+    ctx.save();
+    ctx.strokeStyle = CONNECTOR_TARGET_HIGHLIGHT_COLOR;
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([]);
+
+    if (shape.type === "circle") {
+        const center = worldToScreenPoint({x: shape.centerX, y: shape.centerY}, viewport);
+        const radiusX = shape.radiusX * viewport.scale * pixelRatio;
+        const radiusY = shape.radiusY * viewport.scale * pixelRatio;
+
+        ctx.beginPath();
+        ctx.ellipse(center.x * pixelRatio, center.y * pixelRatio, radiusX, radiusY, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+        return;
+    }
+
+    if (shape.type === "rhombus") {
+        const top = worldToScreenPoint({x: shape.x + shape.width / 2, y: shape.y}, viewport);
+        const right = worldToScreenPoint({x: shape.x + shape.width, y: shape.y + shape.height / 2}, viewport);
+        const bottom = worldToScreenPoint({x: shape.x + shape.width / 2, y: shape.y + shape.height}, viewport);
+        const left = worldToScreenPoint({x: shape.x, y: shape.y + shape.height / 2}, viewport);
+
+        ctx.beginPath();
+        ctx.moveTo(top.x * pixelRatio, top.y * pixelRatio);
+        ctx.lineTo(right.x * pixelRatio, right.y * pixelRatio);
+        ctx.lineTo(bottom.x * pixelRatio, bottom.y * pixelRatio);
+        ctx.lineTo(left.x * pixelRatio, left.y * pixelRatio);
+        ctx.closePath();
+        ctx.stroke();
+        ctx.restore();
+        return;
+    }
+
+    const box = getBoundingBox(shape, ctx);
+    const topLeft = worldToScreenPoint({x: box.x, y: box.y}, viewport);
+    const bottomRight = worldToScreenPoint({x: box.x + box.width, y: box.y + box.height}, viewport);
+
+    const x = Math.min(topLeft.x, bottomRight.x) * pixelRatio;
+    const y = Math.min(topLeft.y, bottomRight.y) * pixelRatio;
+    const width = Math.abs(bottomRight.x - topLeft.x) * pixelRatio;
+    const height = Math.abs(bottomRight.y - topLeft.y) * pixelRatio;
+
+    ctx.strokeRect(x, y, width, height);
+    ctx.restore();
+}
+
 // -------------------- RENDER --------------------
 
 /**
@@ -813,7 +864,8 @@ export function render(
     selectionBox: SelectionBox | null = null,
     selectedShapes: Shape[] = [],
     viewport: Viewport = DEFAULT_VIEWPORT,
-    pixelRatio = 1
+    pixelRatio = 1,
+    connectorTargetHighlightIds: string[] = []
 ) {
     const palette = getThemePalette();
 
@@ -835,6 +887,14 @@ export function render(
     });
 
     ctx.restore();
+
+    if (connectorTargetHighlightIds.length > 0) {
+        const highlightIds = new Set(connectorTargetHighlightIds);
+        shapes.forEach((shape) => {
+            if (!highlightIds.has(shape.id)) return;
+            drawConnectorTargetHighlight(ctx, shape, viewport, pixelRatio);
+        });
+    }
 
     selectedShapes.forEach((shape) => {
         if (shape === selectedShape) return;

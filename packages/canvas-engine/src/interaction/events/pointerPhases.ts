@@ -3,7 +3,7 @@ import {Shape} from "../../types";
 import {CanvasState} from "../../state";
 import {createPreviewShape} from "../preview";
 import {DEFAULT_SHAPE_ROUGHNESS} from "./eventHelpers";
-import {Tool} from "../tools";
+import {DefaultShapeStyle, Tool} from "../tools";
 
 type SetSelection = (ids: string[], primaryId?: string | null) => Shape[];
 
@@ -47,15 +47,18 @@ export function finalizeFreehandStroke(
     freehandPoints: Array<{x: number; y: number}>,
     setSelection: (ids: string[], primaryId?: string | null) => void,
     renderScene: () => void,
-    resetToSelectTool: () => void
+    resetToSelectTool: () => void,
+    defaultShapeStyle?: DefaultShapeStyle
 ) {
     if (freehandPoints.length > 1) {
+        const nextStyle = defaultShapeStyle ?? {};
         const freehandShape: Extract<Shape, {type: "freehand"}> = {
             id: crypto.randomUUID(),
             type: "freehand",
             points: freehandPoints,
-            roughness: DEFAULT_SHAPE_ROUGHNESS,
-            strokeStyle: "solid",
+            ...nextStyle,
+            roughness: nextStyle.roughness ?? DEFAULT_SHAPE_ROUGHNESS,
+            strokeStyle: nextStyle.strokeStyle ?? "solid",
         };
 
         dispatch(state, {
@@ -85,6 +88,7 @@ export function finalizeDrawCommit(params: {
     resetToSelectTool: () => void;
     renderScene: () => void;
     hasDragged: (x1: number, y1: number, x2: number, y2: number) => boolean;
+    defaultShapeStyle?: DefaultShapeStyle;
 }) {
     const {
         state,
@@ -99,6 +103,7 @@ export function finalizeDrawCommit(params: {
         resetToSelectTool,
         renderScene,
         hasDragged,
+        defaultShapeStyle,
     } = params;
 
     if (!hasDragged(startX, startY, x, y) || !activeTool) {
@@ -124,8 +129,9 @@ export function finalizeDrawCommit(params: {
         payload: {
             ...preview,
             id: newShapeId,
-            roughness: DEFAULT_SHAPE_ROUGHNESS,
-            strokeStyle: "solid",
+            ...(defaultShapeStyle ?? {}),
+            roughness: defaultShapeStyle?.roughness ?? DEFAULT_SHAPE_ROUGHNESS,
+            strokeStyle: defaultShapeStyle?.strokeStyle ?? "solid",
         },
     });
 

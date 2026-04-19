@@ -3,6 +3,16 @@
  */
 export type Tool = "select" | "rect" | "circle" | "rhombus" | "line" | "arrow" | "text" | "freehand" | "eraser";
 
+export type DefaultShapeStyle = {
+    stroke?: string;
+    strokeStyle?: "solid" | "dashed" | "dotted";
+    fill?: string;
+    fillStyle?: "solid" | "hachure" | "cross-hatch" | "dots";
+    strokeWidth?: number;
+    roughness?: number;
+    opacity?: number;
+};
+
 /**
  * Tools that currently create geometry via drag interactions.
  */
@@ -15,6 +25,7 @@ export function isDrawableTool(tool: Tool): tool is "rect" | "circle" | "rhombus
  */
 export type AttachEventsOptions = {
     getTool?: () => Tool;
+    getDefaultShapeStyle?: () => DefaultShapeStyle | undefined;
     onToolChange?: (tool: Tool) => void;
     onSelectionChange?: (selectedIds: string[]) => void;
     initialViewport?: import("../utils").Viewport;

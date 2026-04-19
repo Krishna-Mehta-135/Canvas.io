@@ -20,7 +20,7 @@ import {Handle, PreviewShape, Shape} from "./types";
 import {Viewport, getMousePos, screenToWorldPoint} from "./utils";
 import {CanvasState} from "./state";
 import {getShapeAtPoint, getShapesAtPoint} from "./interaction/hitDetection";
-import {dispatch} from "./store";
+import {dispatch, findTopBindableShapeAtPoint} from "./store";
 import {convertToPoints, resizeShape} from "./geometry";
 import {AttachEventsController, AttachEventsOptions, isDrawableTool, Tool} from "./interaction/tools";
 import {getCursorForHandle} from "./interaction/cursor";
@@ -102,7 +102,8 @@ export function attachEvents(
             selectionBox,
             getSelectedShapesByIds(renderedShapes, selectedShapeIds),
             viewport,
-            pixelRatio
+            pixelRatio,
+            connectorTargetHighlightIds
         );
 
         if (isErasing && eraserPoints.length > 0) {
@@ -148,6 +149,7 @@ export function attachEvents(
 
     let currentTool: Tool = options.getTool?.() ?? "select";
     let activeTool: Tool | null = null;
+    let connectorTargetHighlightIds: string[] = [];
 
     let isSelecting = false;
 
@@ -158,6 +160,7 @@ export function attachEvents(
     let isDestroyed = false;
 
     const getActiveTool = () => options.getTool?.() ?? currentTool;
+    const getDefaultShapeStyle = () => options.getDefaultShapeStyle?.();
 
     const updateTool = (tool: Tool) => {
         currentTool = tool;
@@ -209,7 +212,25 @@ export function attachEvents(
         erasedShapeIds = new Set();
         previewShape = null;
         activeTool = null;
+        connectorTargetHighlightIds = [];
         freehandPoints = [];
+    };
+
+    const collectConnectorTargetHighlights = (params: {
+        shapes: Shape[];
+        excludeId?: string | null;
+        points: Array<{x: number; y: number}>;
+    }) => {
+        const {shapes, excludeId, points} = params;
+        const ids = new Set<string>();
+
+        points.forEach((point) => {
+            const target = findTopBindableShapeAtPoint(shapes, point.x, point.y, excludeId);
+            if (!target) return;
+            ids.add(target.id);
+        });
+
+        connectorTargetHighlightIds = [...ids];
     };
 
     const touchEraserPoint = (point: {x: number; y: number}) => {
@@ -253,9 +274,18 @@ export function attachEvents(
         const shapes = state.getShapes();
         const resizeTarget = getResizeTarget(shapes, worldPoint.x, worldPoint.y, selectedShape, SELECTION_PADDING, ctx);
         const shape = getShapeAtPoint(shapes, worldPoint.x, worldPoint.y, ctx);
+        const selectionBounds = selectedShapeIds.length > 0 ? getSelectionBounds(selectedShapeIds) : null;
+        const isInsideSelectionBounds =
+            !!selectionBounds &&
+            worldPoint.x >= selectionBounds.x1 &&
+            worldPoint.x <= selectionBounds.x2 &&
+            worldPoint.y >= selectionBounds.y1 &&
+            worldPoint.y <= selectionBounds.y2;
 
         if (resizeTarget) {
             canvas.style.cursor = getCursorForHandle(resizeTarget.handle);
+        } else if (getActiveTool() === "select" && isInsideSelectionBounds && selectedShapeIds.length > 0) {
+            canvas.style.cursor = "move";
         } else if (shape) {
             canvas.style.cursor = "move";
         } else if (getActiveTool() === "select") {
@@ -296,6 +326,48 @@ export function attachEvents(
             x2: maxX + SELECTION_PADDING,
             y2: maxY + SELECTION_PADDING,
         };
+    };
+
+    const isPointNearShapeEdge = (shape: Shape, x: number, y: number) => {
+        const EDGE_TOLERANCE = 10;
+
+        if (shape.type === "rect" || shape.type === "text") {
+            const box = convertToPoints(shape);
+            const isInside = x >= box.x1 && x <= box.x2 && y >= box.y1 && y <= box.y2;
+            if (!isInside) return false;
+
+            const distToEdge = Math.min(
+                Math.abs(x - box.x1),
+                Math.abs(box.x2 - x),
+                Math.abs(y - box.y1),
+                Math.abs(box.y2 - y)
+            );
+            return distToEdge <= EDGE_TOLERANCE;
+        }
+
+        if (shape.type === "circle") {
+            const rx = Math.max(1, shape.radiusX);
+            const ry = Math.max(1, shape.radiusY);
+            const dx = x - shape.centerX;
+            const dy = y - shape.centerY;
+            const normalized = Math.sqrt((dx * dx) / (rx * rx) + (dy * dy) / (ry * ry));
+            const radialTolerance = EDGE_TOLERANCE / Math.max(rx, ry);
+            return normalized >= 1 - radialTolerance && normalized <= 1 + radialTolerance;
+        }
+
+        if (shape.type === "rhombus") {
+            const width = Math.max(1, shape.width);
+            const height = Math.max(1, shape.height);
+            const centerX = shape.x + width / 2;
+            const centerY = shape.y + height / 2;
+            const nx = Math.abs(x - centerX) / (width / 2);
+            const ny = Math.abs(y - centerY) / (height / 2);
+            const diamondDistance = nx + ny;
+            const tolerance = EDGE_TOLERANCE / Math.max(width / 2, height / 2);
+            return diamondDistance >= 1 - tolerance && diamondDistance <= 1 + tolerance;
+        }
+
+        return false;
     };
 
     const deleteSelection = () => {
@@ -413,9 +485,14 @@ export function attachEvents(
             return;
         }
 
-        const resizeTarget = getResizeTarget(shapes, x, y, selectedShape, SELECTION_PADDING, ctx);
+        const active = getActiveTool();
+        const resizeTarget =
+            active === "select" ? getResizeTarget(shapes, x, y, selectedShape, SELECTION_PADDING, ctx) : null;
+        const isConnectorResizeTarget =
+            !!resizeTarget && (resizeTarget.shape.type === "line" || resizeTarget.shape.type === "arrow");
+        const allowConnectorResize = isConnectorResizeTarget && selectedShape?.id === resizeTarget?.shape.id;
 
-        if (resizeTarget) {
+        if (resizeTarget && (!isConnectorResizeTarget || allowConnectorResize)) {
             isResizing = true;
             resizeSession = resizeTarget;
             setSelection([resizeTarget.shape.id], resizeTarget.shape.id);
@@ -437,6 +514,41 @@ export function attachEvents(
 
                 renderScene();
                 return;
+            }
+        }
+
+        if (!shape && getActiveTool() === "select" && selectedShapeIds.length === 1) {
+            const bounds = getSelectionBounds(selectedShapeIds);
+            const isInsideBounds =
+                !!bounds && x >= bounds.x1 && x <= bounds.x2 && y >= bounds.y1 && y <= bounds.y2;
+
+            if (isInsideBounds) {
+                const selectedId = selectedShapeIds[0];
+                const currentSelectedShape = selectedId ? shapes.find((item) => item.id === selectedId) : null;
+
+                if (currentSelectedShape) {
+                    selectedShape = currentSelectedShape;
+                    isDragging = true;
+                    dragMode = "single";
+
+                    const anchors = getDragAnchorsForShape(currentSelectedShape, {x, y}, {offsetX, offsetY, prevX, prevY});
+                    offsetX = anchors.offsetX;
+                    offsetY = anchors.offsetY;
+                    prevX = anchors.prevX;
+                    prevY = anchors.prevY;
+
+                    render(
+                        ctx,
+                        canvas,
+                        state.getShapes(),
+                        currentSelectedShape,
+                        null,
+                        getSelectedShapesByIds(state.getShapes(), selectedShapeIds),
+                        viewport,
+                        getScenePixelRatio()
+                    );
+                    return;
+                }
             }
         }
 
@@ -466,7 +578,15 @@ export function attachEvents(
             return;
         }
 
-        if (shape) {
+        if (shape && (active === "line" || active === "arrow") && shape.type !== "line" && shape.type !== "arrow") {
+            if (!isPointNearShapeEdge(shape, x, y)) {
+                setSelection([shape.id], shape.id);
+                renderScene();
+                return;
+            }
+        }
+
+        if (shape && getActiveTool() === "select") {
             selectedShape = shape;
             isDragging = true;
 
@@ -505,8 +625,8 @@ export function attachEvents(
             return;
         }
 
-        const active = getActiveTool();
         if (!isDrawableTool(active)) {
+            connectorTargetHighlightIds = [];
             return;
         }
 
@@ -515,6 +635,7 @@ export function attachEvents(
         startX = x;
         startY = y;
         pendingShapeId = crypto.randomUUID();
+        connectorTargetHighlightIds = [];
         clearSelection();
         renderScene();
     };
@@ -547,6 +668,41 @@ export function attachEvents(
 
         updateCursor();
 
+        const connectorDrawingTool = activeTool ?? getActiveTool();
+
+        if (isResizing && resizeSession && (resizeSession.shape.type === "line" || resizeSession.shape.type === "arrow")) {
+            const movingStart = resizeSession.handle === "start";
+            const movingEnd = resizeSession.handle === "end";
+
+            if (movingStart || movingEnd) {
+                collectConnectorTargetHighlights({
+                    shapes,
+                    excludeId: resizeSession.shape.id,
+                    points: [
+                        {
+                            x: movingStart ? x : resizeSession.shape.x1,
+                            y: movingStart ? y : resizeSession.shape.y1,
+                        },
+                        {
+                            x: movingEnd ? x : resizeSession.shape.x2,
+                            y: movingEnd ? y : resizeSession.shape.y2,
+                        },
+                    ],
+                });
+            }
+        } else if (isDrawing && (connectorDrawingTool === "line" || connectorDrawingTool === "arrow")) {
+            collectConnectorTargetHighlights({
+                shapes,
+                excludeId: pendingShapeId,
+                points: [
+                    {x: startX, y: startY},
+                    {x, y},
+                ],
+            });
+        } else if (connectorTargetHighlightIds.length > 0) {
+            connectorTargetHighlightIds = [];
+        }
+
         if (isResizing && resizeSession) {
             const {shape, handle} = resizeSession;
 
@@ -564,7 +720,17 @@ export function attachEvents(
             });
 
             const updated = state.getShapes().find((s) => s.id === shape.id);
-            render(ctx, canvas, state.getShapes(), updated || null, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio());
+            render(
+                ctx,
+                canvas,
+                state.getShapes(),
+                updated || null,
+                null,
+                getSelectedShapesByIds(state.getShapes(), selectedShapeIds),
+                viewport,
+                getScenePixelRatio(),
+                connectorTargetHighlightIds
+            );
             return;
         }
 
@@ -667,6 +833,8 @@ export function attachEvents(
             canvas,
             viewport,
             getScenePixelRatio,
+            connectorTargetHighlightIds,
+            defaultShapeStyle: getDefaultShapeStyle(),
         });
     };
 
@@ -677,12 +845,14 @@ export function attachEvents(
 
         if (isPanning) {
             isPanning = false;
+            connectorTargetHighlightIds = [];
             updateCursor();
             return;
         }
 
         if (isErasing) {
             isErasing = false;
+            connectorTargetHighlightIds = [];
 
             const resetEraser = finalizeEraserStroke(state, erasedShapeIds, resetToSelectTool, updateCursor, renderScene);
             eraserPoints = resetEraser.eraserPoints;
@@ -692,8 +862,16 @@ export function attachEvents(
 
         if (isFreehandDrawing) {
             isFreehandDrawing = false;
+            connectorTargetHighlightIds = [];
 
-            freehandPoints = finalizeFreehandStroke(state, freehandPoints, setSelection, renderScene, resetToSelectTool);
+            freehandPoints = finalizeFreehandStroke(
+                state,
+                freehandPoints,
+                setSelection,
+                renderScene,
+                resetToSelectTool,
+                getDefaultShapeStyle()
+            );
             return;
         }
 
@@ -701,6 +879,7 @@ export function attachEvents(
             const didDragSelection = hasDragged(selectionStartX, selectionStartY, x, y);
             isSelecting = false;
             selectionBox = null;
+            connectorTargetHighlightIds = [];
 
             const selectedShapes = didDragSelection ? setSelection(selectedShapeIds) : [];
             if (!didDragSelection) {
@@ -714,6 +893,7 @@ export function attachEvents(
         if (isResizing) {
             isResizing = false;
             resizeSession = null;
+            connectorTargetHighlightIds = [];
             return;
         }
 
@@ -730,12 +910,14 @@ export function attachEvents(
             resetToSelectTool,
             renderScene,
             hasDragged,
+            defaultShapeStyle: getDefaultShapeStyle(),
         });
 
         isDrawing = false;
         activeTool = null;
         previewShape = null;
         pendingShapeId = null;
+        connectorTargetHighlightIds = [];
     };
 
     const handleDoubleClick = (e: MouseEvent) => {
@@ -780,7 +962,7 @@ export function attachEvents(
         rerender: () => {
             const shapes = state.getShapes();
             const selected = getSelectedShapesByIds(shapes, selectedShapeIds);
-            render(ctx, canvas, shapes, selectedShape, selectionBox, selected, viewport, getScenePixelRatio());
+            render(ctx, canvas, shapes, selectedShape, selectionBox, selected, viewport, getScenePixelRatio(), connectorTargetHighlightIds);
         },
         replayShape: replayController.replayShape,
         destroy: () => {

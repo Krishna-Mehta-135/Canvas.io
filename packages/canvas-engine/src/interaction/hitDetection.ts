@@ -20,6 +20,7 @@ import {getTextRenderMetrics} from "../textMetrics";
  */
 const HIT_THRESHOLD = 5;
 const HANDLE_SIZE = 10;
+const CONNECTOR_HANDLE_SIZE = 6;
 
 /* ---------------- SHAPE HIT ---------------- */
 
@@ -56,10 +57,18 @@ function hitConnector(shape: Extract<Shape, {type: "line" | "arrow"}>, x: number
     const dx = shape.x2 - shape.x1;
     const dy = shape.y2 - shape.y1;
 
-    const length = Math.sqrt(dx * dx + dy * dy);
-    if (length === 0) return false;
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) return false;
 
-    const distance = Math.abs(dy * x - dx * y + shape.x2 * shape.y1 - shape.y2 * shape.x1) / length;
+    // Project the pointer onto the connector segment (not the infinite line)
+    // so move/hover only activates when cursor is actually over the shape.
+    const t = Math.max(0, Math.min(1, ((x - shape.x1) * dx + (y - shape.y1) * dy) / lenSq));
+    const projX = shape.x1 + t * dx;
+    const projY = shape.y1 + t * dy;
+
+    const distX = x - projX;
+    const distY = y - projY;
+    const distance = Math.sqrt(distX * distX + distY * distY);
 
     return distance < HIT_THRESHOLD;
 }
@@ -216,11 +225,11 @@ export function getHandleAtPoint(
 
     // LINE (endpoints only)
     if (shape.type === "line" || shape.type === "arrow") {
-        if (Math.abs(x - shape.x1) <= HANDLE_SIZE && Math.abs(y - shape.y1) <= HANDLE_SIZE) {
+        if (Math.abs(x - shape.x1) <= CONNECTOR_HANDLE_SIZE && Math.abs(y - shape.y1) <= CONNECTOR_HANDLE_SIZE) {
             return "start";
         }
 
-        if (Math.abs(x - shape.x2) <= HANDLE_SIZE && Math.abs(y - shape.y2) <= HANDLE_SIZE) {
+        if (Math.abs(x - shape.x2) <= CONNECTOR_HANDLE_SIZE && Math.abs(y - shape.y2) <= CONNECTOR_HANDLE_SIZE) {
             return "end";
         }
     }

@@ -9,6 +9,7 @@ import type {Shape, Tool} from "@repo/canvas-engine";
 import {HTTP_BACKEND} from "../../../config";
 import {ThemeToggle, useTheme} from "../../components/ThemeToggle";
 import {useCanvasSync} from "../../../hooks/useCanvasSync";
+import {RemotePresenceLayer} from "../../components/RemotePresenceLayer";
 
 const STYLE_SWATCHES = ["#1e1e1e", "#e03131", "#2f9e44", "#1971c2", "#f08c00", "#ffffff"];
 const FILL_STYLE_OPTIONS: Array<{value: NonNullable<Shape["fillStyle"]>; label: string}> = [
@@ -451,10 +452,7 @@ export default function CanvasPage() {
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const controlsRef = useRef<ReturnType<typeof attachEvents> | null>(null);
-    const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const latestShapesRef = useRef<Shape[]>([]);
     const isHydratingRef = useRef(true);
-    const isRoomMissingRef = useRef(false);
     const resolvedRoomIdRef = useRef<number | null>(null);
 
     const toolRef = useRef<Tool>("select");
@@ -470,6 +468,7 @@ export default function CanvasPage() {
     const [hoveredPersonaId, setHoveredPersonaId] = useState<string | null>(null);
     const [defaultRoughness, setDefaultRoughness] = useState<number>(DRAWING_PERSONAS[1]?.roughness ?? 1);
     const defaultRoughnessRef = useRef<number>(DRAWING_PERSONAS[1]?.roughness ?? 1);
+    const [viewport, setViewport] = useState<StoredViewport | null>(null);
     const {theme} = useTheme();
     const isDark = theme === "dark";
 
@@ -529,7 +528,6 @@ export default function CanvasPage() {
         if (!roomId) return;
 
         isHydratingRef.current = true;
-        isRoomMissingRef.current = false;
         resolvedRoomIdRef.current = null;
         setResolvedRoomId(null);
         setInviteLink(null);
@@ -549,6 +547,7 @@ export default function CanvasPage() {
         canvas.height = Math.round(window.innerHeight * pixelRatio);
 
         const initialViewport = loadStoredViewport(roomId);
+        setViewport(initialViewport ?? {x: window.innerWidth / 2, y: window.innerHeight / 2, scale: 1});
 
         const state = new CanvasState();
         stateRef.current = state;
@@ -640,56 +639,12 @@ export default function CanvasPage() {
             }
         };
 
-        const persistShapes = async (shapes: Shape[]) => {
-            latestShapesRef.current = shapes;
-
-            if (isHydratingRef.current) {
-                return;
-            }
-
-            if (isRoomMissingRef.current) {
-                return;
-            }
-
-            if (resolvedRoomIdRef.current === null) {
-                return;
-            }
-
-            if (saveTimeoutRef.current) {
-                clearTimeout(saveTimeoutRef.current);
-            }
-
-            saveTimeoutRef.current = setTimeout(async () => {
-                try {
-                    await axios.put(
-                        `${HTTP_BACKEND}/room/${resolvedRoomIdRef.current}/shapes`,
-                        {
-                            shapes: latestShapesRef.current,
-                        },
-                        {
-                            withCredentials: true,
-                        }
-                    );
-                } catch (error) {
-                    const axiosError = error as AxiosError<{message?: string}>;
-                    if (axiosError.response?.status === 404) {
-                        isRoomMissingRef.current = true;
-                        console.warn("Persistence disabled: room was not found.");
-                        return;
-                    }
-
-                    console.error("Failed to save shapes", error);
-                }
-            }, 300);
-        };
-
-        // Subscribe the page (not shapes) to CanvasState updates.
-        // The callback receives Shape[] as payload and schedules persistence.
-        const unsubscribe = state.subscribe((shapes) => {
+        // Subscribe the page to CanvasState updates for UI refresh only.
+        // Canvas persistence is handled by websocket sync to avoid races.
+        const unsubscribe = state.subscribe(() => {
             // Ensure remote websocket updates repaint immediately without requiring focus.
             controlsRef.current?.rerender();
             setInspectorRevision((current) => current + 1);
-            void persistShapes(shapes);
         });
 
         const loadShapes = async () => {
@@ -704,7 +659,6 @@ export default function CanvasPage() {
             } catch (error) {
                 const axiosError = error as AxiosError<{message?: string}>;
                 if (axiosError.response?.status === 404) {
-                    isRoomMissingRef.current = true;
                     return;
                 }
 
@@ -736,6 +690,7 @@ export default function CanvasPage() {
                     setSelectedIds(selectedIds);
                 },
                 onViewportChange: (viewport) => {
+                    setViewport(viewport);
                     saveStoredViewport(roomId, viewport);
                 },
             });
@@ -752,30 +707,6 @@ export default function CanvasPage() {
             // Stop listening to state updates when this page unmounts.
             // Without this, a stale callback could keep firing saves.
             unsubscribe();
-
-            if (saveTimeoutRef.current) {
-                clearTimeout(saveTimeoutRef.current);
-                saveTimeoutRef.current = null;
-
-                if (!isRoomMissingRef.current && resolvedRoomIdRef.current !== null) {
-                    void axios.put(
-                        `${HTTP_BACKEND}/room/${resolvedRoomIdRef.current}/shapes`,
-                        {
-                            shapes: latestShapesRef.current,
-                        },
-                        {
-                            withCredentials: true,
-                        }
-                    ).catch((error) => {
-                        const axiosError = error as AxiosError<{message?: string}>;
-                        if (axiosError.response?.status === 404 || axiosError.response?.status === 401) {
-                            return;
-                        }
-
-                        console.error("Failed to flush shapes on unmount", error);
-                    });
-                }
-            }
         };
     }, [roomId]);
 
@@ -784,36 +715,25 @@ export default function CanvasPage() {
         roomId: resolvedRoomId ?? 0,
         state: canvasState,
         enabled: canvasState !== null && resolvedRoomId !== null,
+        localSelectionIds: selectedIds,
+        localTool: activeTool,
     });
 
     useEffect(() => {
+        if (syncResult.lastSyncError) {
+            setSyncStatus("error");
+            return;
+        }
+
         setSyncStatus(syncResult.isConnected ? "connected" : "disconnected");
-    }, [syncResult.isConnected]);
+    }, [syncResult.isConnected, syncResult.lastSyncError]);
 
     // Fetch and display invite link
     useEffect(() => {
-        if (resolvedRoomId === null) return;
+        if (!roomId) return;
 
-        const fetchInviteLink = async () => {
-            try {
-                const response = await axios.get(
-                    `${HTTP_BACKEND}/room/${resolvedRoomId}/invite`,
-                    {
-                        withCredentials: true,
-                    }
-                );
-                const link = response.data?.data?.inviteLink;
-                console.log("[Invite] Fetched invite link:", link);
-                setInviteLink(link || `${window.location.origin}/canvas/${roomId}`);
-            } catch (error) {
-                console.error("Failed to fetch invite link:", error);
-                // Fallback: use current room slug as invite link
-                setInviteLink(`${window.location.origin}/canvas/${roomId}`);
-            }
-        };
-
-        void fetchInviteLink();
-    }, [roomId, resolvedRoomId]);
+        setInviteLink(`${window.location.origin}/canvas/${roomId}`);
+    }, [roomId]);
 
     const handleDeleteSelected = () => {
         controlsRef.current?.deleteSelection();
@@ -869,6 +789,34 @@ export default function CanvasPage() {
             });
         }
     };
+
+    const handleJoinCanvas = () => {
+        const raw = window.prompt("Paste invite link or room code");
+        if (!raw) return;
+
+        const trimmed = raw.trim();
+        if (!trimmed) return;
+
+        try {
+            const url = new URL(trimmed, window.location.origin);
+            const segments = url.pathname.split("/").filter(Boolean);
+            const canvasIndex = segments.indexOf("canvas");
+            const target = canvasIndex >= 0 ? segments[canvasIndex + 1] : segments[segments.length - 1];
+            if (target) {
+                window.location.href = `/canvas/${target}`;
+            }
+        } catch {
+            const target = trimmed.replace(/^\/+|\/+$/g, "");
+            if (target) {
+                window.location.href = `/canvas/${target}`;
+            }
+        }
+    };
+
+    const remotePresenceState = syncResult.presenceState;
+    const connectedUsersCount = Number.isFinite(syncResult.connectedUsersCount)
+        ? syncResult.connectedUsersCount
+        : 0;
 
     return (
         <div className={`relative h-screen w-screen ${isDark ? "bg-[#121212]" : "bg-[#eef2f7]"}`}>
@@ -1219,56 +1167,87 @@ export default function CanvasPage() {
             </div>
 
             {/* Sync Status and Invite Link */}
-            <div className="absolute bottom-4 right-4 z-20 flex flex-col gap-2">
-                {/* Sync Status Indicator */}
+            <div className="absolute bottom-4 right-4 z-20">
                 <div
-                    className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium ${
-                        syncStatus === "connected"
-                            ? isDark
-                                ? "bg-green-500/20 text-green-300"
-                                : "bg-green-100 text-green-700"
-                            : isDark
-                                ? "bg-yellow-500/20 text-yellow-300"
-                                : "bg-yellow-100 text-yellow-700"
+                    className={`flex items-center gap-3 rounded-2xl border px-4 py-3 backdrop-blur ${
+                        isDark
+                            ? "border-white/10 bg-[#191919]/95 shadow-[0_16px_28px_rgba(0,0,0,0.35)]"
+                            : "border-slate-300/70 bg-white/90 shadow-[0_16px_24px_rgba(15,23,42,0.12)]"
                     }`}
                 >
-                    <div
-                        className={`h-2 w-2 rounded-full ${
-                            syncStatus === "connected" ? "bg-green-500" : "bg-yellow-500"
-                        }`}
-                    />
-                    {syncStatus === "connected" ? "Connected" : "Connecting..."}
-                </div>
+                    <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium ${
+                        syncStatus === "connected"
+                            ? isDark
+                                ? "bg-green-500/15 text-green-300"
+                                : "bg-green-100 text-green-700"
+                            : syncStatus === "error"
+                                ? isDark
+                                    ? "bg-red-500/15 text-red-300"
+                                    : "bg-red-100 text-red-700"
+                            : isDark
+                                ? "bg-yellow-500/15 text-yellow-300"
+                                : "bg-yellow-100 text-yellow-700"
+                    }`}>
+                        <span
+                            className={`h-2 w-2 rounded-full ${
+                                syncStatus === "connected"
+                                    ? "bg-green-500"
+                                    : syncStatus === "error"
+                                        ? "bg-red-500"
+                                        : "bg-yellow-500"
+                            }`}
+                        />
+                        {connectedUsersCount} {connectedUsersCount === 1 ? "user connected" : "users connected"}
+                    </div>
 
-                {/* Invite Link Button */}
-                {inviteLink && (
+                    {syncResult.lastSyncError && (
+                        <div
+                            className={`max-w-72 truncate rounded-full px-3 py-1.5 text-xs font-medium ${
+                                isDark ? "bg-red-500/15 text-red-300" : "bg-red-100 text-red-700"
+                            }`}
+                            title={syncResult.lastSyncError}
+                        >
+                            Sync error: {syncResult.lastSyncError}
+                        </div>
+                    )}
+
+                    {inviteLink && (
+                        <button
+                            type="button"
+                            onClick={handleCopyInvite}
+                            title="Invite"
+                            className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                                isDark
+                                    ? "bg-white/5 text-white hover:bg-white/10"
+                                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                            }`}
+                        >
+                            Invite
+                        </button>
+                    )}
+
                     <button
                         type="button"
-                        onClick={handleCopyInvite}
-                        title="Copy invite link"
-                        className={`flex shrink-0 items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                        onClick={handleJoinCanvas}
+                        title="Join canvas"
+                        className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition ${
                             isDark
-                                ? "border-blue-300/30 bg-blue-500/15 text-blue-300 hover:border-blue-200/50 hover:bg-blue-500/20"
-                                : "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                ? "bg-white/5 text-white hover:bg-white/10"
+                                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
                         }`}
                     >
-                        <svg
-                            className="h-5 w-5"
-                            fill="none"
-                            stroke="currentColor"
-                            viewBox="0 0 24 24"
-                        >
-                            <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.658 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
-                            />
-                        </svg>
-                        Invite
+                        Join canvas
                     </button>
-                )}
+                </div>
             </div>
+
+            <RemotePresenceLayer
+                presenceState={remotePresenceState}
+                currentUserId={syncResult.currentUserId}
+                viewport={viewport}
+                shapes={canvasState?.getShapes() ?? []}
+                isDark={isDark}
+            />
 
             <canvas ref={canvasRef} className="block h-full w-full touch-none" />
         </div>

@@ -72,7 +72,10 @@ export function applySingleShapeDrag(params: DragParams): DragResult {
                     y1: current.y1 + dy,
                     x2: current.x2 + dx,
                     y2: current.y2 + dy,
+                    startBinding: undefined,
+                    endBinding: undefined,
                 },
+                skipConnectorBindingRefresh: true,
             },
         });
 

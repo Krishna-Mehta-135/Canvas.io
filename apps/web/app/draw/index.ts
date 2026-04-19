@@ -19,9 +19,14 @@ type Shape =
 export function initDraw(canvas: HTMLCanvasElement, roomId: string) {
     const ctx = canvas.getContext("2d");
 
-    let existingShapes: Shape[] = getExistingShapes(roomId);
-
     if (!ctx) return;
+    let existingShapes: Shape[] = [];
+
+    void getExistingShapes(roomId).then((shapes) => {
+        existingShapes = shapes;
+        clearCanvas(existingShapes, canvas, ctx);
+    });
+
     let clicked = false;
 
     let startX = 0;
@@ -83,7 +88,7 @@ function clearCanvas(existingShapes: Shape[], canvas: HTMLCanvasElement, ctx: Ca
     });
 }
 
-async function getExistingShapes(roomId: string) {
+async function getExistingShapes(roomId: string): Promise<Shape[]> {
     const res = await axios.get(`${HTTP_BACKEND}/room/${roomId}/messages`);
     const data = res.data.messages;
 

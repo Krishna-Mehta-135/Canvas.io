@@ -30,6 +30,8 @@ function isBindableTarget(shape: Shape) {
     return shape.type !== "line" && shape.type !== "arrow";
 }
 
+const CONNECTOR_SNAP_TOLERANCE = 10;
+
 function clamp01(value: number) {
     return Math.max(0, Math.min(1, value));
 }
@@ -67,19 +69,19 @@ function getPointFromBinding(
 }
 
 // Chooses the visually top-most candidate so endpoint attachment matches user intent.
-function findTopBindableShapeAtPoint(shapes: Shape[], x: number, y: number, excludeId: string) {
-    const SNAP_TOLERANCE = 10;
+export function findTopBindableShapeAtPoint(shapes: Shape[], x: number, y: number, excludeId?: string | null) {
+    const excludedId = excludeId ?? null;
 
     for (let i = shapes.length - 1; i >= 0; i--) {
         const shape = shapes[i];
-        if (!shape || shape.id === excludeId || !isBindableTarget(shape)) continue;
+        if (!shape || shape.id === excludedId || !isBindableTarget(shape)) continue;
 
         const box = convertToPoints(shape);
         const isInside =
-            x >= box.x1 - SNAP_TOLERANCE &&
-            x <= box.x2 + SNAP_TOLERANCE &&
-            y >= box.y1 - SNAP_TOLERANCE &&
-            y <= box.y2 + SNAP_TOLERANCE;
+            x >= box.x1 - CONNECTOR_SNAP_TOLERANCE &&
+            x <= box.x2 + CONNECTOR_SNAP_TOLERANCE &&
+            y >= box.y1 - CONNECTOR_SNAP_TOLERANCE &&
+            y <= box.y2 + CONNECTOR_SNAP_TOLERANCE;
 
         if (isInside) return shape;
     }
@@ -152,6 +154,7 @@ export type Action =
           payload: {
               id: string;
               updates: Partial<Shape>;
+              skipConnectorBindingRefresh?: boolean;
           };
       }
     | {
@@ -247,7 +250,7 @@ export function dispatch(state: CanvasState, action: Action) {
         }
 
         case "MOVE_SHAPE": {
-            const {id, updates} = action.payload;
+            const {id, updates, skipConnectorBindingRefresh = false} = action.payload;
 
             let newShapes = shapes.map((s) => {
                 if (s.id !== id) return s;
@@ -259,7 +262,9 @@ export function dispatch(state: CanvasState, action: Action) {
             });
 
             newShapes = syncTextChildrenToParent(shapes, newShapes, id);
-            newShapes = refreshBindingsForConnectorIds(newShapes, [id]);
+            if (!skipConnectorBindingRefresh) {
+                newShapes = refreshBindingsForConnectorIds(newShapes, [id]);
+            }
             newShapes = applyConnectorBindings(newShapes);
 
             state.setShapes(newShapes);

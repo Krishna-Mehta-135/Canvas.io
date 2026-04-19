@@ -5,7 +5,7 @@ import {Viewport} from "../../utils";
 import {createPreviewShape} from "../preview";
 import {DEFAULT_SHAPE_ROUGHNESS} from "./eventHelpers";
 import {getSelectionBox, getSelectedShapesByIds, isShapeInsideBox, SelectionBox} from "../selection";
-import {Tool} from "../tools";
+import {DefaultShapeStyle, Tool} from "../tools";
 
 export function renderSelectionDragPreview(params: {
     x: number;
@@ -104,6 +104,8 @@ export function renderDrawPreview(params: {
     canvas: HTMLCanvasElement;
     viewport: Viewport;
     getScenePixelRatio: () => number;
+    connectorTargetHighlightIds?: string[];
+    defaultShapeStyle?: DefaultShapeStyle;
 }) {
     const {
         state,
@@ -121,6 +123,8 @@ export function renderDrawPreview(params: {
         canvas,
         viewport,
         getScenePixelRatio,
+        connectorTargetHighlightIds,
+        defaultShapeStyle,
     } = params;
 
     const previewShape = createPreviewShape(activeTool, startX, startY, x, y, {
@@ -128,7 +132,16 @@ export function renderDrawPreview(params: {
     });
 
     const shapesToRender = previewShape
-        ? [...shapes, {...previewShape, id: pendingShapeId ?? "__preview__", roughness: DEFAULT_SHAPE_ROUGHNESS}]
+        ? [
+              ...shapes,
+              {
+                  ...previewShape,
+                  id: pendingShapeId ?? "__preview__",
+                  ...(defaultShapeStyle ?? {}),
+                  roughness: defaultShapeStyle?.roughness ?? DEFAULT_SHAPE_ROUGHNESS,
+                  strokeStyle: defaultShapeStyle?.strokeStyle ?? "solid",
+              },
+          ]
         : shapes;
 
     render(
@@ -139,7 +152,8 @@ export function renderDrawPreview(params: {
         null,
         getSelectedShapesByIds(state.getShapes(), selectedShapeIds),
         viewport,
-        getScenePixelRatio()
+        getScenePixelRatio(),
+        connectorTargetHighlightIds ?? []
     );
 
     return previewShape;

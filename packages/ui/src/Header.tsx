@@ -20,6 +20,9 @@ export default function Header() {
                         <a href="#features" className="text-gray-700 hover:text-gray-900 font-medium transition-colors">
                             Features
                         </a>
+                        <a href="#join-canvas" className="text-gray-700 hover:text-gray-900 font-medium transition-colors">
+                            Join canvas
+                        </a>
                         <a href="#showcase" className="text-gray-700 hover:text-gray-900 font-medium transition-colors">
                             Examples
                         </a>
@@ -47,6 +50,9 @@ export default function Header() {
                         <div className="flex flex-col gap-4">
                             <a href="#features" className="text-gray-600 hover:text-gray-900 font-medium">
                                 Features
+                            </a>
+                            <a href="#join-canvas" className="text-gray-600 hover:text-gray-900 font-medium">
+                                Join canvas
                             </a>
                             <a href="#showcase" className="text-gray-600 hover:text-gray-900 font-medium">
                                 Examples

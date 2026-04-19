@@ -28,6 +28,8 @@ export type AttachEventsOptions = {
     getDefaultShapeStyle?: () => DefaultShapeStyle | undefined;
     onToolChange?: (tool: Tool) => void;
     onSelectionChange?: (selectedIds: string[]) => void;
+    /** Current local cursor in world coordinates, or null when the pointer leaves the canvas. */
+    onCursorChange?: (cursor: {x: number; y: number} | null) => void;
     initialViewport?: import("../utils").Viewport;
     onViewportChange?: (viewport: import("../utils").Viewport) => void;
 };

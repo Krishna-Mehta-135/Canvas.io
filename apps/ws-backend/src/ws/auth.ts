@@ -10,7 +10,7 @@ if (!JWT_SECRET) {
 
 export function checkUser(request: IncomingMessage) {
     const cookies = cookie.parse(request.headers.cookie || "");
-    const token = cookies.token;
+    const token = cookies.accessToken;
 
     if (!token) {
         return null;
@@ -18,7 +18,7 @@ export function checkUser(request: IncomingMessage) {
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET) as MyJwtPayload;
-        if (!decoded.userId) {
+        if (!decoded.userId || decoded.type !== "access") {
             return null;
         }
 

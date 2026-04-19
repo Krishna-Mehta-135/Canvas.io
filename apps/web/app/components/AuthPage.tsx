@@ -1,10 +1,11 @@
 "use client";
 
 import { useState, FormEvent } from "react";
-import axios, { AxiosError } from "axios";
+import { AxiosError } from "axios";
 import { ArrowRight, Eye, EyeOff, Pencil, Loader2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import {HTTP_BACKEND} from "../../config";
+import {apiClient} from "../lib/apiClient";
 
 const API_BASE = HTTP_BACKEND;
 
@@ -35,9 +36,7 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                 ? { email, password }
                 : { name, email, password };
 
-            await axios.post(endpoint, payload, {
-                withCredentials: true, // sends + receives cookies
-            });
+            await apiClient.post(endpoint, payload);
 
             const redirectTarget = searchParams.get("redirect");
             if (redirectTarget) {
@@ -49,12 +48,9 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
             const roomSlug = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
 
             try {
-                await axios.post(
+                await apiClient.post(
                     `${API_BASE}/room`,
-                    {slug: roomSlug},
-                    {
-                        withCredentials: true,
-                    }
+                    {slug: roomSlug}
                 );
             } catch (createRoomError) {
                 const createRoomAxiosError = createRoomError as AxiosError<{message?: string}>;

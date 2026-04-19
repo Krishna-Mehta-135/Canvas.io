@@ -3,6 +3,8 @@ import {NextFunction, Request, Response} from "express";
 import {ApiError} from "../utils/ApiError";
 import {JWT_SECRET} from "@repo/backend-common/config";
 
+import {verifyToken} from "../utils/token";
+
 declare global {
     namespace Express {
         interface Request {
@@ -11,39 +13,21 @@ declare global {
     }
 }
 
-interface CustomJwtPayload {
-    userId: string;
-}
-
-function isCustomJwtPayload(decoded: unknown): decoded is CustomJwtPayload {
-    return (
-        typeof decoded === "object" &&
-        decoded !== null &&
-        "userId" in decoded &&
-        typeof (decoded as any).userId === "string"
-    );
-}
-
 export function authenticate(req: Request, res: Response, next: NextFunction) {
     try {
-        const token = req.cookies?.token;
+        const accessToken = req.cookies?.accessToken;
 
-        if (!token) {
-            throw new ApiError(401, "Authentication token missing");
+        if (!accessToken) {
+            throw new ApiError(401, "Access token missing");
         }
 
-        if (!JWT_SECRET) {
-            throw new ApiError(401, "Unauthorized");
-        }
+        const decoded = verifyToken(accessToken);
 
-        const decoded = jwt.verify(token, JWT_SECRET);
-
-        if (!isCustomJwtPayload(decoded)) {
-            throw new ApiError(401, "Invalid token payload");
+        if (decoded.type !== "access") {
+            throw new ApiError(401, "Invalid token type");
         }
 
         req.userId = decoded.userId;
-
         next();
     } catch (error) {
         if (error instanceof ApiError) {

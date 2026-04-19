@@ -2,11 +2,13 @@
 
 import {ReactNode, useEffect, useRef, useState} from "react";
 import {useParams} from "next/navigation";
-import axios, {AxiosError} from "axios";
+import {AxiosError} from "axios";
 import {attachEvents} from "@repo/canvas-engine";
 import {CanvasState} from "@repo/canvas-engine";
 import type {Shape, Tool} from "@repo/canvas-engine";
 import {HTTP_BACKEND} from "../../../config";
+import {apiClient} from "../../lib/apiClient";
+import {ensureAuthenticated, logoutUser} from "../../lib/auth";
 import {ThemeToggle, useTheme} from "../../components/ThemeToggle";
 import {useCanvasSync} from "../../../hooks/useCanvasSync";
 import {RemotePresenceLayer} from "../../components/RemotePresenceLayer";
@@ -462,6 +464,7 @@ export default function CanvasPage() {
     const [inspectorRevision, setInspectorRevision] = useState(0);
     const [inviteLink, setInviteLink] = useState<string | null>(null);
     const [syncStatus, setSyncStatus] = useState<"connected" | "disconnected" | "error">("disconnected");
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
     const stateRef = useRef<CanvasState | null>(null);
     const [canvasState, setCanvasState] = useState<CanvasState | null>(null);
     const [resolvedRoomId, setResolvedRoomId] = useState<number | null>(null);
@@ -554,9 +557,7 @@ export default function CanvasPage() {
         setCanvasState(state);
 
         const getShapesById = async (id: number) => {
-            const response = await axios.get(`${HTTP_BACKEND}/room/${id}/shapes`, {
-                withCredentials: true,
-            });
+            const response = await apiClient.get(`${HTTP_BACKEND}/room/${id}/shapes`);
 
             const persistedShapes = response.data?.data;
             return Array.isArray(persistedShapes) ? (persistedShapes as Shape[]) : [];
@@ -574,9 +575,7 @@ export default function CanvasPage() {
             }
 
             try {
-                const roomBySlug = await axios.get(`${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(effectiveSlug)}`, {
-                    withCredentials: true,
-                });
+                const roomBySlug = await apiClient.get(`${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(effectiveSlug)}`);
 
                 const resolvedRoomId = Number(roomBySlug.data?.data?.id);
                 if (!Number.isFinite(resolvedRoomId)) {
@@ -596,10 +595,9 @@ export default function CanvasPage() {
                 }
 
                 try {
-                    const createRoomResponse = await axios.post(
+                    const createRoomResponse = await apiClient.post(
                         `${HTTP_BACKEND}/room`,
-                        {slug: effectiveSlug},
-                        {withCredentials: true}
+                        {slug: effectiveSlug}
                     );
 
                     const resolvedRoomId = Number(createRoomResponse.data?.data?.id);
@@ -617,12 +615,7 @@ export default function CanvasPage() {
                         throw createError;
                     }
 
-                    const roomBySlug = await axios.get(
-                        `${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(effectiveSlug)}`,
-                        {
-                            withCredentials: true,
-                        }
-                    );
+                    const roomBySlug = await apiClient.get(`${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(effectiveSlug)}`);
 
                     const resolvedRoomId = Number(roomBySlug.data?.data?.id);
                     if (!Number.isFinite(resolvedRoomId)) {
@@ -669,6 +662,12 @@ export default function CanvasPage() {
         };
 
         const initializeCanvas = async () => {
+            const isAuthenticated = await ensureAuthenticated(`/canvas/${roomId}`);
+            if (!isAuthenticated || isUnmounted) {
+                isHydratingRef.current = false;
+                return;
+            }
+
             await loadShapes();
 
             if (isUnmounted) {
@@ -737,6 +736,17 @@ export default function CanvasPage() {
 
     const handleDeleteSelected = () => {
         controlsRef.current?.deleteSelection();
+    };
+
+    const handleLogout = async () => {
+        if (isLoggingOut) return;
+
+        setIsLoggingOut(true);
+        try {
+            await logoutUser();
+        } finally {
+            window.location.href = "/signin";
+        }
     };
 
     const selectedShapes = (() => {
@@ -1237,6 +1247,20 @@ export default function CanvasPage() {
                         }`}
                     >
                         Join canvas
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={handleLogout}
+                        disabled={isLoggingOut}
+                        title="Log out"
+                        className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                            isDark
+                                ? "bg-red-500/15 text-red-300 hover:bg-red-500/25"
+                                : "bg-red-100 text-red-700 hover:bg-red-200"
+                        } ${isLoggingOut ? "cursor-not-allowed opacity-70" : ""}`}
+                    >
+                        {isLoggingOut ? "Logging out..." : "Log out"}
                     </button>
                 </div>
             </div>

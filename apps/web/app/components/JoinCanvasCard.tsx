@@ -1,9 +1,9 @@
 "use client";
 
-import axios from "axios";
 import {FormEvent, useState} from "react";
 import {ArrowRight, Link2} from "lucide-react";
 import {HTTP_BACKEND} from "../../config";
+import {apiClient} from "../lib/apiClient";
 
 function normalizeCanvasTarget(rawValue: string) {
     const trimmed = rawValue.trim();
@@ -38,9 +38,7 @@ export default function JoinCanvasCard() {
 
         setIsLoading(true);
         try {
-            await axios.get(`${HTTP_BACKEND}/auth/current-user`, {
-                withCredentials: true,
-            });
+            await apiClient.get(`${HTTP_BACKEND}/auth/current-user`);
             window.location.href = destination;
         } catch {
             const redirectTarget = encodeURIComponent(destination);

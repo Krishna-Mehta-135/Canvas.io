@@ -4,20 +4,15 @@ import {asyncHandler} from "../utils/asyncHandler";
 import {CreateUserSchema, SignInUserSchema, CreateRoomSchema} from "@repo/common/types";
 import {prismaClient} from "@repo/db/client";
 import {comparePassword, hashPassword} from "../utils/password";
-import {JWT_SECRET} from "@repo/backend-common/config";
+import {generateAccessToken, generateRefreshToken, verifyToken} from "../utils/token";
 import jwt from "jsonwebtoken";
 
-/**
- * Creates a signed JWT containing user identity used by HTTP and WS auth.
- */
-const generateToken = (id: string, name: string) => {
-    if (!JWT_SECRET) {
-        throw new ApiError(401, "JWT_SECRET is not defined");
-    }
-    return jwt.sign({userId: id, name}, JWT_SECRET, {
-        expiresIn: "7d",
-    });
-};
+const AUTH_DEBUG = process.env.AUTH_DEBUG === "true";
+
+function authDebug(message: string, meta?: Record<string, unknown>) {
+    if (!AUTH_DEBUG) return;
+    console.info("[auth-debug]", message, meta ?? {});
+}
 
 const signup = asyncHandler(async (req, res) => {
     const validationResult = CreateUserSchema.safeParse(req.body);
@@ -39,16 +34,28 @@ const signup = asyncHandler(async (req, res) => {
                 name,
                 email,
                 password: hashedPassword,
+                tokenVersion: 0,
+                refreshTokenExp: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
             },
         });
 
-        const token = generateToken(user.id, user.name);
+        const userTokenVersion = (user as any).tokenVersion ?? 0;
+        const accessToken = generateAccessToken(user.id, user.name, userTokenVersion);
+        const refreshToken = generateRefreshToken(user.id, user.name, userTokenVersion);
 
-        // Store token in httpOnly cookie
-        res.cookie("token", token, {
+        // Store tokens in httpOnly cookies
+        res.cookie("accessToken", accessToken, {
             httpOnly: true,
             secure: process.env.NODE_ENV === "production",
             sameSite: "strict",
+            maxAge: 15 * 60 * 1000, // 15 minutes
+        });
+
+        res.cookie("refreshToken", refreshToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === "production",
+            sameSite: "strict",
+            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
         });
 
         return res.status(201).json(
@@ -94,12 +101,30 @@ const signin = asyncHandler(async (req, res) => {
         throw new ApiError(401, "Invalid credentials");
     }
 
-    const token = generateToken(user.id, user.name);
+    const userTokenVersion = (user as any).tokenVersion ?? 0;
+    const accessToken = generateAccessToken(user.id, user.name, userTokenVersion);
+    const refreshToken = generateRefreshToken(user.id, user.name, userTokenVersion);
 
-    res.cookie("token", token, {
+    // Update refresh token expiration
+    await prismaClient.user.update({
+        where: {id: user.id},
+        data: {
+            refreshTokenExp: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+    });
+
+    res.cookie("accessToken", accessToken, {
         httpOnly: true,
         secure: process.env.NODE_ENV === "production",
         sameSite: "strict",
+        maxAge: 15 * 60 * 1000, // 15 minutes
+    });
+
+    res.cookie("refreshToken", refreshToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
 
     return res.status(200).json(
@@ -147,4 +172,91 @@ const getCurrentUser = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, user, "Current user fetched"));
 });
 
-export {signup, signin, getCurrentUser};
+const refreshAccessToken = asyncHandler(async (req, res) => {
+    const refreshToken = req.cookies?.refreshToken;
+
+    if (!refreshToken) {
+        authDebug("refresh denied: missing refresh token", {
+            hasAccessToken: Boolean(req.cookies?.accessToken),
+        });
+        throw new ApiError(401, "Refresh token missing");
+    }
+
+    let decoded;
+    try {
+        decoded = verifyToken(refreshToken);
+    } catch (error) {
+        authDebug("refresh denied: invalid or expired refresh token");
+        throw new ApiError(401, "Invalid or expired refresh token");
+    }
+
+    if (decoded.type !== "refresh") {
+        authDebug("refresh denied: wrong token type", {tokenType: decoded.type});
+        throw new ApiError(401, "Invalid token type");
+    }
+
+    // Verify user still exists and token version matches (detects compromised tokens)
+    const user = await prismaClient.user.findUnique({
+        where: {id: decoded.userId},
+    });
+
+    if (!user) {
+        authDebug("refresh denied: user not found", {userId: decoded.userId});
+        throw new ApiError(401, "User not found");
+    }
+
+    const userTokenVersion = (user as any).tokenVersion ?? 0;
+
+    if (userTokenVersion !== decoded.tokenVersion) {
+        authDebug("refresh denied: token version mismatch", {
+            userId: user.id,
+            dbVersion: userTokenVersion,
+            tokenVersion: decoded.tokenVersion,
+        });
+        throw new ApiError(401, "Token has been revoked");
+    }
+
+    // Generate new access token (rotation)
+    const newAccessToken = generateAccessToken(user.id, user.name, userTokenVersion);
+
+    res.cookie("accessToken", newAccessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 15 * 60 * 1000, // 15 minutes
+    });
+
+    authDebug("refresh success", {userId: user.id});
+
+    return res.status(200).json(new ApiResponse(200, {}, "Access token refreshed"));
+});
+
+const logout = asyncHandler(async (req, res) => {
+    const userId = req.userId;
+
+    if (!userId) {
+        authDebug("logout denied: missing authenticated user");
+        throw new ApiError(401, "Unauthorized");
+    }
+
+    // Increment token version to invalidate all existing tokens
+    await prismaClient.user.update({
+        where: {id: userId},
+        data: {
+            tokenVersion: {
+                increment: 1,
+            },
+            refreshTokenExp: null,
+        },
+    });
+
+    // Clear cookies
+    res.clearCookie("accessToken");
+    res.clearCookie("refreshToken");
+
+    authDebug("logout success", {userId});
+
+    return res.status(200).json(new ApiResponse(200, {}, "Logged out successfully"));
+});
+
+export {signup, signin, getCurrentUser, refreshAccessToken, logout};

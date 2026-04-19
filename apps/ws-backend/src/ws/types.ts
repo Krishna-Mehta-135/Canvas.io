@@ -10,4 +10,6 @@ export interface AuthenticatedWebSocket extends WebSocket {
 export interface MyJwtPayload extends JwtPayload {
     userId: string;
     name?: string;
+    tokenVersion?: number;
+    type?: "access" | "refresh";
 }

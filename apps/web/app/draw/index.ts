@@ -1,5 +1,5 @@
-import axios from "axios";
 import {HTTP_BACKEND} from "../../config";
+import {apiClient} from "../lib/apiClient";
 
 type Shape =
     | {
@@ -89,7 +89,7 @@ function clearCanvas(existingShapes: Shape[], canvas: HTMLCanvasElement, ctx: Ca
 }
 
 async function getExistingShapes(roomId: string): Promise<Shape[]> {
-    const res = await axios.get(`${HTTP_BACKEND}/room/${roomId}/messages`);
+    const res = await apiClient.get(`${HTTP_BACKEND}/room/${roomId}/messages`);
     const data = res.data.messages;
 
     const shapes = data.map((x: {message: string}) => {

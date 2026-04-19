@@ -3,9 +3,11 @@ import {JwtPayload} from "jsonwebtoken";
 
 export interface AuthenticatedWebSocket extends WebSocket {
     userId?: string;
+    userName?: string;
     currentRoomId?: number;
 }
 
 export interface MyJwtPayload extends JwtPayload {
     userId: string;
+    name?: string;
 }

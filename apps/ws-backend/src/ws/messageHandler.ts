@@ -2,8 +2,14 @@ import {RawData} from "ws";
 import type {Shape} from "@repo/canvas-engine";
 import type {ServerMessage, WsMessage} from "@repo/common";
 import type {AuthenticatedWebSocket} from "./types.js";
-import {broadcastToRoom, joinActiveRoom} from "./connectionState.js";
-import {initializeRoomSync, persistShapes, roomSyncState} from "./roomSync.js";
+import {
+    broadcastRoomPresenceState,
+    broadcastToRoom,
+    getRoomPresenceState,
+    joinActiveRoom,
+    setRoomPresence,
+} from "./connectionState.js";
+import {initializeRoomSync, roomSyncState, scheduleRoomPersist} from "./roomSync.js";
 
 export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: string, data: RawData) {
     const parsed = JSON.parse(data.toString()) as WsMessage;
@@ -22,7 +28,19 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
         }
 
         const roomState = await initializeRoomSync(roomId);
-        joinActiveRoom(roomId, ws);
+        const isFirstRoomConnectionForUser = joinActiveRoom(roomId, ws);
+
+        if (isFirstRoomConnectionForUser && ws.userId) {
+            setRoomPresence(roomId, ws.userId, {
+                userId: ws.userId,
+                userName: ws.userName ?? `User ${ws.userId.slice(0, 6)}`,
+                cursor: null,
+                selectedIds: [],
+                tool: null,
+            });
+        }
+
+        const presenceState = getRoomPresenceState(roomId);
 
         ws.send(
             JSON.stringify({
@@ -30,8 +48,52 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
                 roomId,
                 version: roomState.version,
                 shapes: roomState.shapes,
+                userId,
+                connectedUsersCount: presenceState.connectedUsersCount,
+                presences: presenceState.presences,
             } as ServerMessage)
         );
+
+        broadcastRoomPresenceState(roomId);
+        return;
+    }
+
+    if (parsed.type === "update_presence") {
+        const {roomId, cursor, selectedIds} = parsed;
+
+        if (typeof roomId !== "number" || roomId <= 0) {
+            ws.send(
+                JSON.stringify({
+                    type: "sync_error",
+                    reason: "Invalid roomId",
+                } as ServerMessage)
+            );
+            return;
+        }
+
+        if (ws.currentRoomId !== roomId) {
+            ws.send(
+                JSON.stringify({
+                    type: "sync_error",
+                    reason: "Presence update sent for a room that is not active",
+                } as ServerMessage)
+            );
+            return;
+        }
+
+        if (!ws.userId) {
+            return;
+        }
+
+        setRoomPresence(roomId, ws.userId, {
+            userId: ws.userId,
+            userName: ws.userName ?? `User ${ws.userId.slice(0, 6)}`,
+            cursor: null,
+            selectedIds: Array.isArray(selectedIds) ? selectedIds : [],
+            tool: typeof parsed.tool === "string" ? parsed.tool : null,
+        });
+
+        broadcastRoomPresenceState(roomId);
         return;
     }
 
@@ -54,6 +116,8 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
         }
 
         if (version !== roomState.version) {
+            const presenceState = getRoomPresenceState(roomId);
+
             ws.send(
                 JSON.stringify({
                     type: "sync_error",
@@ -67,6 +131,9 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
                     roomId,
                     version: roomState.version,
                     shapes: roomState.shapes,
+                    userId,
+                    connectedUsersCount: presenceState.connectedUsersCount,
+                    presences: presenceState.presences,
                 } as ServerMessage)
             );
             return;
@@ -101,30 +168,18 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
             shapeIds.add(shape.id);
         }
 
-        try {
-            await persistShapes(roomId, typedShapes);
-        } catch (error) {
-            ws.send(
-                JSON.stringify({
-                    type: "sync_error",
-                    reason: "Failed to persist shapes to database",
-                } as ServerMessage)
-            );
-            return;
-        }
+        scheduleRoomPersist(roomId, typedShapes);
 
         roomState.version += 1;
         roomState.shapes = typedShapes;
 
-        // Ack sender with the new authoritative room version.
-        // Without this, sender can keep using a stale version and its next edit
-        // may be rejected/resynced, causing visible rollback.
+        // Ack sender with new authoritative version only to avoid
+        // expensive full-state hydrate on every local edit.
         ws.send(
             JSON.stringify({
-                type: "room_joined",
+                type: "canvas_snapshot_ack",
                 roomId,
                 version: roomState.version,
-                shapes: typedShapes,
             } as ServerMessage)
         );
 

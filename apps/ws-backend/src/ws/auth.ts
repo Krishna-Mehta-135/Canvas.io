@@ -18,7 +18,14 @@ export function checkUser(request: IncomingMessage) {
 
     try {
         const decoded = jwt.verify(token, JWT_SECRET) as MyJwtPayload;
-        return decoded.userId || null;
+        if (!decoded.userId) {
+            return null;
+        }
+
+        return {
+            userId: decoded.userId,
+            userName: decoded.name ?? null,
+        };
     } catch {
         return null;
     }

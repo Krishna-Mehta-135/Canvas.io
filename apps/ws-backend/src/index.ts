@@ -1,7 +1,13 @@
 import "@repo/backend-common/config";
 import {WebSocketServer, WebSocket} from "ws";
 import {checkUser} from "./ws/auth.js";
-import {leaveActiveRoom, registerUser, removeUserSocket} from "./ws/connectionState.js";
+import {
+    broadcastRoomPresenceState,
+    leaveActiveRoom,
+    registerUser,
+    removeRoomPresence,
+    removeUserSocket,
+} from "./ws/connectionState.js";
 import {handleSocketMessage} from "./ws/messageHandler.js";
 import type {AuthenticatedWebSocket} from "./ws/types.js";
 
@@ -10,14 +16,17 @@ const wss = new WebSocketServer({port: 8080});
 console.log("WebSocket server online on port 8080");
 
 wss.on("connection", function connection(ws: AuthenticatedWebSocket, request) {
-    const userId = checkUser(request);
+    const authUser = checkUser(request);
 
-    if (!userId) {
+    if (!authUser) {
         ws.close(1008, "Authentication failed");
         return;
     }
 
+    const {userId, userName} = authUser;
+
     registerUser(userId, ws);
+    ws.userName = userName ?? `User ${userId.slice(0, 6)}`;
 
     // Ping/pong for connection health.
     const pingInterval = setInterval(() => {
@@ -45,7 +54,13 @@ wss.on("connection", function connection(ws: AuthenticatedWebSocket, request) {
         removeUserSocket(ws);
 
         if (ws.currentRoomId) {
-            leaveActiveRoom(ws.currentRoomId, ws);
+            const roomId = ws.currentRoomId;
+            const didUserFullyLeave = leaveActiveRoom(roomId, ws);
+
+            if (didUserFullyLeave && ws.userId) {
+                removeRoomPresence(roomId, ws.userId);
+                broadcastRoomPresenceState(roomId);
+            }
         }
     });
 

@@ -34,6 +34,12 @@ export default function Hero() {
                                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
                             </a>
                             <a
+                                href="#join-canvas"
+                                className="px-8 py-4 bg-white text-gray-700 rounded-lg font-semibold text-lg hover:bg-gray-50 transition-all border-2 border-gray-200 flex items-center justify-center gap-2"
+                            >
+                                Join canvas
+                            </a>
+                            <a
                                 href="#showcase"
                                 className="px-8 py-4 bg-white text-gray-700 rounded-lg font-semibold text-lg hover:bg-gray-50 transition-all border-2 border-gray-200 flex items-center justify-center gap-2"
                             >

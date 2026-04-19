@@ -9,6 +9,9 @@ import type {RoomSyncState} from "@repo/common";
  * Version increments on each accepted snapshot from clients.
  */
 export const roomSyncState = new Map<number, RoomSyncState>();
+const pendingPersistTimer = new Map<number, ReturnType<typeof setTimeout>>();
+const pendingPersistShapes = new Map<number, Shape[]>();
+const persistInFlight = new Set<number>();
 
 export async function initializeRoomSync(roomId: number) {
     if (roomSyncState.has(roomId)) {
@@ -75,4 +78,48 @@ export async function persistShapes(roomId: number, shapes: Shape[]) {
             });
         }
     });
+}
+
+async function persistQueuedRoom(roomId: number) {
+    if (persistInFlight.has(roomId)) {
+        return;
+    }
+
+    const shapes = pendingPersistShapes.get(roomId);
+    if (!shapes) {
+        return;
+    }
+
+    pendingPersistShapes.delete(roomId);
+    persistInFlight.add(roomId);
+
+    try {
+        await persistShapes(roomId, shapes);
+    } catch (error) {
+        console.error(`[WS] Failed to persist room ${roomId} snapshot`, error);
+    } finally {
+        persistInFlight.delete(roomId);
+        if (pendingPersistShapes.has(roomId)) {
+            void persistQueuedRoom(roomId);
+        }
+    }
+}
+
+/**
+ * Queue room persistence without blocking realtime sync path.
+ */
+export function scheduleRoomPersist(roomId: number, shapes: Shape[], delayMs = 180) {
+    pendingPersistShapes.set(roomId, shapes);
+
+    const existingTimer = pendingPersistTimer.get(roomId);
+    if (existingTimer) {
+        clearTimeout(existingTimer);
+    }
+
+    const timer = setTimeout(() => {
+        pendingPersistTimer.delete(roomId);
+        void persistQueuedRoom(roomId);
+    }, delayMs);
+
+    pendingPersistTimer.set(roomId, timer);
 }

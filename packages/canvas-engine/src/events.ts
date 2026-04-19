@@ -114,6 +114,7 @@ export function attachEvents(
     const setViewport = (nextViewport: Viewport) => {
         viewport = nextViewport;
         options.onViewportChange?.(viewport);
+        options.onCursorChange?.(lastPointer ? screenToWorldPoint(lastPointer, viewport) : null);
     };
 
     let isDrawing = false;
@@ -461,6 +462,7 @@ export function attachEvents(
     const handleMouseDown = (e: MouseEvent) => {
         const screenPoint = getMousePos(canvas, e);
         lastPointer = screenPoint;
+        options.onCursorChange?.(screenToWorldPoint(screenPoint, viewport));
         const {x, y} = screenToWorldPoint(screenPoint, viewport);
         const shapes = state.getShapes();
 
@@ -643,6 +645,7 @@ export function attachEvents(
     const handleMouseMove = (e: MouseEvent) => {
         const screenPoint = getMousePos(canvas, e);
         lastPointer = screenPoint;
+        options.onCursorChange?.(screenToWorldPoint(screenPoint, viewport));
         const {x, y} = screenToWorldPoint(screenPoint, viewport);
 
         const shapes = state.getShapes();
@@ -841,6 +844,7 @@ export function attachEvents(
     const handleMouseUp = (e: MouseEvent) => {
         const screenPoint = getMousePos(canvas, e);
         lastPointer = screenPoint;
+        options.onCursorChange?.(screenToWorldPoint(screenPoint, viewport));
         const {x, y} = screenToWorldPoint(screenPoint, viewport);
 
         if (isPanning) {
@@ -923,6 +927,7 @@ export function attachEvents(
     const handleDoubleClick = (e: MouseEvent) => {
         const screenPoint = getMousePos(canvas, e);
         lastPointer = screenPoint;
+        options.onCursorChange?.(screenToWorldPoint(screenPoint, viewport));
         const {x, y} = screenToWorldPoint(screenPoint, viewport);
         const shape = getShapeAtPoint(state.getShapes(), x, y, ctx);
         if (!shape || shape.type !== "text") return;
@@ -954,6 +959,11 @@ export function attachEvents(
     canvas.addEventListener("mousemove", handleMouseMove);
     canvas.addEventListener("mouseup", handleMouseUp);
     canvas.addEventListener("dblclick", handleDoubleClick);
+    const handleMouseLeave = () => {
+        lastPointer = null;
+        options.onCursorChange?.(null);
+    };
+    canvas.addEventListener("mouseleave", handleMouseLeave);
 
     return {
         deleteSelection,
@@ -976,6 +986,7 @@ export function attachEvents(
             canvas.removeEventListener("mousemove", handleMouseMove);
             canvas.removeEventListener("mouseup", handleMouseUp);
             canvas.removeEventListener("dblclick", handleDoubleClick);
+            canvas.removeEventListener("mouseleave", handleMouseLeave);
             detachViewportEvents();
             textEditingController.dispose();
         },

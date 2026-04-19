@@ -6,6 +6,7 @@ import Features from '@repo/ui/Features';
 import Showcase from '@repo/ui/Showcase';
 import CTA from '@repo/ui/CTA';
 import Footer from '@repo/ui/Footer';
+import JoinCanvasCard from './components/JoinCanvasCard';
 
 function App() {
   return (
@@ -13,6 +14,7 @@ function App() {
       <Header />
       <main className="landing-main relative pt-0">
         <Hero />
+        <JoinCanvasCard />
         <Features />
         <Showcase />
         <CTA />

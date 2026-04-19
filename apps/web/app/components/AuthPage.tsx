@@ -3,14 +3,17 @@
 import { useState, FormEvent } from "react";
 import axios, { AxiosError } from "axios";
 import { ArrowRight, Eye, EyeOff, Pencil, Loader2 } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import {HTTP_BACKEND} from "../../config";
 
-const API_BASE = "http://localhost:3001/api/v1";
+const API_BASE = HTTP_BACKEND;
 
 interface AuthPageProps {
     isSignIn: boolean;
 }
 
 export function AuthPage({ isSignIn }: AuthPageProps) {
+    const searchParams = useSearchParams();
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -36,8 +39,31 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                 withCredentials: true, // sends + receives cookies
             });
 
+            const redirectTarget = searchParams.get("redirect");
+            if (redirectTarget) {
+                window.location.href = redirectTarget;
+                return;
+            }
+
             // Room slug must satisfy backend validation (3-20 chars).
             const roomSlug = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+
+            try {
+                await axios.post(
+                    `${API_BASE}/room`,
+                    {slug: roomSlug},
+                    {
+                        withCredentials: true,
+                    }
+                );
+            } catch (createRoomError) {
+                const createRoomAxiosError = createRoomError as AxiosError<{message?: string}>;
+                // If slug collides, canvas page can still resolve existing room by slug.
+                if (createRoomAxiosError.response?.status !== 409) {
+                    throw createRoomError;
+                }
+            }
+
             window.location.href = `/canvas/${roomSlug}`;
         } catch (err) {
             const axiosError = err as AxiosError<{ message: string }>;

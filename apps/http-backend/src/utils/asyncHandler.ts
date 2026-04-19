@@ -7,10 +7,16 @@ export const asyncHandler = (requestHandler: RequestHandler) => {
         try {
             await requestHandler(req, res, next);
         } catch (error: any) {
-            console.log("Error in asyncHandler: ", error);
-            res.status(
-                error.statusCode && error.statusCode >= 100 && error.statusCode <= 600 ? error.statusCode : 500
-            ).json({
+            const statusCode =
+                error.statusCode && error.statusCode >= 100 && error.statusCode <= 600 ? error.statusCode : 500;
+
+            if (statusCode >= 500) {
+                console.error("Error in asyncHandler:", error);
+            } else {
+                console.warn("Request error:", statusCode, error.message || "Unknown error");
+            }
+
+            res.status(statusCode).json({
                 success: false,
                 message: error.message || "Internal Server Error",
             });

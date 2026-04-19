@@ -8,7 +8,21 @@ import { roomRouter } from "./routes/room.routes";
 const app: Express = express();
 
 app.use(cors({
-    origin: ["http://localhost:3000"],
+    origin: (origin, callback) => {
+        // Allow same-machine browser clients across local hostnames and ports.
+        if (!origin) {
+            callback(null, true);
+            return;
+        }
+
+        const allowedOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+        if (allowedOriginPattern.test(origin)) {
+            callback(null, true);
+            return;
+        }
+
+        callback(new Error("CORS origin not allowed"));
+    },
     credentials: true,
 }));
 app.use(express.json());

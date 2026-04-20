@@ -29,6 +29,13 @@ interface UseCanvasSyncOptions {
   localTool: Tool;
 }
 
+export type SyncTimelineEntry = {
+  id: string;
+  at: string;
+  type: string;
+  detail: string;
+};
+
 /**
  * Synchronizes canvas state and room presence with the websocket backend.
  */
@@ -47,6 +54,9 @@ export function useCanvasSync({
     presences: [],
   });
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+  const [websocketLatencyMs, setWebsocketLatencyMs] = useState<number | null>(null);
+  const [inFlightSnapshotCount, setInFlightSnapshotCount] = useState(0);
+  const [eventTimeline, setEventTimeline] = useState<SyncTimelineEntry[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
   const isConnectedRef = useRef(false);
   const isApplyingRemoteRef = useRef(false);
@@ -56,6 +66,24 @@ export function useCanvasSync({
   const pendingPresenceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightSnapshotRef = useRef(false);
   const queuedSnapshotRef = useRef<Shape[] | null>(null);
+  const snapshotSentAtRef = useRef<number | null>(null);
+
+  const appendTimelineEvent = useCallback((type: string, detail: string) => {
+    const now = new Date();
+    const nextEvent: SyncTimelineEntry = {
+      id: `${now.getTime()}-${Math.random().toString(16).slice(2, 8)}`,
+      at: now.toLocaleTimeString(),
+      type,
+      detail,
+    };
+
+    setEventTimeline((previous) => [...previous.slice(-59), nextEvent]);
+  }, []);
+
+  const syncInFlightCounter = useCallback(() => {
+    const count = (inFlightSnapshotRef.current ? 1 : 0) + (queuedSnapshotRef.current ? 1 : 0);
+    setInFlightSnapshotCount(count);
+  }, []);
 
   const WS_BACKEND_URL =
     typeof window !== "undefined"
@@ -79,11 +107,15 @@ export function useCanvasSync({
 
     const queuedShapes = queuedSnapshotRef.current;
     if (!queuedShapes) {
+      syncInFlightCounter();
       return;
     }
 
     queuedSnapshotRef.current = null;
     inFlightSnapshotRef.current = true;
+    snapshotSentAtRef.current = Date.now();
+    appendTimelineEvent("snapshot_send", `v${syncStateRef.current.version} (${queuedShapes.length} shapes)`);
+    syncInFlightCounter();
 
     const message: WsMessage = {
       type: "canvas_snapshot",
@@ -93,12 +125,13 @@ export function useCanvasSync({
     };
 
     wsRef.current.send(JSON.stringify(message));
-  }, [roomId]);
+  }, [appendTimelineEvent, roomId, syncInFlightCounter]);
 
   // Queue latest snapshot and send when no snapshot is currently in flight.
   const sendCanvasSnapshot = useCallback(
     (shapes: Shape[]) => {
       queuedSnapshotRef.current = shapes;
+      syncInFlightCounter();
 
       const shouldSendImmediately =
         hasJoinedRoomRef.current &&
@@ -118,7 +151,7 @@ export function useCanvasSync({
         flushQueuedSnapshot();
       }, 160);
     },
-    [flushQueuedSnapshot]
+    [flushQueuedSnapshot, syncInFlightCounter]
   );
 
   /**
@@ -191,6 +224,7 @@ export function useCanvasSync({
 
     ws.onopen = () => {
       console.log("[WS] Connected, joining room", roomId);
+      appendTimelineEvent("socket_open", `joining room ${roomId}`);
       setLastSyncError(null);
       hasJoinedRoomRef.current = false;
       isConnectedRef.current = true;
@@ -226,6 +260,8 @@ export function useCanvasSync({
           setLastSyncError(null);
           isConnectedRef.current = true;
           setIsConnected(true);
+          appendTimelineEvent("room_joined", `v${message.version} (${message.shapes.length} shapes)`);
+          syncInFlightCounter();
 
           // Hydrate local state with server shapes
           isApplyingRemoteRef.current = true;
@@ -253,6 +289,7 @@ export function useCanvasSync({
           isApplyingRemoteRef.current = true;
           state.hydrateShapes(message.shapes);
           isApplyingRemoteRef.current = false;
+          appendTimelineEvent("snapshot_broadcast", `v${message.version} from ${message.senderId}`);
         } else if (message.type === "canvas_snapshot_ack") {
           syncStateRef.current = {
             roomId: message.roomId,
@@ -260,6 +297,15 @@ export function useCanvasSync({
             shapes: syncStateRef.current.shapes,
           };
           inFlightSnapshotRef.current = false;
+          if (snapshotSentAtRef.current !== null) {
+            const latency = Math.max(0, Date.now() - snapshotSentAtRef.current);
+            setWebsocketLatencyMs(latency);
+            appendTimelineEvent("snapshot_ack", `v${message.version} (${latency}ms)`);
+            snapshotSentAtRef.current = null;
+          } else {
+            appendTimelineEvent("snapshot_ack", `v${message.version}`);
+          }
+          syncInFlightCounter();
           setLastSyncError(null);
           flushQueuedSnapshot();
         } else if (message.type === "room_presence_state") {
@@ -270,8 +316,10 @@ export function useCanvasSync({
           });
         } else if (message.type === "sync_error") {
           console.warn("[WS] Sync error:", message.reason);
+          appendTimelineEvent("sync_error", message.reason);
           setLastSyncError(message.reason);
           inFlightSnapshotRef.current = false;
+          syncInFlightCounter();
 
           // Drop stale queued snapshots after version drift to avoid replaying old state
           // over the authoritative server snapshot that follows.
@@ -292,6 +340,7 @@ export function useCanvasSync({
 
     ws.onerror = () => {
       console.warn("[WS] WebSocket connection error");
+      appendTimelineEvent("socket_error", "websocket connection error");
       setLastSyncError("WebSocket connection error");
       hasJoinedRoomRef.current = false;
       isConnectedRef.current = false;
@@ -300,6 +349,7 @@ export function useCanvasSync({
 
     ws.onclose = (event) => {
       console.log("[WS] Disconnected");
+      appendTimelineEvent("socket_close", event.reason || `code ${event.code}`);
       if (event.code === 1008) {
         setLastSyncError(event.reason || "WebSocket authentication failed");
       }
@@ -341,12 +391,14 @@ export function useCanvasSync({
       }
       inFlightSnapshotRef.current = false;
       queuedSnapshotRef.current = null;
+      snapshotSentAtRef.current = null;
+      syncInFlightCounter();
       hasJoinedRoomRef.current = false;
       if (ws.readyState === WebSocket.OPEN) {
         ws.close();
       }
     };
-  }, [roomId, enabled, WS_BACKEND_URL, state, flushQueuedSnapshot]);
+  }, [roomId, enabled, WS_BACKEND_URL, state, flushQueuedSnapshot, appendTimelineEvent, syncInFlightCounter]);
 
   return {
     isConnected,
@@ -355,5 +407,8 @@ export function useCanvasSync({
     presenceState,
     connectedUsersCount: presenceState.connectedUsersCount,
     currentUserId,
+    websocketLatencyMs,
+    inFlightSnapshotCount,
+    eventTimeline,
   };
 }

@@ -20,7 +20,7 @@ import {Handle, PreviewShape, Shape} from "./types";
 import {Viewport, getMousePos, screenToWorldPoint} from "./utils";
 import {CanvasState} from "./state";
 import {getShapeAtPoint, getShapesAtPoint} from "./interaction/hitDetection";
-import {dispatch, findTopBindableShapeAtPoint} from "./store";
+import {dispatch, findTopBindableShapeAtPoint, getConnectorSnapEnabled, setConnectorSnapEnabled} from "./store";
 import {convertToPoints, resizeShape} from "./geometry";
 import {AttachEventsController, AttachEventsOptions, isDrawableTool, Tool} from "./interaction/tools";
 import {getCursorForHandle} from "./interaction/cursor";
@@ -77,6 +77,7 @@ export function attachEvents(
 
     let viewport: Viewport = options.initialViewport ?? getDefaultViewport();
     let isGridVisible = true;
+    let isSnapEnabled = getConnectorSnapEnabled();
 
     let selectedShape: Shape | null = null;
     let selectionBox: SelectionBox | null = null;
@@ -988,6 +989,25 @@ export function attachEvents(
             renderScene();
         },
         isGridVisible: () => isGridVisible,
+        setSnapEnabled: (enabled: boolean) => {
+            isSnapEnabled = enabled;
+            setConnectorSnapEnabled(enabled);
+
+            if (!enabled) {
+                const shapes = state.getShapes().map((shape) => {
+                    if (shape.type !== "line" && shape.type !== "arrow") return shape;
+                    return {
+                        ...shape,
+                        startBinding: undefined,
+                        endBinding: undefined,
+                    };
+                });
+                state.setShapes(shapes);
+            }
+
+            renderScene();
+        },
+        isSnapEnabled: () => isSnapEnabled,
         rerender: () => {
             const shapes = state.getShapes();
             const selected = getSelectedShapesByIds(shapes, selectedShapeIds);

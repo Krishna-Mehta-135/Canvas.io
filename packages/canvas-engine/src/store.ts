@@ -31,6 +31,15 @@ function isBindableTarget(shape: Shape) {
 }
 
 const CONNECTOR_SNAP_TOLERANCE = 10;
+let connectorSnapEnabled = true;
+
+export function setConnectorSnapEnabled(enabled: boolean) {
+    connectorSnapEnabled = enabled;
+}
+
+export function getConnectorSnapEnabled() {
+    return connectorSnapEnabled;
+}
 
 function clamp01(value: number) {
     return Math.max(0, Math.min(1, value));
@@ -70,6 +79,10 @@ function getPointFromBinding(
 
 // Chooses the visually top-most candidate so endpoint attachment matches user intent.
 export function findTopBindableShapeAtPoint(shapes: Shape[], x: number, y: number, excludeId?: string | null) {
+    if (!connectorSnapEnabled) {
+        return null;
+    }
+
     const excludedId = excludeId ?? null;
 
     for (let i = shapes.length - 1; i >= 0; i--) {
@@ -90,6 +103,14 @@ export function findTopBindableShapeAtPoint(shapes: Shape[], x: number, y: numbe
 }
 
 function attachConnectorBindings(connector: ConnectorShape, shapes: Shape[]): ConnectorShape {
+    if (!connectorSnapEnabled) {
+        return {
+            ...connector,
+            startBinding: undefined,
+            endBinding: undefined,
+        };
+    }
+
     const startTarget = findTopBindableShapeAtPoint(shapes, connector.x1, connector.y1, connector.id);
     const endTarget = findTopBindableShapeAtPoint(shapes, connector.x2, connector.y2, connector.id);
 
@@ -113,6 +134,17 @@ function refreshBindingsForConnectorIds(shapes: Shape[], connectorIds: string[])
 
 // Reprojects all currently bound connector endpoints using latest shape bounds.
 function applyConnectorBindings(shapes: Shape[]) {
+    if (!connectorSnapEnabled) {
+        return shapes.map((shape) => {
+            if (!isConnectorShape(shape)) return shape;
+            return {
+                ...shape,
+                startBinding: undefined,
+                endBinding: undefined,
+            };
+        });
+    }
+
     const shapeById = new Map(shapes.map((shape) => [shape.id, shape] as const));
 
     return shapes.map((shape) => {

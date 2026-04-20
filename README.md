@@ -18,6 +18,7 @@ It combines a modern Next.js frontend, an Express API, and a WebSocket realtime 
 - [Environment Variables](#environment-variables)
 - [Scripts](#scripts)
 - [Service Endpoints](#service-endpoints)
+- [Canvas Controls](#canvas-controls)
 - [Troubleshooting](#troubleshooting)
 
 ## What You Get
@@ -146,6 +147,48 @@ Notes:
 - Web app: `http://localhost:3000`
 - HTTP API base: `http://localhost:3001/api/v1`
 - WebSocket backend: `ws://localhost:8080`
+
+## Canvas Controls
+
+### Overflow Menu
+
+The top-right 3-dot menu contains grouped actions for:
+
+- Account: profile, logout, switch account
+- Canvas actions: clear canvas, reset view
+- Data: reload and manual save
+- Collaboration: invite copy and room info
+- Settings: theme, grid, snap toggle
+- Debug: overlay on/off and panel mode
+- Export: PNG, SVG, PDF, JSON
+
+Keyboard navigation is supported inside the menu:
+
+- `ArrowDown` / `ArrowUp`: move between actions
+- `Home` / `End`: jump to first/last action
+- `Enter` / `Space`: activate focused action
+- `Escape`: close menu
+
+### Debug Panel Modes
+
+- `Compact`: room id, sync status, version, shape ids
+- `Verbose`: compact details plus websocket latency, in-flight snapshot count, and recent sync event timeline
+
+### Snap Toggle
+
+Snap controls connector endpoint binding for `line` and `arrow` shapes:
+
+- `On`: connector endpoints snap and bind to nearby shapes, then follow those shapes if moved
+- `Off`: connector bindings are removed and new connectors stay free (no endpoint snapping)
+
+### How To Test Snap
+
+1. Draw a rectangle.
+2. Draw an arrow endpoint near the rectangle with snap `On`.
+3. Move the rectangle and confirm the arrow endpoint follows it.
+4. Toggle snap `Off` in the menu.
+5. Draw another arrow near a shape and confirm it does not bind.
+6. Move the shape and confirm the new arrow endpoint stays in place.
 
 ## Troubleshooting
 

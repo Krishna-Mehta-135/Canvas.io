@@ -1,6 +1,6 @@
 "use client";
 
-import {ReactNode, useEffect, useRef, useState} from "react";
+import {ReactNode, useCallback, useEffect, useRef, useState} from "react";
 import {useParams} from "next/navigation";
 import {AxiosError} from "axios";
 import {jsPDF} from "jspdf";
@@ -159,6 +159,14 @@ type DebugOverlaySnapshot = {
     shapeCount: number;
     shapeIds: string[];
     capturedAt: string;
+};
+
+type DebugPanelMode = "compact" | "verbose";
+
+type Toast = {
+    id: number;
+    tone: "success" | "error" | "info";
+    message: string;
 };
 
 type ExportFormat = "png" | "svg" | "pdf" | "json";
@@ -631,10 +639,16 @@ export default function CanvasPage() {
     const [showRoomInfo, setShowRoomInfo] = useState(false);
     const [isGridVisible, setIsGridVisible] = useState(true);
     const [showDebugOverlay, setShowDebugOverlay] = useState(false);
+    const [debugPanelMode, setDebugPanelMode] = useState<DebugPanelMode>("compact");
     const [debugOverlaySnapshot, setDebugOverlaySnapshot] = useState<DebugOverlaySnapshot | null>(null);
     const [selectedExportFormat, setSelectedExportFormat] = useState<ExportFormat>("png");
+    const [isSnapEnabled, setIsSnapEnabled] = useState(true);
+    const [toasts, setToasts] = useState<Toast[]>([]);
+    const [isClearCanvasModalOpen, setIsClearCanvasModalOpen] = useState(false);
     const menuButtonRef = useRef<HTMLButtonElement | null>(null);
     const menuPanelRef = useRef<HTMLDivElement | null>(null);
+    const menuFocusIndexRef = useRef(0);
+    const toastIdRef = useRef(0);
     const skipNextViewportPersistRef = useRef(false);
     const {theme, toggleTheme} = useTheme();
     const isDark = theme === "dark";
@@ -642,6 +656,37 @@ export default function CanvasPage() {
     useEffect(() => {
         toolRef.current = activeTool;
     }, [activeTool]);
+
+    const getMenuItems = useCallback(() => {
+        if (!menuPanelRef.current) return [];
+        return Array.from(menuPanelRef.current.querySelectorAll<HTMLButtonElement>("[role='menuitem']:not([disabled])"));
+    }, []);
+
+    const syncMenuRovingFocus = useCallback((nextIndex: number, focus = false) => {
+        const menuItems = getMenuItems();
+        if (menuItems.length === 0) return;
+
+        const safeIndex = ((nextIndex % menuItems.length) + menuItems.length) % menuItems.length;
+        menuFocusIndexRef.current = safeIndex;
+
+        menuItems.forEach((item, index) => {
+            item.tabIndex = index === safeIndex ? 0 : -1;
+        });
+
+        if (focus) {
+            menuItems[safeIndex]?.focus();
+        }
+    }, [getMenuItems]);
+
+    const pushToast = useCallback((tone: Toast["tone"], message: string) => {
+        const id = toastIdRef.current + 1;
+        toastIdRef.current = id;
+        setToasts((current) => [...current, {id, tone, message}]);
+
+        window.setTimeout(() => {
+            setToasts((current) => current.filter((toast) => toast.id !== id));
+        }, 3200);
+    }, []);
 
     useEffect(() => {
         controlsRef.current?.rerender();
@@ -690,6 +735,18 @@ export default function CanvasPage() {
             window.removeEventListener("gesturechange", preventGestureZoom as EventListener, true);
         };
     }, []);
+
+    useEffect(() => {
+        if (!isMenuOpen) return;
+
+        const raf = window.requestAnimationFrame(() => {
+            syncMenuRovingFocus(0, true);
+        });
+
+        return () => {
+            window.cancelAnimationFrame(raf);
+        };
+    }, [isMenuOpen, syncMenuRovingFocus]);
 
     useEffect(() => {
         if (!isMenuOpen) return;
@@ -914,6 +971,7 @@ export default function CanvasPage() {
             });
 
             setIsGridVisible(controlsRef.current.isGridVisible());
+            setIsSnapEnabled(controlsRef.current.isSnapEnabled());
         };
 
         void initializeCanvas();
@@ -1060,21 +1118,32 @@ export default function CanvasPage() {
     };
 
     const handleCopyInvite = () => {
-        if (inviteLink) {
-            navigator.clipboard.writeText(inviteLink).then(() => {
-                alert("Invite link copied to clipboard!");
-            });
+        if (!inviteLink) {
+            pushToast("error", "Invite link is unavailable right now.");
+            return;
         }
+
+        navigator.clipboard
+            .writeText(inviteLink)
+            .then(() => {
+                pushToast("success", "Invite link copied to clipboard.");
+            })
+            .catch(() => {
+                pushToast("error", "Failed to copy invite link.");
+            });
     };
 
     const handleClearCanvas = () => {
         if (!canvasState) return;
+        setIsClearCanvasModalOpen(true);
+    };
 
-        const shouldClear = window.confirm("Clear all shapes on this canvas?");
-        if (!shouldClear) return;
+    const confirmClearCanvas = () => {
+        if (!canvasState) return;
 
         canvasState.setShapes([]);
         controlsRef.current?.rerender();
+        pushToast("info", "Canvas cleared.");
     };
 
     const handleResetView = () => {
@@ -1092,9 +1161,10 @@ export default function CanvasPage() {
             const shapes = Array.isArray(persistedShapes) ? (persistedShapes as Shape[]) : [];
             canvasState.hydrateShapes(shapes);
             controlsRef.current?.rerender();
+            pushToast("success", "Canvas reloaded from server.");
         } catch (error) {
             console.error("Failed to reload canvas", error);
-            alert("Unable to reload canvas right now.");
+            pushToast("error", "Unable to reload canvas right now.");
         } finally {
             setIsReloadingCanvas(false);
         }
@@ -1108,10 +1178,10 @@ export default function CanvasPage() {
             await apiClient.put(`${HTTP_BACKEND}/room/${resolvedRoomId}/shapes`, {
                 shapes: canvasState.getShapes(),
             });
-            alert("Canvas saved.");
+            pushToast("success", "Canvas saved.");
         } catch (error) {
             console.error("Failed to save canvas", error);
-            alert("Unable to save canvas right now.");
+            pushToast("error", "Unable to save canvas right now.");
         } finally {
             setIsSavingCanvas(false);
         }
@@ -1123,8 +1193,18 @@ export default function CanvasPage() {
         setIsGridVisible(next);
     };
 
+    const handleToggleSnap = () => {
+        const next = !isSnapEnabled;
+        controlsRef.current?.setSnapEnabled(next);
+        setIsSnapEnabled(next);
+    };
+
     const handleToggleDebugOverlay = () => {
         setShowDebugOverlay((current) => !current);
+    };
+
+    const handleToggleDebugPanelMode = () => {
+        setDebugPanelMode((current) => (current === "compact" ? "verbose" : "compact"));
     };
 
     const handleExportJson = () => {
@@ -1148,7 +1228,7 @@ export default function CanvasPage() {
 
         canvas.toBlob((blob) => {
             if (!blob) {
-                alert("Unable to export PNG.");
+                pushToast("error", "Unable to export PNG.");
                 return;
             }
 
@@ -1183,7 +1263,7 @@ export default function CanvasPage() {
             pdf.save(`${roomId ?? "canvas"}.pdf`);
         } catch (error) {
             console.error("Failed to export PDF", error);
-            alert("Unable to export PDF.");
+            pushToast("error", "Unable to export PDF.");
         }
     };
 
@@ -1236,10 +1316,13 @@ export default function CanvasPage() {
                         aria-expanded={isMenuOpen}
                         aria-controls="canvas-overflow-menu"
                         onClick={() => {
-                            setIsMenuOpen((current) => !current);
-                            if (isMenuOpen) {
-                                setShowRoomInfo(false);
-                            }
+                            setIsMenuOpen((current) => {
+                                const next = !current;
+                                if (!next) {
+                                    setShowRoomInfo(false);
+                                }
+                                return next;
+                            });
                         }}
                         className={`grid h-11 w-11 place-items-center rounded-full border text-xl transition ${
                             isDark
@@ -1257,6 +1340,53 @@ export default function CanvasPage() {
                             ref={menuPanelRef}
                             id="canvas-overflow-menu"
                             role="menu"
+                            aria-label="Canvas actions"
+                            onFocusCapture={(event) => {
+                                const menuItems = getMenuItems();
+                                const focusTarget = event.target as EventTarget | null;
+                                const focusedIndex = menuItems.findIndex((item) => item === focusTarget);
+                                if (focusedIndex >= 0) {
+                                    syncMenuRovingFocus(focusedIndex, false);
+                                }
+                            }}
+                            onKeyDown={(event) => {
+                                const menuItems = getMenuItems();
+                                if (menuItems.length === 0) return;
+
+                                if (event.key === "ArrowDown") {
+                                    event.preventDefault();
+                                    syncMenuRovingFocus(menuFocusIndexRef.current + 1, true);
+                                    return;
+                                }
+
+                                if (event.key === "ArrowUp") {
+                                    event.preventDefault();
+                                    syncMenuRovingFocus(menuFocusIndexRef.current - 1, true);
+                                    return;
+                                }
+
+                                if (event.key === "Home") {
+                                    event.preventDefault();
+                                    syncMenuRovingFocus(0, true);
+                                    return;
+                                }
+
+                                if (event.key === "End") {
+                                    event.preventDefault();
+                                    syncMenuRovingFocus(menuItems.length - 1, true);
+                                    return;
+                                }
+
+                                if (event.key === "Enter" || event.key === " ") {
+                                    const activeElement = document.activeElement as HTMLElement | null;
+                                    const activeIndex = menuItems.findIndex((item) => item === activeElement);
+                                    const targetIndex = activeIndex >= 0 ? activeIndex : menuFocusIndexRef.current;
+                                    if (targetIndex < 0) return;
+
+                                    event.preventDefault();
+                                    menuItems[targetIndex]?.click();
+                                }
+                            }}
                             onWheel={(event) => {
                                 event.stopPropagation();
                             }}
@@ -1448,13 +1578,13 @@ export default function CanvasPage() {
                             <button
                                 type="button"
                                 role="menuitem"
-                                disabled
-                                className={`flex w-full cursor-not-allowed items-center justify-between rounded-lg px-3 py-2 text-sm opacity-55 ${
-                                    isDark ? "text-white/65" : "text-slate-500"
+                                onClick={handleToggleSnap}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
                                 }`}
                             >
                                 <span>Toggle snap</span>
-                                <span className="text-[11px]">Coming soon</span>
+                                <span className="text-[11px] opacity-70">{isSnapEnabled ? "On" : "Off"}</span>
                             </button>
 
                             <div className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
@@ -1477,6 +1607,17 @@ export default function CanvasPage() {
                             >
                                 <span>Toggle debug overlay</span>
                                 <span className="text-xs opacity-70">{showDebugOverlay ? "On" : "Off"}</span>
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={handleToggleDebugPanelMode}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                }`}
+                            >
+                                <span>Debug panel mode</span>
+                                <span className="text-xs opacity-70">{debugPanelMode === "compact" ? "Compact" : "Verbose"}</span>
                             </button>
 
                             <div className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
@@ -1894,13 +2035,7 @@ export default function CanvasPage() {
             {/* Sync Status */}
             <div className="absolute bottom-4 right-4 z-20">
                 <div
-                    className={`flex items-center gap-3 rounded-2xl border px-4 py-3 backdrop-blur ${
-                        isDark
-                            ? "border-white/10 bg-[#191919]/95 shadow-[0_16px_28px_rgba(0,0,0,0.35)]"
-                            : "border-slate-300/70 bg-white/90 shadow-[0_16px_24px_rgba(15,23,42,0.12)]"
-                    }`}
-                >
-                    <div className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium ${
+                    className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium backdrop-blur ${
                         syncStatus === "connected"
                             ? isDark
                                 ? "bg-green-500/15 text-green-300"
@@ -1912,29 +2047,18 @@ export default function CanvasPage() {
                             : isDark
                                 ? "bg-yellow-500/15 text-yellow-300"
                                 : "bg-yellow-100 text-yellow-700"
-                    }`}>
-                        <span
-                            className={`h-2 w-2 rounded-full ${
-                                syncStatus === "connected"
-                                    ? "bg-green-500"
-                                    : syncStatus === "error"
-                                        ? "bg-red-500"
-                                        : "bg-yellow-500"
-                            }`}
-                        />
-                        {connectedUsersCount} {connectedUsersCount === 1 ? "user connected" : "users connected"}
-                    </div>
-
-                    {syncResult.lastSyncError && (
-                        <div
-                            className={`max-w-72 truncate rounded-full px-3 py-1.5 text-xs font-medium ${
-                                isDark ? "bg-red-500/15 text-red-300" : "bg-red-100 text-red-700"
-                            }`}
-                            title={syncResult.lastSyncError}
-                        >
-                            Sync error: {syncResult.lastSyncError}
-                        </div>
-                    )}
+                    }`}
+                >
+                    <span
+                        className={`h-2 w-2 rounded-full ${
+                            syncStatus === "connected"
+                                ? "bg-green-500"
+                                : syncStatus === "error"
+                                    ? "bg-red-500"
+                                    : "bg-yellow-500"
+                        }`}
+                    />
+                    {connectedUsersCount} {connectedUsersCount === 1 ? "user connected" : "users connected"}
                 </div>
             </div>
 
@@ -1948,22 +2072,114 @@ export default function CanvasPage() {
 
             {showDebugOverlay && (
                 <div
-                    className={`pointer-events-none absolute bottom-4 left-4 z-20 max-h-56 w-80 overflow-y-auto rounded-2xl border px-3 py-2 text-xs backdrop-blur ${
+                    onWheel={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                    }}
+                    className={`pointer-events-auto absolute bottom-4 left-4 z-20 max-h-[min(60vh,28rem)] w-80 overflow-y-auto overscroll-contain rounded-2xl border px-3 py-2 text-xs backdrop-blur ${
                         isDark
                             ? "border-white/15 bg-[#171717]/92 text-white/90"
                             : "border-slate-300/80 bg-white/92 text-slate-700"
                     }`}
                 >
-                    <div className="mb-2 font-semibold">Debug Overlay</div>
+                    <div className="mb-2 font-semibold">Debug Overlay ({debugPanelMode})</div>
                     <div className="mb-1">Room slug: {roomId ?? "-"}</div>
                     <div className="mb-1">Room id: {resolvedRoomId ?? "-"}</div>
                     <div className="mb-1">WS status: {syncStatus}</div>
                     <div className="mb-1">Sync version: {debugOverlaySnapshot?.version ?? syncResult.syncVersion}</div>
                     <div className="mb-1">Captured: {debugOverlaySnapshot?.capturedAt ?? "-"}</div>
                     <div className="mb-2">Shape count: {debugOverlaySnapshot?.shapeCount ?? (canvasState?.getShapes().length ?? 0)}</div>
+                    {debugPanelMode === "verbose" && (
+                        <>
+                            <div className="mb-1">WS latency: {syncResult.websocketLatencyMs !== null ? `${syncResult.websocketLatencyMs}ms` : "-"}</div>
+                            <div className="mb-2">In-flight snapshots: {syncResult.inFlightSnapshotCount}</div>
+                        </>
+                    )}
                     <div className="font-medium">Shape IDs</div>
                     <div className="opacity-80">
                         {(debugOverlaySnapshot?.shapeIds ?? []).join(", ") || "No shapes"}
+                    </div>
+                    {debugPanelMode === "verbose" && (
+                        <>
+                            <div className="mt-3 font-medium">Event timeline</div>
+                            <div className="mt-1 space-y-1 opacity-85">
+                                {syncResult.eventTimeline.length === 0 ? (
+                                    <div>No events yet</div>
+                                ) : (
+                                    syncResult.eventTimeline
+                                        .slice(-12)
+                                        .map((entry) => (
+                                            <div key={entry.id} className="rounded-md bg-black/10 px-2 py-1">
+                                                <span className="mr-1 opacity-70">[{entry.at}]</span>
+                                                <span className="mr-1 font-semibold">{entry.type}</span>
+                                                <span>{entry.detail}</span>
+                                            </div>
+                                        ))
+                                )}
+                            </div>
+                        </>
+                    )}
+                </div>
+            )}
+
+            <div className="pointer-events-none absolute right-4 top-20 z-40 flex w-88 flex-col gap-2">
+                {toasts.map((toast) => (
+                    <div
+                        key={toast.id}
+                        className={`pointer-events-auto rounded-xl border px-3 py-2 text-sm shadow-lg ${
+                            toast.tone === "success"
+                                ? isDark
+                                    ? "border-emerald-300/35 bg-emerald-500/15 text-emerald-100"
+                                    : "border-emerald-300 bg-emerald-50 text-emerald-800"
+                                : toast.tone === "error"
+                                    ? isDark
+                                        ? "border-red-300/35 bg-red-500/20 text-red-100"
+                                        : "border-red-300 bg-red-50 text-red-800"
+                                    : isDark
+                                        ? "border-blue-300/35 bg-blue-500/20 text-blue-100"
+                                        : "border-blue-300 bg-blue-50 text-blue-800"
+                        }`}
+                    >
+                        {toast.message}
+                    </div>
+                ))}
+            </div>
+
+            {isClearCanvasModalOpen && (
+                <div className="absolute inset-0 z-50 grid place-items-center bg-black/35 px-4">
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="clear-canvas-title"
+                        className={`w-full max-w-md rounded-2xl border p-5 shadow-2xl ${
+                            isDark ? "border-white/15 bg-[#1a1a1a] text-white" : "border-slate-300 bg-white text-slate-900"
+                        }`}
+                    >
+                        <h3 id="clear-canvas-title" className="text-base font-semibold">Clear canvas?</h3>
+                        <p className="mt-2 text-sm opacity-80">This removes all shapes from this room. This action cannot be undone.</p>
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setIsClearCanvasModalOpen(false)}
+                                className={`rounded-lg border px-3 py-2 text-sm transition ${
+                                    isDark ? "border-white/20 hover:bg-white/10" : "border-slate-300 hover:bg-slate-100"
+                                }`}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    confirmClearCanvas();
+                                    setIsClearCanvasModalOpen(false);
+                                }}
+                                className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                                    isDark ? "border-red-300/40 bg-red-500/20 text-red-100 hover:bg-red-500/30" : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
+                                }`}
+                            >
+                                Clear canvas
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

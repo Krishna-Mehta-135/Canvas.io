@@ -1,7 +1,7 @@
 "use client";
 
 import {ReactNode, useCallback, useEffect, useRef, useState} from "react";
-import {useParams} from "next/navigation";
+import {useParams, useSearchParams} from "next/navigation";
 import {AxiosError} from "axios";
 import {jsPDF} from "jspdf";
 import {attachEvents} from "@repo/canvas-engine";
@@ -611,7 +611,9 @@ function PersonaButtonGlyph({personaId}: {personaId: string}) {
 
 export default function CanvasPage() {
     const params = useParams<{roomId: string}>();
+    const searchParams = useSearchParams();
     const roomId = Array.isArray(params?.roomId) ? params.roomId[0] : params?.roomId;
+    const ownerHandleFromQuery = searchParams.get("owner")?.trim() ?? "";
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const controlsRef = useRef<ReturnType<typeof attachEvents> | null>(null);
@@ -629,6 +631,8 @@ export default function CanvasPage() {
     const stateRef = useRef<CanvasState | null>(null);
     const [canvasState, setCanvasState] = useState<CanvasState | null>(null);
     const [resolvedRoomId, setResolvedRoomId] = useState<number | null>(null);
+    const canonicalRedirectIssuedRef = useRef(false);
+    const canonicalUrlNormalizedRef = useRef(false);
     const [hoveredPersonaId, setHoveredPersonaId] = useState<string | null>(null);
     const [defaultRoughness, setDefaultRoughness] = useState<number>(DRAWING_PERSONAS[1]?.roughness ?? 1);
     const defaultRoughnessRef = useRef<number>(DRAWING_PERSONAS[1]?.roughness ?? 1);
@@ -841,17 +845,45 @@ export default function CanvasPage() {
             const effectiveSlug = isSlugValid
                 ? requestedSlug
                 : crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+            const shouldCanonicalRedirect = ownerHandleFromQuery.length === 0;
 
             if (!isSlugValid) {
                 window.history.replaceState(null, "", `/canvas/${effectiveSlug}`);
             }
 
+            if (ownerHandleFromQuery.length > 0) {
+                const resolvedRoom = await apiClient.get(
+                    `${HTTP_BACKEND}/room/resolve/${encodeURIComponent(ownerHandleFromQuery)}/${encodeURIComponent(effectiveSlug)}`
+                );
+
+                const resolvedRoomId = Number(resolvedRoom.data?.data?.id);
+                if (!Number.isFinite(resolvedRoomId)) {
+                    throw new Error("Invalid room id returned from canonical owner+slug lookup");
+                }
+
+                const shapes = await getShapesById(resolvedRoomId);
+                return {
+                    resolvedRoomId,
+                    shapes,
+                };
+            }
+
             try {
                 const roomBySlug = await apiClient.get(`${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(effectiveSlug)}`);
+                const ownerHandle = roomBySlug.data?.data?.admin?.handle as string | undefined;
 
                 const resolvedRoomId = Number(roomBySlug.data?.data?.id);
                 if (!Number.isFinite(resolvedRoomId)) {
                     throw new Error("Invalid room id returned from slug lookup");
+                }
+
+                if (shouldCanonicalRedirect && !canonicalRedirectIssuedRef.current && typeof ownerHandle === "string" && ownerHandle.length > 0) {
+                    canonicalRedirectIssuedRef.current = true;
+                    window.location.replace(`/room/${encodeURIComponent(ownerHandle)}/${encodeURIComponent(effectiveSlug)}`);
+                    return {
+                        resolvedRoomId,
+                        shapes: [],
+                    };
                 }
 
                 const shapes = await getShapesById(resolvedRoomId);
@@ -872,9 +904,16 @@ export default function CanvasPage() {
                         {slug: effectiveSlug}
                     );
 
+                    const ownerHandle = createRoomResponse.data?.data?.admin?.handle as string | undefined;
+
                     const resolvedRoomId = Number(createRoomResponse.data?.data?.id);
                     if (!Number.isFinite(resolvedRoomId)) {
                         throw new Error("Invalid room id returned while creating room");
+                    }
+
+                    if (shouldCanonicalRedirect && !canonicalRedirectIssuedRef.current && typeof ownerHandle === "string" && ownerHandle.length > 0) {
+                        canonicalRedirectIssuedRef.current = true;
+                        window.location.replace(`/room/${encodeURIComponent(ownerHandle)}/${encodeURIComponent(effectiveSlug)}`);
                     }
 
                     return {
@@ -888,10 +927,20 @@ export default function CanvasPage() {
                     }
 
                     const roomBySlug = await apiClient.get(`${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(effectiveSlug)}`);
+                    const ownerHandle = roomBySlug.data?.data?.admin?.handle as string | undefined;
 
                     const resolvedRoomId = Number(roomBySlug.data?.data?.id);
                     if (!Number.isFinite(resolvedRoomId)) {
                         throw new Error("Invalid room id returned from slug lookup");
+                    }
+
+                    if (shouldCanonicalRedirect && !canonicalRedirectIssuedRef.current && typeof ownerHandle === "string" && ownerHandle.length > 0) {
+                        canonicalRedirectIssuedRef.current = true;
+                        window.location.replace(`/room/${encodeURIComponent(ownerHandle)}/${encodeURIComponent(effectiveSlug)}`);
+                        return {
+                            resolvedRoomId,
+                            shapes: [],
+                        };
                     }
 
                     const shapes = await getShapesById(resolvedRoomId);
@@ -986,7 +1035,27 @@ export default function CanvasPage() {
             // Without this, a stale callback could keep firing saves.
             unsubscribe();
         };
-    }, [roomId]);
+    }, [roomId, ownerHandleFromQuery]);
+
+    useEffect(() => {
+        if (!roomId || ownerHandleFromQuery.length === 0) {
+            return;
+        }
+
+        if (canonicalUrlNormalizedRef.current) {
+            return;
+        }
+
+        const canonicalPath = `/room/${encodeURIComponent(ownerHandleFromQuery)}/${encodeURIComponent(roomId)}`;
+        const currentPath = window.location.pathname;
+        const hasQuery = window.location.search.length > 0;
+
+        if (currentPath !== canonicalPath || hasQuery) {
+            window.history.replaceState(window.history.state, "", canonicalPath);
+        }
+
+        canonicalUrlNormalizedRef.current = true;
+    }, [roomId, ownerHandleFromQuery]);
 
     // Initialize WebSocket sync when state and room are ready
     const syncResult = useCanvasSync({
@@ -1031,8 +1100,13 @@ export default function CanvasPage() {
     useEffect(() => {
         if (!roomId) return;
 
+        if (ownerHandleFromQuery.length > 0) {
+            setInviteLink(`${window.location.origin}/room/${ownerHandleFromQuery}/${roomId}`);
+            return;
+        }
+
         setInviteLink(`${window.location.origin}/canvas/${roomId}`);
-    }, [roomId]);
+    }, [roomId, ownerHandleFromQuery]);
 
     const handleDeleteSelected = () => {
         controlsRef.current?.deleteSelection();

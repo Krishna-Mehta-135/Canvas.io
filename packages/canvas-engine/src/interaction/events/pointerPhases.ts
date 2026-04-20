@@ -44,7 +44,7 @@ export function finalizeEraserStroke(
 
 export function finalizeFreehandStroke(
     state: CanvasState,
-    freehandPoints: Array<{x: number; y: number}>,
+    freehandPoints: Array<{x: number; y: number; t?: number}>,
     setSelection: (ids: string[], primaryId?: string | null) => void,
     renderScene: () => void,
     resetToSelectTool: () => void,
@@ -72,7 +72,7 @@ export function finalizeFreehandStroke(
     renderScene();
     resetToSelectTool();
 
-    return [] as Array<{x: number; y: number}>;
+    return [] as Array<{x: number; y: number; t?: number}>;
 }
 
 export function finalizeDrawCommit(params: {

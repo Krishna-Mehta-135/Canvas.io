@@ -55,7 +55,8 @@ export function createInlineTextEditor(options: InlineTextEditorOptions) {
     editor.style.outline = "none";
     editor.style.background = "transparent";
     editor.style.color = "transparent"; // Hide the text inside textarea
-    editor.style.caretColor = "white"; // Keep cursor visible
+    const theme = document.documentElement.getAttribute("data-theme");
+    editor.style.caretColor = theme === "light" ? "#111827" : "#f8fafc";
     editor.style.resize = "none";
     editor.style.overflow = "hidden";
     editor.style.whiteSpace = "pre";

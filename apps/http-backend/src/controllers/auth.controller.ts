@@ -16,6 +16,63 @@ function authDebug(message: string, meta?: Record<string, unknown>) {
     console.info("[auth-debug]", message, meta ?? {});
 }
 
+function toHandleBase(rawName: string): string {
+    const normalized = rawName
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
+    if (normalized.length >= 3) {
+        return normalized.slice(0, 24);
+    }
+
+    return "user";
+}
+
+async function allocateUniqueHandle(name: string): Promise<string> {
+    const base = toHandleBase(name);
+    let handle = base;
+    let suffix = 1;
+
+    while (true) {
+        const existing = await (prismaClient.user as any).findFirst({
+            where: {handle},
+            select: {id: true},
+        });
+
+        if (!existing) {
+            return handle;
+        }
+
+        handle = `${base}-${suffix}`;
+        suffix += 1;
+    }
+}
+
+async function ensureUserHandle(user: {
+    id: string;
+    name: string;
+    handle?: string | null;
+}) {
+    if (typeof user.handle === "string" && user.handle.length > 0) {
+        return user.handle;
+    }
+
+    const uniqueHandle = await allocateUniqueHandle(user.name);
+
+    await (prismaClient.user as any).update({
+        where: {
+            id: user.id,
+        },
+        data: {
+            handle: uniqueHandle,
+        },
+    });
+
+    return uniqueHandle;
+}
+
 const signup = asyncHandler(async (req, res) => {
     const validationResult = CreateUserSchema.safeParse(req.body);
     if (!validationResult.success) {
@@ -25,6 +82,7 @@ const signup = asyncHandler(async (req, res) => {
     const {name, email, password} = validationResult.data;
 
     const hashedPassword = await hashPassword(password);
+    const uniqueHandle = await allocateUniqueHandle(name);
 
     //we dont check if user exixsts because we have added @unique in db schema. If the user is not unique, it will throw an error and user creation will be blocked.
 
@@ -34,6 +92,7 @@ const signup = asyncHandler(async (req, res) => {
         const user = await prismaClient.user.create({
             data: {
                 name,
+                handle: uniqueHandle,
                 email,
                 password: hashedPassword,
                 tokenVersion: 0,
@@ -66,6 +125,7 @@ const signup = asyncHandler(async (req, res) => {
                 {
                     id: user.id,
                     name: user.name,
+                    handle: (user as any).handle ?? uniqueHandle,
                     email: user.email,
                 },
                 "User created successfully"
@@ -104,6 +164,11 @@ const signin = asyncHandler(async (req, res) => {
     }
 
     const userTokenVersion = (user as any).tokenVersion ?? 0;
+    const ensuredHandle = await ensureUserHandle({
+        id: user.id,
+        name: user.name,
+        handle: (user as any).handle ?? null,
+    });
     const accessToken = generateAccessToken(user.id, user.name, userTokenVersion);
     const refreshToken = generateRefreshToken(user.id, user.name, userTokenVersion);
 
@@ -135,6 +200,7 @@ const signin = asyncHandler(async (req, res) => {
             {
                 id: user.id,
                 name: user.name,
+                handle: ensuredHandle,
                 email: user.email,
             },
             "Login successful"
@@ -163,6 +229,7 @@ const getCurrentUser = asyncHandler(async (req, res) => {
         select: {
             id: true,
             name: true,
+            handle: true,
             email: true,
         },
     });
@@ -171,7 +238,22 @@ const getCurrentUser = asyncHandler(async (req, res) => {
         throw new ApiError(404, "User not found");
     }
 
-    return res.status(200).json(new ApiResponse(200, user, "Current user fetched"));
+    const ensuredHandle = await ensureUserHandle({
+        id: user.id,
+        name: user.name,
+        handle: user.handle,
+    });
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            {
+                ...user,
+                handle: ensuredHandle,
+            },
+            "Current user fetched"
+        )
+    );
 });
 
 const refreshAccessToken = asyncHandler(async (req, res) => {

@@ -69,11 +69,14 @@ export function attachEvents(
     state: CanvasState,
     options: AttachEventsOptions = {}
 ): AttachEventsController {
-    let viewport: Viewport = options.initialViewport ?? {
-        x: canvas.width / 2,
-        y: canvas.height / 2,
+    const getDefaultViewport = () => ({
+        x: canvas.clientWidth / 2,
+        y: canvas.clientHeight / 2,
         scale: 1,
-    };
+    });
+
+    let viewport: Viewport = options.initialViewport ?? getDefaultViewport();
+    let isGridVisible = true;
 
     let selectedShape: Shape | null = null;
     let selectionBox: SelectionBox | null = null;
@@ -103,7 +106,8 @@ export function attachEvents(
             getSelectedShapesByIds(renderedShapes, selectedShapeIds),
             viewport,
             pixelRatio,
-            connectorTargetHighlightIds
+            connectorTargetHighlightIds,
+            isGridVisible
         );
 
         if (isErasing && eraserPoints.length > 0) {
@@ -547,7 +551,9 @@ export function attachEvents(
                         null,
                         getSelectedShapesByIds(state.getShapes(), selectedShapeIds),
                         viewport,
-                        getScenePixelRatio()
+                        getScenePixelRatio(),
+                        [],
+                        isGridVisible
                     );
                     return;
                 }
@@ -557,7 +563,7 @@ export function attachEvents(
         if (shape && getActiveTool() === "select" && e.shiftKey) {
             const selectedShapes = applyShiftSelectionToggle(shape, selectedShapeIds, setSelection);
 
-            render(ctx, canvas, shapes, selectedShape, null, selectedShapes, viewport, getScenePixelRatio());
+            render(ctx, canvas, shapes, selectedShape, null, selectedShapes, viewport, getScenePixelRatio(), [], isGridVisible);
             return;
         }
 
@@ -598,7 +604,7 @@ export function attachEvents(
                 prevX = x;
                 prevY = y;
 
-                render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio());
+                render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio(), [], isGridVisible);
                 return;
             }
 
@@ -611,7 +617,7 @@ export function attachEvents(
             prevX = anchors.prevX;
             prevY = anchors.prevY;
 
-            render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio());
+            render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio(), [], isGridVisible);
             return;
         }
 
@@ -732,7 +738,8 @@ export function attachEvents(
                 getSelectedShapesByIds(state.getShapes(), selectedShapeIds),
                 viewport,
                 getScenePixelRatio(),
-                connectorTargetHighlightIds
+                connectorTargetHighlightIds,
+                isGridVisible
             );
             return;
         }
@@ -760,7 +767,7 @@ export function attachEvents(
                 const updatedSelectedShapes = getSelectedShapesByIds(updatedShapes, selectedShapeIds);
                 selectedShape = updatedShapes.find((shape) => shape.id === selectedShape?.id) || selectedShape;
 
-                render(ctx, canvas, updatedShapes, selectedShape, null, updatedSelectedShapes, viewport, getScenePixelRatio());
+                render(ctx, canvas, updatedShapes, selectedShape, null, updatedSelectedShapes, viewport, getScenePixelRatio(), [], isGridVisible);
                 return;
             }
 
@@ -780,7 +787,7 @@ export function attachEvents(
             prevX = dragResult.prevX;
             prevY = dragResult.prevY;
 
-            render(ctx, canvas, state.getShapes(), selected, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio());
+            render(ctx, canvas, state.getShapes(), selected, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio(), [], isGridVisible);
             return;
         }
 
@@ -969,10 +976,33 @@ export function attachEvents(
         deleteSelection,
         hasSelection: () => selectedShapeIds.length > 0,
         getSelectedIds: () => [...selectedShapeIds],
+        resetViewport: () => {
+            stopTransientInteractions();
+            selectionBox = null;
+            setViewport(getDefaultViewport());
+            updateCursor();
+            renderScene();
+        },
+        setGridVisible: (visible: boolean) => {
+            isGridVisible = visible;
+            renderScene();
+        },
+        isGridVisible: () => isGridVisible,
         rerender: () => {
             const shapes = state.getShapes();
             const selected = getSelectedShapesByIds(shapes, selectedShapeIds);
-            render(ctx, canvas, shapes, selectedShape, selectionBox, selected, viewport, getScenePixelRatio(), connectorTargetHighlightIds);
+            render(
+                ctx,
+                canvas,
+                shapes,
+                selectedShape,
+                selectionBox,
+                selected,
+                viewport,
+                getScenePixelRatio(),
+                connectorTargetHighlightIds,
+                isGridVisible
+            );
         },
         replayShape: replayController.replayShape,
         destroy: () => {

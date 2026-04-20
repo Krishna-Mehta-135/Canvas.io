@@ -6,6 +6,8 @@ import {prismaClient} from "@repo/db/client";
 import {comparePassword, hashPassword} from "../utils/password";
 import {generateAccessToken, generateRefreshToken, verifyToken} from "../utils/token";
 import jwt from "jsonwebtoken";
+import {JWT_SECRET} from "@repo/backend-common/config";
+import {sendPasswordResetEmail} from "../utils/email";
 
 const AUTH_DEBUG = process.env.AUTH_DEBUG === "true";
 
@@ -259,4 +261,114 @@ const logout = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, {}, "Logged out successfully"));
 });
 
-export {signup, signin, getCurrentUser, refreshAccessToken, logout};
+/**
+ * Requests a password reset link.
+ */
+const forgotPassword = asyncHandler(async (req, res) => {
+    const email = typeof req.body?.email === "string" ? req.body.email.trim().toLowerCase() : "";
+
+    if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+        throw new ApiError(400, "Please provide a valid email");
+    }
+
+    const user = await prismaClient.user.findUnique({
+        where: {email},
+        select: {
+            id: true,
+            name: true,
+            email: true,
+        },
+    });
+
+    if (user) {
+        if (!JWT_SECRET) {
+            throw new ApiError(500, "JWT_SECRET is not defined");
+        }
+
+        const token = jwt.sign(
+            {
+                userId: user.id,
+                type: "password-reset",
+            },
+            JWT_SECRET,
+            {expiresIn: "30m"}
+        );
+
+        const appBaseUrl = process.env.WEB_APP_URL || "http://localhost:3000";
+        const resetLink = `${appBaseUrl}/reset-password?token=${encodeURIComponent(token)}`;
+
+        await sendPasswordResetEmail({
+            to: user.email,
+            userName: user.name,
+            resetLink,
+        });
+
+        if (AUTH_DEBUG) {
+            authDebug("forgot password link generated", {
+                email: user.email,
+                resetLink,
+            });
+        }
+    }
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            {
+                sent: true,
+            },
+            "If the account exists, reset instructions were sent"
+        )
+    );
+});
+
+/**
+ * Completes password reset by validating a short-lived reset token.
+ */
+const resetPassword = asyncHandler(async (req, res) => {
+    const token = typeof req.body?.token === "string" ? req.body.token.trim() : "";
+    const password = typeof req.body?.password === "string" ? req.body.password : "";
+
+    if (!token) {
+        throw new ApiError(400, "Reset token is required");
+    }
+
+    if (!password || password.length < 8) {
+        throw new ApiError(400, "Password must be at least 8 characters");
+    }
+
+    if (!JWT_SECRET) {
+        throw new ApiError(500, "JWT_SECRET is not defined");
+    }
+
+    let decoded: {userId: string; type: string};
+    try {
+        decoded = jwt.verify(token, JWT_SECRET) as {userId: string; type: string};
+    } catch {
+        throw new ApiError(400, "Invalid or expired reset token");
+    }
+
+    if (!decoded?.userId || decoded.type !== "password-reset") {
+        throw new ApiError(400, "Invalid reset token");
+    }
+
+    const hashedPassword = await hashPassword(password);
+
+    await prismaClient.user.update({
+        where: {id: decoded.userId},
+        data: {
+            password: hashedPassword,
+            tokenVersion: {
+                increment: 1,
+            },
+            refreshTokenExp: null,
+        },
+    });
+
+    res.clearCookie("accessToken");
+    res.clearCookie("refreshToken");
+
+    return res.status(200).json(new ApiResponse(200, {}, "Password reset successful"));
+});
+
+export {signup, signin, getCurrentUser, refreshAccessToken, logout, forgotPassword, resetPassword};

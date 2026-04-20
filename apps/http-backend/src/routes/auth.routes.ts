@@ -3,6 +3,7 @@ import { getCurrentUser, signin, signup } from "../controllers/auth.controller"
 import { authenticate } from "../middlewares/auth.middleware"
 
 import { refreshAccessToken, logout } from "../controllers/auth.controller"
+import { forgotPassword, resetPassword } from "../controllers/auth.controller"
 
 const authRouter: Router = express.Router()
 
@@ -16,5 +17,9 @@ authRouter.get("/current-user", authenticate, getCurrentUser)
 authRouter.post("/refresh-token", refreshAccessToken)
 // Logout and invalidate all tokens.
 authRouter.post("/logout", authenticate, logout)
+// Request password reset instructions.
+authRouter.post("/forgot-password", forgotPassword)
+// Complete password reset with token.
+authRouter.post("/reset-password", resetPassword)
 
 export {authRouter}

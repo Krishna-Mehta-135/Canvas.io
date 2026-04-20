@@ -186,7 +186,7 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                                     </label>
                                     {isSignIn && (
                                         <a
-                                            href="#"
+                                            href="/forgot-password"
                                             className="text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors"
                                         >
                                             Forgot password?

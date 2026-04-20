@@ -3,13 +3,14 @@
 import {ReactNode, useEffect, useRef, useState} from "react";
 import {useParams} from "next/navigation";
 import {AxiosError} from "axios";
+import {jsPDF} from "jspdf";
 import {attachEvents} from "@repo/canvas-engine";
 import {CanvasState} from "@repo/canvas-engine";
 import type {Shape, Tool} from "@repo/canvas-engine";
 import {HTTP_BACKEND} from "../../../config";
 import {apiClient} from "../../lib/apiClient";
 import {ensureAuthenticated, logoutUser} from "../../lib/auth";
-import {ThemeToggle, useTheme} from "../../components/ThemeToggle";
+import {useTheme} from "../../components/ThemeToggle";
 import {useCanvasSync} from "../../../hooks/useCanvasSync";
 import {RemotePresenceLayer} from "../../components/RemotePresenceLayer";
 
@@ -153,6 +154,15 @@ type StoredViewport = {
     scale: number;
 };
 
+type DebugOverlaySnapshot = {
+    version: number;
+    shapeCount: number;
+    shapeIds: string[];
+    capturedAt: string;
+};
+
+type ExportFormat = "png" | "svg" | "pdf" | "json";
+
 function getViewportStorageKey(roomKey: string) {
     return `canvas-viewport:${roomKey}`;
 }
@@ -194,6 +204,149 @@ function saveStoredViewport(roomKey: string, viewport: StoredViewport) {
     } catch {
         // Ignore storage failures; viewport persistence is best-effort.
     }
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    URL.revokeObjectURL(url);
+}
+
+function escapeXml(value: string) {
+    return value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+}
+
+function getShapeBounds(shape: Shape) {
+    if (shape.type === "rect" || shape.type === "rhombus" || shape.type === "text") {
+        return {
+            minX: shape.x,
+            minY: shape.y,
+            maxX: shape.x + shape.width,
+            maxY: shape.y + shape.height,
+        };
+    }
+
+    if (shape.type === "circle") {
+        return {
+            minX: shape.centerX - shape.radiusX,
+            minY: shape.centerY - shape.radiusY,
+            maxX: shape.centerX + shape.radiusX,
+            maxY: shape.centerY + shape.radiusY,
+        };
+    }
+
+    if (shape.type === "line" || shape.type === "arrow") {
+        return {
+            minX: Math.min(shape.x1, shape.x2),
+            minY: Math.min(shape.y1, shape.y2),
+            maxX: Math.max(shape.x1, shape.x2),
+            maxY: Math.max(shape.y1, shape.y2),
+        };
+    }
+
+    if (shape.type === "freehand") {
+        if (shape.points.length === 0) {
+            return {minX: 0, minY: 0, maxX: 0, maxY: 0};
+        }
+
+        const xs = shape.points.map((point) => point.x);
+        const ys = shape.points.map((point) => point.y);
+        return {
+            minX: Math.min(...xs),
+            minY: Math.min(...ys),
+            maxX: Math.max(...xs),
+            maxY: Math.max(...ys),
+        };
+    }
+
+    return {minX: 0, minY: 0, maxX: 0, maxY: 0};
+}
+
+function buildSvgMarkup(shapes: Shape[]) {
+    if (shapes.length === 0) {
+        return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600"/>`;
+    }
+
+    const bounds = shapes.map(getShapeBounds);
+    const minX = Math.min(...bounds.map((box) => box.minX));
+    const minY = Math.min(...bounds.map((box) => box.minY));
+    const maxX = Math.max(...bounds.map((box) => box.maxX));
+    const maxY = Math.max(...bounds.map((box) => box.maxY));
+    const padding = 32;
+    const width = Math.max(1, maxX - minX + padding * 2);
+    const height = Math.max(1, maxY - minY + padding * 2);
+    const viewBox = `${minX - padding} ${minY - padding} ${width} ${height}`;
+
+    const shapeElements = shapes
+        .map((shape) => {
+            const stroke = shape.stroke ?? "#1e1e1e";
+            const strokeWidth = shape.strokeWidth ?? 2;
+            const opacity = Math.max(0, Math.min(1, (shape.opacity ?? 100) / 100));
+            const dashArray =
+                shape.strokeStyle === "dashed"
+                    ? `${strokeWidth * 4} ${strokeWidth * 3}`
+                    : shape.strokeStyle === "dotted"
+                        ? `${strokeWidth} ${strokeWidth * 2}`
+                        : "none";
+
+            let fill = shape.fill ?? "none";
+            if (shape.fillStyle && shape.fillStyle !== "solid") {
+                fill = "none";
+            }
+
+            if (shape.type === "rect") {
+                return `<rect x="${shape.x}" y="${shape.y}" width="${shape.width}" height="${shape.height}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" opacity="${opacity}" />`;
+            }
+
+            if (shape.type === "circle") {
+                return `<ellipse cx="${shape.centerX}" cy="${shape.centerY}" rx="${shape.radiusX}" ry="${shape.radiusY}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" opacity="${opacity}" />`;
+            }
+
+            if (shape.type === "rhombus") {
+                const points = [
+                    `${shape.x + shape.width / 2},${shape.y}`,
+                    `${shape.x + shape.width},${shape.y + shape.height / 2}`,
+                    `${shape.x + shape.width / 2},${shape.y + shape.height}`,
+                    `${shape.x},${shape.y + shape.height / 2}`,
+                ].join(" ");
+                return `<polygon points="${points}" fill="${fill}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" opacity="${opacity}" />`;
+            }
+
+            if (shape.type === "line") {
+                return `<line x1="${shape.x1}" y1="${shape.y1}" x2="${shape.x2}" y2="${shape.y2}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" stroke-linecap="round" opacity="${opacity}" />`;
+            }
+
+            if (shape.type === "arrow") {
+                return `<line x1="${shape.x1}" y1="${shape.y1}" x2="${shape.x2}" y2="${shape.y2}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" stroke-linecap="round" marker-end="url(#arrow-head)" opacity="${opacity}" />`;
+            }
+
+            if (shape.type === "text") {
+                const safeText = escapeXml(shape.text || "");
+                return `<text x="${shape.x}" y="${shape.y + shape.fontSize}" fill="${stroke}" font-size="${shape.fontSize}" font-family="Arial, sans-serif" opacity="${opacity}">${safeText}</text>`;
+            }
+
+            if (shape.type === "freehand") {
+                if (shape.points.length === 0) return "";
+                const points = shape.points.map((point) => `${point.x},${point.y}`).join(" ");
+                return `<polyline points="${points}" fill="none" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" stroke-linecap="round" stroke-linejoin="round" opacity="${opacity}" />`;
+            }
+
+            return "";
+        })
+        .filter(Boolean)
+        .join("\n  ");
+
+    return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${Math.ceil(width)}" height="${Math.ceil(height)}">\n  <defs>\n    <marker id="arrow-head" orient="auto" markerWidth="10" markerHeight="7" refX="9" refY="3.5">\n      <polygon points="0 0, 10 3.5, 0 7" fill="#1e1e1e" />\n    </marker>\n  </defs>\n  ${shapeElements}\n</svg>`;
 }
 
 function FillStyleTile({
@@ -472,7 +625,18 @@ export default function CanvasPage() {
     const [defaultRoughness, setDefaultRoughness] = useState<number>(DRAWING_PERSONAS[1]?.roughness ?? 1);
     const defaultRoughnessRef = useRef<number>(DRAWING_PERSONAS[1]?.roughness ?? 1);
     const [viewport, setViewport] = useState<StoredViewport | null>(null);
-    const {theme} = useTheme();
+    const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [isReloadingCanvas, setIsReloadingCanvas] = useState(false);
+    const [isSavingCanvas, setIsSavingCanvas] = useState(false);
+    const [showRoomInfo, setShowRoomInfo] = useState(false);
+    const [isGridVisible, setIsGridVisible] = useState(true);
+    const [showDebugOverlay, setShowDebugOverlay] = useState(false);
+    const [debugOverlaySnapshot, setDebugOverlaySnapshot] = useState<DebugOverlaySnapshot | null>(null);
+    const [selectedExportFormat, setSelectedExportFormat] = useState<ExportFormat>("png");
+    const menuButtonRef = useRef<HTMLButtonElement | null>(null);
+    const menuPanelRef = useRef<HTMLDivElement | null>(null);
+    const skipNextViewportPersistRef = useRef(false);
+    const {theme, toggleTheme} = useTheme();
     const isDark = theme === "dark";
 
     useEffect(() => {
@@ -526,6 +690,57 @@ export default function CanvasPage() {
             window.removeEventListener("gesturechange", preventGestureZoom as EventListener, true);
         };
     }, []);
+
+    useEffect(() => {
+        if (!isMenuOpen) return;
+
+        const handlePointerDown = (event: MouseEvent) => {
+            const target = event.target as Node;
+            if (menuPanelRef.current?.contains(target) || menuButtonRef.current?.contains(target)) {
+                return;
+            }
+            setIsMenuOpen(false);
+            setShowRoomInfo(false);
+        };
+
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== "Escape") return;
+            event.preventDefault();
+            setIsMenuOpen(false);
+            setShowRoomInfo(false);
+            menuButtonRef.current?.focus();
+        };
+
+        window.addEventListener("mousedown", handlePointerDown);
+        window.addEventListener("keydown", handleKeyDown);
+
+        return () => {
+            window.removeEventListener("mousedown", handlePointerDown);
+            window.removeEventListener("keydown", handleKeyDown);
+        };
+    }, [isMenuOpen]);
+
+    useEffect(() => {
+        if (!isMenuOpen) return;
+
+        const root = document.documentElement;
+        const previousBodyOverflow = document.body.style.overflow;
+        const previousBodyTouchAction = document.body.style.touchAction;
+        const previousRootOverflow = root.style.overflow;
+        const previousRootOverscrollBehavior = root.style.overscrollBehavior;
+
+        root.style.overflow = "hidden";
+        root.style.overscrollBehavior = "none";
+        document.body.style.overflow = "hidden";
+        document.body.style.touchAction = "none";
+
+        return () => {
+            root.style.overflow = previousRootOverflow;
+            root.style.overscrollBehavior = previousRootOverscrollBehavior;
+            document.body.style.overflow = previousBodyOverflow;
+            document.body.style.touchAction = previousBodyTouchAction;
+        };
+    }, [isMenuOpen]);
 
     useEffect(() => {
         if (!roomId) return;
@@ -690,9 +905,15 @@ export default function CanvasPage() {
                 },
                 onViewportChange: (viewport) => {
                     setViewport(viewport);
+                    if (skipNextViewportPersistRef.current) {
+                        skipNextViewportPersistRef.current = false;
+                        return;
+                    }
                     saveStoredViewport(roomId, viewport);
                 },
             });
+
+            setIsGridVisible(controlsRef.current.isGridVisible());
         };
 
         void initializeCanvas();
@@ -727,6 +948,27 @@ export default function CanvasPage() {
         setSyncStatus(syncResult.isConnected ? "connected" : "disconnected");
     }, [syncResult.isConnected, syncResult.lastSyncError]);
 
+    useEffect(() => {
+        if (!showDebugOverlay) return;
+
+        const captureSnapshot = () => {
+            const shapes = canvasState?.getShapes() ?? [];
+            setDebugOverlaySnapshot({
+                version: syncResult.syncVersion,
+                shapeCount: shapes.length,
+                shapeIds: shapes.slice(0, 25).map((shape) => shape.id),
+                capturedAt: new Date().toLocaleTimeString(),
+            });
+        };
+
+        captureSnapshot();
+        const timer = window.setInterval(captureSnapshot, 220);
+
+        return () => {
+            window.clearInterval(timer);
+        };
+    }, [showDebugOverlay, canvasState, syncResult.syncVersion]);
+
     // Fetch and display invite link
     useEffect(() => {
         if (!roomId) return;
@@ -749,6 +991,10 @@ export default function CanvasPage() {
         }
     };
 
+    const handleOpenProfile = () => {
+        window.location.href = "/profile";
+    };
+
     const selectedShapes = (() => {
         if (!canvasState || selectedIds.length === 0) return [];
 
@@ -759,6 +1005,7 @@ export default function CanvasPage() {
     })();
 
     const primarySelectedShape = selectedShapes[selectedShapes.length - 1] ?? null;
+    const isTextShapeSelection = primarySelectedShape?.type === "text";
 
     const applyToSelectedShapes = (updates: Partial<Shape>) => {
         if (!canvasState || selectedIds.length === 0) return;
@@ -776,11 +1023,31 @@ export default function CanvasPage() {
         controlsRef.current?.rerender();
     };
 
+    const applyToSelectedTextShapes = (updates: Partial<Extract<Shape, {type: "text"}>>) => {
+        if (!canvasState || selectedIds.length === 0) return;
+
+        const selectedSet = new Set(selectedIds);
+        const nextShapes = canvasState.getShapes().map((shape) => {
+            if (!selectedSet.has(shape.id) || shape.type !== "text") {
+                return shape;
+            }
+
+            return {
+                ...shape,
+                ...updates,
+            } as Shape;
+        });
+
+        canvasState.setShapes(nextShapes);
+        controlsRef.current?.rerender();
+    };
+
     const strokeValue = primarySelectedShape?.stroke ?? "#f8fafc";
     const fillValue = primarySelectedShape?.fill ?? "#60a5fa";
     const strokeStyleValue = primarySelectedShape?.strokeStyle ?? "solid";
     const fillStyleValue = primarySelectedShape?.fillStyle ?? "solid";
     const strokeWidthValue = primarySelectedShape?.strokeWidth ?? 2;
+    const textFontSizeValue = primarySelectedShape?.type === "text" ? primarySelectedShape.fontSize : 24;
     const roughnessValue = primarySelectedShape?.roughness ?? defaultRoughness;
     const opacityValue = primarySelectedShape?.opacity ?? 100;
     const showReplay = primarySelectedShape?.type === "freehand";
@@ -800,26 +1067,153 @@ export default function CanvasPage() {
         }
     };
 
-    const handleJoinCanvas = () => {
-        const raw = window.prompt("Paste invite link or room code");
-        if (!raw) return;
+    const handleClearCanvas = () => {
+        if (!canvasState) return;
 
-        const trimmed = raw.trim();
-        if (!trimmed) return;
+        const shouldClear = window.confirm("Clear all shapes on this canvas?");
+        if (!shouldClear) return;
+
+        canvasState.setShapes([]);
+        controlsRef.current?.rerender();
+    };
+
+    const handleResetView = () => {
+        skipNextViewportPersistRef.current = true;
+        controlsRef.current?.resetViewport();
+    };
+
+    const handleReloadCanvas = async () => {
+        if (!canvasState || resolvedRoomId === null || isReloadingCanvas) return;
+
+        setIsReloadingCanvas(true);
+        try {
+            const response = await apiClient.get(`${HTTP_BACKEND}/room/${resolvedRoomId}/shapes`);
+            const persistedShapes = response.data?.data;
+            const shapes = Array.isArray(persistedShapes) ? (persistedShapes as Shape[]) : [];
+            canvasState.hydrateShapes(shapes);
+            controlsRef.current?.rerender();
+        } catch (error) {
+            console.error("Failed to reload canvas", error);
+            alert("Unable to reload canvas right now.");
+        } finally {
+            setIsReloadingCanvas(false);
+        }
+    };
+
+    const handleManualSaveCanvas = async () => {
+        if (!canvasState || resolvedRoomId === null || isSavingCanvas) return;
+
+        setIsSavingCanvas(true);
+        try {
+            await apiClient.put(`${HTTP_BACKEND}/room/${resolvedRoomId}/shapes`, {
+                shapes: canvasState.getShapes(),
+            });
+            alert("Canvas saved.");
+        } catch (error) {
+            console.error("Failed to save canvas", error);
+            alert("Unable to save canvas right now.");
+        } finally {
+            setIsSavingCanvas(false);
+        }
+    };
+
+    const handleToggleGridVisibility = () => {
+        const next = !isGridVisible;
+        controlsRef.current?.setGridVisible(next);
+        setIsGridVisible(next);
+    };
+
+    const handleToggleDebugOverlay = () => {
+        setShowDebugOverlay((current) => !current);
+    };
+
+    const handleExportJson = () => {
+        if (!canvasState) return;
+
+        const payload = {
+            roomSlug: roomId ?? "",
+            roomId: resolvedRoomId,
+            version: syncResult.syncVersion,
+            exportedAt: new Date().toISOString(),
+            shapes: canvasState.getShapes(),
+        };
+
+        const blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"});
+        downloadBlob(blob, `${roomId ?? "canvas"}.json`);
+    };
+
+    const handleExportPng = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
+
+        canvas.toBlob((blob) => {
+            if (!blob) {
+                alert("Unable to export PNG.");
+                return;
+            }
+
+            downloadBlob(blob, `${roomId ?? "canvas"}.png`);
+        }, "image/png");
+    };
+
+    const handleExportSvg = () => {
+        if (!canvasState) return;
+
+        const markup = buildSvgMarkup(canvasState.getShapes());
+        const blob = new Blob([markup], {type: "image/svg+xml;charset=utf-8"});
+        downloadBlob(blob, `${roomId ?? "canvas"}.svg`);
+    };
+
+    const handleExportPdf = () => {
+        const canvas = canvasRef.current;
+        if (!canvas) return;
 
         try {
-            const url = new URL(trimmed, window.location.origin);
-            const segments = url.pathname.split("/").filter(Boolean);
-            const canvasIndex = segments.indexOf("canvas");
-            const target = canvasIndex >= 0 ? segments[canvasIndex + 1] : segments[segments.length - 1];
-            if (target) {
-                window.location.href = `/canvas/${target}`;
-            }
-        } catch {
-            const target = trimmed.replace(/^\/+|\/+$/g, "");
-            if (target) {
-                window.location.href = `/canvas/${target}`;
-            }
+            const width = Math.max(canvas.clientWidth, 1);
+            const height = Math.max(canvas.clientHeight, 1);
+            const orientation = width >= height ? "landscape" : "portrait";
+            const pdf = new jsPDF({
+                orientation,
+                unit: "px",
+                format: [width, height],
+            });
+
+            const dataUrl = canvas.toDataURL("image/png", 1);
+            pdf.addImage(dataUrl, "PNG", 0, 0, width, height);
+            pdf.save(`${roomId ?? "canvas"}.pdf`);
+        } catch (error) {
+            console.error("Failed to export PDF", error);
+            alert("Unable to export PDF.");
+        }
+    };
+
+    const handleExportSelected = () => {
+        if (selectedExportFormat === "png") {
+            handleExportPng();
+            return;
+        }
+
+        if (selectedExportFormat === "svg") {
+            handleExportSvg();
+            return;
+        }
+
+        if (selectedExportFormat === "pdf") {
+            handleExportPdf();
+            return;
+        }
+
+        handleExportJson();
+    };
+
+    const handleSwitchAccount = async () => {
+        if (isLoggingOut) return;
+
+        setIsLoggingOut(true);
+        try {
+            await logoutUser();
+        } finally {
+            window.location.href = "/signin";
         }
     };
 
@@ -827,11 +1221,308 @@ export default function CanvasPage() {
     const connectedUsersCount = Number.isFinite(syncResult.connectedUsersCount)
         ? syncResult.connectedUsersCount
         : 0;
+    const participantNames = remotePresenceState.presences
+        .map((presence) => presence.userName)
+        .filter((name, index, all) => all.indexOf(name) === index);
 
     return (
-        <div className={`relative h-screen w-screen ${isDark ? "bg-[#121212]" : "bg-[#eef2f7]"}`}>
-            <div className="absolute right-4 top-4 z-20">
-                <ThemeToggle />
+        <div className={`relative h-screen w-screen ${isDark ? "bg-[#121212]" : "bg-[#e2e8f0]"}`}>
+            <div className="pointer-events-none absolute right-4 top-4 z-30">
+                <div className="pointer-events-auto relative">
+                    <button
+                        ref={menuButtonRef}
+                        type="button"
+                        aria-haspopup="menu"
+                        aria-expanded={isMenuOpen}
+                        aria-controls="canvas-overflow-menu"
+                        onClick={() => {
+                            setIsMenuOpen((current) => !current);
+                            if (isMenuOpen) {
+                                setShowRoomInfo(false);
+                            }
+                        }}
+                        className={`grid h-11 w-11 place-items-center rounded-full border text-xl transition ${
+                            isDark
+                                ? "border-white/15 bg-[#191919]/95 text-white hover:bg-[#252525]"
+                                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                        }`}
+                        title="More actions"
+                        aria-label="More actions"
+                    >
+                        <span aria-hidden="true">⋯</span>
+                    </button>
+
+                    {isMenuOpen && (
+                        <div
+                            ref={menuPanelRef}
+                            id="canvas-overflow-menu"
+                            role="menu"
+                            onWheel={(event) => {
+                                event.stopPropagation();
+                            }}
+                            className={`absolute right-0 top-14 max-h-[calc(100vh-5.5rem)] w-80 overflow-y-auto overscroll-contain rounded-2xl border p-2 shadow-2xl ${
+                                isDark
+                                    ? "border-white/10 bg-[#191919]/97 text-white"
+                                    : "border-slate-300/80 bg-white/98 text-slate-900"
+                            }`}
+                        >
+                            <div className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">Profile & Account</div>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    setIsMenuOpen(false);
+                                    setShowRoomInfo(false);
+                                    handleOpenProfile();
+                                }}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                }`}
+                            >
+                                View profile
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    setIsMenuOpen(false);
+                                    setShowRoomInfo(false);
+                                    void handleLogout();
+                                }}
+                                disabled={isLoggingOut}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "text-red-300 hover:bg-red-500/20" : "text-red-700 hover:bg-red-100"
+                                } ${isLoggingOut ? "cursor-not-allowed opacity-70" : ""}`}
+                            >
+                                {isLoggingOut ? "Logging out..." : "Logout"}
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    setIsMenuOpen(false);
+                                    setShowRoomInfo(false);
+                                    void handleSwitchAccount();
+                                }}
+                                disabled={isLoggingOut}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                }`}
+                            >
+                                <span>Switch account</span>
+                            </button>
+
+                            <div className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                            <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">Canvas Actions</div>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    setIsMenuOpen(false);
+                                    setShowRoomInfo(false);
+                                    handleClearCanvas();
+                                }}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                }`}
+                            >
+                                Clear canvas
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    setIsMenuOpen(false);
+                                    setShowRoomInfo(false);
+                                    handleResetView();
+                                }}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                }`}
+                            >
+                                Reset view
+                            </button>
+
+                            <div className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                            <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">Data & Persistence</div>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    setIsMenuOpen(false);
+                                    setShowRoomInfo(false);
+                                    void handleReloadCanvas();
+                                }}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                } ${isReloadingCanvas ? "cursor-not-allowed opacity-70" : ""}`}
+                                disabled={isReloadingCanvas}
+                            >
+                                {isReloadingCanvas ? "Reloading canvas..." : "Reload canvas"}
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    setIsMenuOpen(false);
+                                    setShowRoomInfo(false);
+                                    void handleManualSaveCanvas();
+                                }}
+                                disabled={isSavingCanvas}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                }`}
+                            >
+                                <span>{isSavingCanvas ? "Saving canvas..." : "Save canvas manually"}</span>
+                                <span className="text-[11px] opacity-70">Force snapshot</span>
+                            </button>
+
+                            <div className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                            <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">Collaboration</div>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    handleCopyInvite();
+                                    setIsMenuOpen(false);
+                                    setShowRoomInfo(false);
+                                }}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                }`}
+                            >
+                                Copy invite link
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    setShowRoomInfo((current) => !current);
+                                }}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                }`}
+                            >
+                                <span>Show room info</span>
+                                <span className="text-xs opacity-70">{showRoomInfo ? "Hide" : "Show"}</span>
+                            </button>
+                            {showRoomInfo && (
+                                <div
+                                    className={`mx-2 mt-1 rounded-lg border px-3 py-2 text-xs ${
+                                        isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"
+                                    }`}
+                                >
+                                    <div className="mb-1">Room slug: {roomId ?? "-"}</div>
+                                    <div className="mb-1">Room id: {resolvedRoomId ?? "-"}</div>
+                                    <div className="mb-1">Participants: {connectedUsersCount}</div>
+                                    <div className="max-h-20 overflow-y-auto opacity-80">
+                                        {participantNames.length > 0 ? participantNames.join(", ") : "No active participants"}
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                            <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">Settings</div>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => toggleTheme()}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                }`}
+                            >
+                                <span>Toggle dark/light mode</span>
+                                <span className="text-xs opacity-70">{isDark ? "Dark" : "Light"}</span>
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={handleToggleGridVisibility}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                }`}
+                            >
+                                <span>Toggle grid visibility</span>
+                                <span className="text-xs opacity-70">{isGridVisible ? "On" : "Off"}</span>
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                disabled
+                                className={`flex w-full cursor-not-allowed items-center justify-between rounded-lg px-3 py-2 text-sm opacity-55 ${
+                                    isDark ? "text-white/65" : "text-slate-500"
+                                }`}
+                            >
+                                <span>Toggle snap</span>
+                                <span className="text-[11px]">Coming soon</span>
+                            </button>
+
+                            <div className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                            <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">Debug / System</div>
+                            <div
+                                className={`mx-2 mb-1 rounded-lg px-3 py-2 text-xs ${
+                                    isDark ? "bg-white/5 text-white/85" : "bg-slate-100 text-slate-700"
+                                }`}
+                            >
+                                WS status: {syncStatus}
+                                {syncResult.lastSyncError ? ` (${syncResult.lastSyncError})` : ""}
+                            </div>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={handleToggleDebugOverlay}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                }`}
+                            >
+                                <span>Toggle debug overlay</span>
+                                <span className="text-xs opacity-70">{showDebugOverlay ? "On" : "Off"}</span>
+                            </button>
+
+                            <div className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                            <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">Export</div>
+                            <div
+                                className={`mx-2 rounded-xl border p-2 ${
+                                    isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"
+                                }`}
+                            >
+                                <label className="mb-1 block px-1 text-[11px] font-medium opacity-70">Export format</label>
+                                <div className="flex gap-2">
+                                    <select
+                                        value={selectedExportFormat}
+                                        onChange={(event) => setSelectedExportFormat(event.target.value as ExportFormat)}
+                                        className={`w-full rounded-lg border px-2 py-2 text-sm outline-none ${
+                                            isDark
+                                                ? "border-white/15 bg-[#252525] text-white"
+                                                : "border-slate-300 bg-white text-slate-800"
+                                        }`}
+                                    >
+                                        <option value="png">PNG - image snapshot</option>
+                                        <option value="svg">SVG - vector export</option>
+                                        <option value="pdf">PDF - ready to share</option>
+                                        <option value="json">JSON - raw scene data</option>
+                                    </select>
+                                    <button
+                                        type="button"
+                                        role="menuitem"
+                                        onClick={() => {
+                                            handleExportSelected();
+                                            setIsMenuOpen(false);
+                                            setShowRoomInfo(false);
+                                        }}
+                                        className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                                            isDark
+                                                ? "border-white/15 bg-[#252525] hover:bg-[#2f2f2f]"
+                                                : "border-slate-300 bg-white hover:bg-slate-100"
+                                        }`}
+                                    >
+                                        Export
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
             </div>
 
             {selectedCount > 0 && (
@@ -845,7 +1536,7 @@ export default function CanvasPage() {
                     <h3 className="mb-3 text-sm font-semibold">Style</h3>
 
                     <div className="mb-3">
-                        <label className="text-xs font-medium opacity-80">Stroke</label>
+                        <label className="text-xs font-medium opacity-80">{isTextShapeSelection ? "Text Color" : "Stroke"}</label>
                         <div className="mt-1 flex flex-wrap items-center gap-1">
                             {STYLE_SWATCHES.map((color) => {
                                 const isSelected = strokeValue.toLowerCase() === color;
@@ -890,180 +1581,204 @@ export default function CanvasPage() {
                         </div>
                     </div>
 
-                    <div className="mb-3">
-                        <label className="text-xs font-medium opacity-80">Fill</label>
-                        <div className="mt-1 flex flex-wrap items-center gap-1">
-                            {STYLE_SWATCHES.map((color) => {
-                                const isSelected = fillValue.toLowerCase() === color;
-                                const hasVisibleBorder = color === "#ffffff";
-                                return (
-                                    <button
-                                        key={`fill-${color}`}
-                                        type="button"
-                                        onClick={() => applyToSelectedShapes({fill: color})}
-                                        className={`h-6 w-6 rounded border ${
-                                            hasVisibleBorder
-                                                ? isDark
-                                                    ? "border-white/30"
-                                                    : "border-slate-400"
-                                                : "border-transparent"
-                                        } ${isSelected ? "ring-2 ring-indigo-400" : ""}`}
-                                        style={{backgroundColor: color}}
-                                        title={`Fill ${color}`}
-                                    />
-                                );
-                            })}
-                            <label
-                                className={`relative h-6 w-6 cursor-pointer overflow-hidden rounded border ${
-                                    isDark ? "border-white/25" : "border-slate-400"
-                                }`}
-                                title="Custom fill color"
-                            >
-                                <span
-                                    className="absolute inset-0"
-                                    style={{
-                                        background:
-                                            "conic-gradient(from 0deg, #ff3b30, #ff9500, #ffcc00, #34c759, #0a84ff, #5e5ce6, #bf5af2, #ff2d55, #ff3b30)",
-                                    }}
-                                />
-                                <input
-                                    type="color"
-                                    value={fillValue}
-                                    onChange={(e) => applyToSelectedShapes({fill: e.target.value})}
-                                    className="absolute inset-0 cursor-pointer opacity-0"
-                                />
-                            </label>
-                        </div>
-                    </div>
-
-                    <div className="mb-3">
-                        <label className="mb-1 block text-xs font-medium opacity-80">Stroke Style</label>
-                        <div className="flex items-center gap-2">
-                            {STROKE_STYLE_OPTIONS.map((option) => (
-                                <StrokeStyleTile
-                                    key={option.value}
-                                    value={option.value}
-                                    selected={strokeStyleValue === option.value}
-                                    onClick={() => applyToSelectedShapes({strokeStyle: option.value})}
-                                    isDark={isDark}
-                                />
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="mb-3">
-                        <label className="mb-1 block text-xs font-medium opacity-80">Fill Style</label>
-                        <div className="flex items-center gap-2">
-                            {FILL_STYLE_OPTIONS.map((option) => (
-                                <FillStyleTile
-                                    key={option.value}
-                                    value={option.value}
-                                    selected={fillStyleValue === option.value}
-                                    onClick={() => applyToSelectedShapes({fillStyle: option.value})}
-                                    isDark={isDark}
-                                />
-                            ))}
-                        </div>
-                    </div>
-
-                    <div className="mb-3">
-                        <label className="mb-1 block text-xs font-medium opacity-80">Stroke Width: {strokeWidthValue}px</label>
-                        <input
-                            type="range"
-                            min={1}
-                            max={12}
-                            value={strokeWidthValue}
-                            onChange={(e) => applyToSelectedShapes({strokeWidth: Number(e.target.value)})}
-                            className="w-full"
-                        />
-                    </div>
-
-                    <div className="mb-3">
-                        <label className="mb-1 block text-xs font-medium opacity-80">Drawing Persona</label>
-                        <div className="grid grid-cols-3 gap-2">
-                            {DRAWING_PERSONAS.map((persona) => {
-                                const isActive = activePersona?.id === persona.id;
-
-                                return (
-                                    <button
-                                        key={persona.id}
-                                        type="button"
-                                        onClick={() => {
-                                            setDefaultRoughness(persona.roughness);
-                                            if (selectedCount > 0) {
-                                                applyToSelectedShapes({roughness: persona.roughness});
-                                            }
+                    {!isTextShapeSelection && (
+                        <div className="mb-3">
+                            <label className="text-xs font-medium opacity-80">Fill</label>
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                                {STYLE_SWATCHES.map((color) => {
+                                    const isSelected = fillValue.toLowerCase() === color;
+                                    const hasVisibleBorder = color === "#ffffff";
+                                    return (
+                                        <button
+                                            key={`fill-${color}`}
+                                            type="button"
+                                            onClick={() => applyToSelectedShapes({fill: color})}
+                                            className={`h-6 w-6 rounded border ${
+                                                hasVisibleBorder
+                                                    ? isDark
+                                                        ? "border-white/30"
+                                                        : "border-slate-400"
+                                                    : "border-transparent"
+                                            } ${isSelected ? "ring-2 ring-indigo-400" : ""}`}
+                                            style={{backgroundColor: color}}
+                                            title={`Fill ${color}`}
+                                        />
+                                    );
+                                })}
+                                <label
+                                    className={`relative h-6 w-6 cursor-pointer overflow-hidden rounded border ${
+                                        isDark ? "border-white/25" : "border-slate-400"
+                                    }`}
+                                    title="Custom fill color"
+                                >
+                                    <span
+                                        className="absolute inset-0"
+                                        style={{
+                                            background:
+                                                "conic-gradient(from 0deg, #ff3b30, #ff9500, #ffcc00, #34c759, #0a84ff, #5e5ce6, #bf5af2, #ff2d55, #ff3b30)",
                                         }}
-                                        onMouseEnter={() => setHoveredPersonaId(persona.id)}
-                                        onMouseLeave={() => setHoveredPersonaId((current) => (current === persona.id ? null : current))}
-                                        title={persona.label}
-                                        className={`rounded-lg border px-2 py-2 text-xs font-semibold transition ${
-                                            isActive
-                                                ? isDark
-                                                    ? "border-blue-300/70 bg-blue-500/20 text-blue-100"
-                                                    : "border-blue-400 bg-blue-100 text-blue-900"
-                                                : isDark
-                                                    ? "border-white/15 bg-[#232323] text-white/75 hover:border-blue-300/45 hover:text-white"
-                                                    : "border-slate-300 bg-white text-slate-700 hover:border-blue-300 hover:text-slate-900"
-                                        }`}
-                                    >
-                                        <span
-                                            className={`mb-1 inline-flex h-4 w-full items-center justify-center ${
+                                    />
+                                    <input
+                                        type="color"
+                                        value={fillValue}
+                                        onChange={(e) => applyToSelectedShapes({fill: e.target.value})}
+                                        className="absolute inset-0 cursor-pointer opacity-0"
+                                    />
+                                </label>
+                            </div>
+                        </div>
+                    )}
+
+                    {!isTextShapeSelection && (
+                        <div className="mb-3">
+                            <label className="mb-1 block text-xs font-medium opacity-80">Stroke Style</label>
+                            <div className="flex items-center gap-2">
+                                {STROKE_STYLE_OPTIONS.map((option) => (
+                                    <StrokeStyleTile
+                                        key={option.value}
+                                        value={option.value}
+                                        selected={strokeStyleValue === option.value}
+                                        onClick={() => applyToSelectedShapes({strokeStyle: option.value})}
+                                        isDark={isDark}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {!isTextShapeSelection && (
+                        <div className="mb-3">
+                            <label className="mb-1 block text-xs font-medium opacity-80">Fill Style</label>
+                            <div className="flex items-center gap-2">
+                                {FILL_STYLE_OPTIONS.map((option) => (
+                                    <FillStyleTile
+                                        key={option.value}
+                                        value={option.value}
+                                        selected={fillStyleValue === option.value}
+                                        onClick={() => applyToSelectedShapes({fillStyle: option.value})}
+                                        isDark={isDark}
+                                    />
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {!isTextShapeSelection && (
+                        <div className="mb-3">
+                            <label className="mb-1 block text-xs font-medium opacity-80">Stroke Width: {strokeWidthValue}px</label>
+                            <input
+                                type="range"
+                                min={1}
+                                max={12}
+                                value={strokeWidthValue}
+                                onChange={(e) => applyToSelectedShapes({strokeWidth: Number(e.target.value)})}
+                                className="w-full"
+                            />
+                        </div>
+                    )}
+
+                    {isTextShapeSelection && (
+                        <div className="mb-3">
+                            <label className="mb-1 block text-xs font-medium opacity-80">Font Size: {textFontSizeValue}px</label>
+                            <input
+                                type="range"
+                                min={12}
+                                max={96}
+                                value={textFontSizeValue}
+                                onChange={(e) => applyToSelectedTextShapes({fontSize: Number(e.target.value)})}
+                                className="w-full"
+                            />
+                        </div>
+                    )}
+
+                    {!isTextShapeSelection && (
+                        <div className="mb-3">
+                            <label className="mb-1 block text-xs font-medium opacity-80">Drawing Persona</label>
+                            <div className="grid grid-cols-3 gap-2">
+                                {DRAWING_PERSONAS.map((persona) => {
+                                    const isActive = activePersona?.id === persona.id;
+
+                                    return (
+                                        <button
+                                            key={persona.id}
+                                            type="button"
+                                            onClick={() => {
+                                                setDefaultRoughness(persona.roughness);
+                                                if (selectedCount > 0) {
+                                                    applyToSelectedShapes({roughness: persona.roughness});
+                                                }
+                                            }}
+                                            onMouseEnter={() => setHoveredPersonaId(persona.id)}
+                                            onMouseLeave={() => setHoveredPersonaId((current) => (current === persona.id ? null : current))}
+                                            title={persona.label}
+                                            className={`rounded-lg border px-2 py-2 text-xs font-semibold transition ${
                                                 isActive
                                                     ? isDark
-                                                        ? "text-blue-100"
-                                                        : "text-blue-900"
+                                                        ? "border-blue-300/70 bg-blue-500/20 text-blue-100"
+                                                        : "border-blue-400 bg-blue-100 text-blue-900"
                                                     : isDark
-                                                        ? "text-slate-200"
-                                                        : "text-slate-600"
+                                                        ? "border-white/15 bg-[#232323] text-white/75 hover:border-blue-300/45 hover:text-white"
+                                                        : "border-slate-300 bg-white text-slate-700 hover:border-blue-300 hover:text-slate-900"
                                             }`}
                                         >
-                                            <PersonaButtonGlyph personaId={persona.id} />
-                                        </span>
-                                        {persona.label}
-                                    </button>
-                                );
-                            })}
-                        </div>
-
-                        {hoveredPersona && (
-                            <div
-                                className={`mt-2 rounded-lg border p-2 ${
-                                    isDark ? "border-blue-300/30 bg-blue-500/10" : "border-blue-200 bg-blue-50/80"
-                                }`}
-                            >
-                                <p className={`text-xs font-semibold ${isDark ? "text-blue-200" : "text-blue-800"}`}>
-                                    {hoveredPersona.label}
-                                </p>
-                                <p className={`mb-2 text-[11px] ${isDark ? "text-blue-100/80" : "text-blue-700/85"}`}>
-                                    {hoveredPersona.summary}
-                                </p>
-                                <div className="grid grid-cols-3 gap-1">
-                                    {hoveredPersona.examples.map((example) => (
-                                        <div
-                                            key={`${hoveredPersona.id}-${example}`}
-                                            className={`group relative rounded-md border px-1 py-1 ${
-                                                isDark
-                                                    ? "border-blue-200/30 bg-[#1f2a44]"
-                                                    : "border-blue-200 bg-white"
-                                            }`}
-                                        >
-                                            <PersonaExampleGlyph example={example} isDark={isDark} />
                                             <span
-                                                className={`pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium opacity-0 shadow transition-opacity group-hover:opacity-100 ${
-                                                    isDark
-                                                        ? "bg-slate-900/95 text-blue-100"
-                                                        : "bg-slate-800 text-blue-50"
+                                                className={`mb-1 inline-flex h-4 w-full items-center justify-center ${
+                                                    isActive
+                                                        ? isDark
+                                                            ? "text-blue-100"
+                                                            : "text-blue-900"
+                                                        : isDark
+                                                            ? "text-slate-200"
+                                                            : "text-slate-600"
                                                 }`}
                                             >
-                                                {example}
+                                                <PersonaButtonGlyph personaId={persona.id} />
                                             </span>
-                                        </div>
-                                    ))}
-                                </div>
+                                            {persona.label}
+                                        </button>
+                                    );
+                                })}
                             </div>
-                        )}
-                    </div>
+
+                            {hoveredPersona && (
+                                <div
+                                    className={`mt-2 rounded-lg border p-2 ${
+                                        isDark ? "border-blue-300/30 bg-blue-500/10" : "border-blue-200 bg-blue-50/80"
+                                    }`}
+                                >
+                                    <p className={`text-xs font-semibold ${isDark ? "text-blue-200" : "text-blue-800"}`}>
+                                        {hoveredPersona.label}
+                                    </p>
+                                    <p className={`mb-2 text-[11px] ${isDark ? "text-blue-100/80" : "text-blue-700/85"}`}>
+                                        {hoveredPersona.summary}
+                                    </p>
+                                    <div className="grid grid-cols-3 gap-1">
+                                        {hoveredPersona.examples.map((example) => (
+                                            <div
+                                                key={`${hoveredPersona.id}-${example}`}
+                                                className={`group relative rounded-md border px-1 py-1 ${
+                                                    isDark
+                                                        ? "border-blue-200/30 bg-[#1f2a44]"
+                                                        : "border-blue-200 bg-white"
+                                                }`}
+                                            >
+                                                <PersonaExampleGlyph example={example} isDark={isDark} />
+                                                <span
+                                                    className={`pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium opacity-0 shadow transition-opacity group-hover:opacity-100 ${
+                                                        isDark
+                                                            ? "bg-slate-900/95 text-blue-100"
+                                                            : "bg-slate-800 text-blue-50"
+                                                    }`}
+                                                >
+                                                    {example}
+                                                </span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     <div className="mb-4">
                         <label className="mb-1 block text-xs font-medium opacity-80">Opacity: {opacityValue}%</label>
@@ -1077,7 +1792,7 @@ export default function CanvasPage() {
                         />
                     </div>
 
-                    {showReplay && (
+                    {!isTextShapeSelection && showReplay && (
                         <button
                             type="button"
                             onClick={handleReplaySelected}
@@ -1176,7 +1891,7 @@ export default function CanvasPage() {
                 </div>
             </div>
 
-            {/* Sync Status and Invite Link */}
+            {/* Sync Status */}
             <div className="absolute bottom-4 right-4 z-20">
                 <div
                     className={`flex items-center gap-3 rounded-2xl border px-4 py-3 backdrop-blur ${
@@ -1220,48 +1935,6 @@ export default function CanvasPage() {
                             Sync error: {syncResult.lastSyncError}
                         </div>
                     )}
-
-                    {inviteLink && (
-                        <button
-                            type="button"
-                            onClick={handleCopyInvite}
-                            title="Invite"
-                            className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition ${
-                                isDark
-                                    ? "bg-white/5 text-white hover:bg-white/10"
-                                    : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                            }`}
-                        >
-                            Invite
-                        </button>
-                    )}
-
-                    <button
-                        type="button"
-                        onClick={handleJoinCanvas}
-                        title="Join canvas"
-                        className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition ${
-                            isDark
-                                ? "bg-white/5 text-white hover:bg-white/10"
-                                : "bg-slate-100 text-slate-700 hover:bg-slate-200"
-                        }`}
-                    >
-                        Join canvas
-                    </button>
-
-                    <button
-                        type="button"
-                        onClick={handleLogout}
-                        disabled={isLoggingOut}
-                        title="Log out"
-                        className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium transition ${
-                            isDark
-                                ? "bg-red-500/15 text-red-300 hover:bg-red-500/25"
-                                : "bg-red-100 text-red-700 hover:bg-red-200"
-                        } ${isLoggingOut ? "cursor-not-allowed opacity-70" : ""}`}
-                    >
-                        {isLoggingOut ? "Logging out..." : "Log out"}
-                    </button>
                 </div>
             </div>
 
@@ -1272,6 +1945,28 @@ export default function CanvasPage() {
                 shapes={canvasState?.getShapes() ?? []}
                 isDark={isDark}
             />
+
+            {showDebugOverlay && (
+                <div
+                    className={`pointer-events-none absolute bottom-4 left-4 z-20 max-h-56 w-80 overflow-y-auto rounded-2xl border px-3 py-2 text-xs backdrop-blur ${
+                        isDark
+                            ? "border-white/15 bg-[#171717]/92 text-white/90"
+                            : "border-slate-300/80 bg-white/92 text-slate-700"
+                    }`}
+                >
+                    <div className="mb-2 font-semibold">Debug Overlay</div>
+                    <div className="mb-1">Room slug: {roomId ?? "-"}</div>
+                    <div className="mb-1">Room id: {resolvedRoomId ?? "-"}</div>
+                    <div className="mb-1">WS status: {syncStatus}</div>
+                    <div className="mb-1">Sync version: {debugOverlaySnapshot?.version ?? syncResult.syncVersion}</div>
+                    <div className="mb-1">Captured: {debugOverlaySnapshot?.capturedAt ?? "-"}</div>
+                    <div className="mb-2">Shape count: {debugOverlaySnapshot?.shapeCount ?? (canvasState?.getShapes().length ?? 0)}</div>
+                    <div className="font-medium">Shape IDs</div>
+                    <div className="opacity-80">
+                        {(debugOverlaySnapshot?.shapeIds ?? []).join(", ") || "No shapes"}
+                    </div>
+                </div>
+            )}
 
             <canvas ref={canvasRef} className="block h-full w-full touch-none" />
         </div>

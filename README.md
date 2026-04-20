@@ -108,6 +108,10 @@ pnpm dev
 | `JWT_SECRET` | Yes | `apps/http-backend`, `apps/ws-backend` | Required for auth token signing/verification |
 | `PORT` | Yes | `apps/http-backend` | Set to `3001` to match frontend API config |
 | `DATABASE_URL` | Yes | `packages/db` and both backends | PostgreSQL connection string |
+| `WEB_APP_URL` | Yes for reset email links | `apps/http-backend` | Base URL of the web app, for example `http://localhost:3000` |
+| `GMAIL_USER` | Yes for password reset email | `apps/http-backend` | Gmail address used to authenticate SMTP |
+| `GMAIL_APP_PASSWORD` | Yes for password reset email | `apps/http-backend` | Google app password for the Gmail account |
+| `GMAIL_FROM_EMAIL` | Optional | `apps/http-backend` | Optional display sender, defaults to `GMAIL_USER` |
 
 Notes:
 

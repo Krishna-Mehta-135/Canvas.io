@@ -37,20 +37,23 @@ function getThemePalette() {
         return {
             background: "#121212",
             stroke: "#f8fafc",
+            grid: "rgba(148, 163, 184, 0.14)",
         };
     }
 
     const theme = document.documentElement.getAttribute("data-theme");
     if (theme === "light") {
         return {
-            background: "#f8f9fb",
+            background: "#ecf1f6",
             stroke: "#1f2937",
+            grid: "rgba(100, 116, 139, 0.28)",
         };
     }
 
     return {
         background: "#121212",
         stroke: "#f8fafc",
+        grid: "rgba(148, 163, 184, 0.14)",
     };
 }
 
@@ -562,7 +565,13 @@ function drawFreehand(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type
     ctx.restore();
 }
 
-function drawInfiniteGrid(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasElement, viewport: Viewport, pixelRatio: number) {
+function drawInfiniteGrid(
+    ctx: CanvasRenderingContext2D,
+    canvas: HTMLCanvasElement,
+    viewport: Viewport,
+    pixelRatio: number,
+    gridColor: string
+) {
     const targetScreenStep = 48;
     const screenWidth = canvas.width / pixelRatio;
     const screenHeight = canvas.height / pixelRatio;
@@ -571,7 +580,7 @@ function drawInfiniteGrid(ctx: CanvasRenderingContext2D, canvas: HTMLCanvasEleme
     const offsetY = ((viewport.y % targetScreenStep) + targetScreenStep) % targetScreenStep;
 
     ctx.save();
-    ctx.strokeStyle = "rgba(148, 163, 184, 0.12)";
+    ctx.strokeStyle = gridColor;
     ctx.lineWidth = 1 / pixelRatio;
 
     for (let x = offsetX; x <= screenWidth; x += targetScreenStep) {
@@ -865,7 +874,8 @@ export function render(
     selectedShapes: Shape[] = [],
     viewport: Viewport = DEFAULT_VIEWPORT,
     pixelRatio = 1,
-    connectorTargetHighlightIds: string[] = []
+    connectorTargetHighlightIds: string[] = [],
+    showGrid = true
 ) {
     const palette = getThemePalette();
 
@@ -873,7 +883,9 @@ export function render(
     ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
     ctx.fillStyle = palette.background;
     ctx.fillRect(0, 0, canvas.width / pixelRatio, canvas.height / pixelRatio);
-    drawInfiniteGrid(ctx, canvas, viewport, pixelRatio);
+    if (showGrid) {
+        drawInfiniteGrid(ctx, canvas, viewport, pixelRatio, palette.grid);
+    }
     ctx.restore();
 
     ctx.save();

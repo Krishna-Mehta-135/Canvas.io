@@ -20,6 +20,13 @@ type BaseShape = {
     opacity?: number;
 };
 
+export type FreehandPoint = {
+    x: number;
+    y: number;
+    // Optional timestamp (ms) captured during drawing for faithful replay timing.
+    t?: number;
+};
+
 /**
  * Stores an endpoint anchor in normalized target-shape space.
  * relX/relY are in [0, 1] across the target's current bounding box.
@@ -84,7 +91,7 @@ export type Shape =
     })
     | (BaseShape & {
         type: "freehand";
-        points: Array<{x: number; y: number}>;
+                points: FreehandPoint[];
       });
 
 // preview shape (NO id)
@@ -126,7 +133,7 @@ export type PreviewShape =
         }
         | {
             type: "freehand";
-            points: Array<{x: number; y: number}>;
+            points: FreehandPoint[];
       };
 
 /**

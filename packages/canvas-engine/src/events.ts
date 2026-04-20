@@ -22,7 +22,7 @@ import {CanvasState} from "./state";
 import {getShapeAtPoint, getShapesAtPoint} from "./interaction/hitDetection";
 import {dispatch, findTopBindableShapeAtPoint, getConnectorSnapEnabled, setConnectorSnapEnabled} from "./store";
 import {convertToPoints, resizeShape} from "./geometry";
-import {AttachEventsController, AttachEventsOptions, isDrawableTool, Tool} from "./interaction/tools";
+import {AttachEventsController, AttachEventsOptions, DefaultShapeStyle, isDrawableTool, Tool} from "./interaction/tools";
 import {getCursorForHandle} from "./interaction/cursor";
 import {getResizeTarget} from "./interaction/resizeTarget";
 import {handleGlobalKeydown} from "./interaction/keyboard";
@@ -137,7 +137,8 @@ export function attachEvents(
 
     let isResizing = false;
     let isFreehandDrawing = false;
-    let freehandPoints: Array<{x: number; y: number}> = [];
+    let freehandPoints: Array<{x: number; y: number; t?: number}> = [];
+    let freehandStrokeStyle: DefaultShapeStyle | undefined;
     let isErasing = false;
     let eraserPoints: Array<{x: number; y: number}> = [];
     let erasedShapeIds = new Set<string>();
@@ -220,6 +221,7 @@ export function attachEvents(
         activeTool = null;
         connectorTargetHighlightIds = [];
         freehandPoints = [];
+        freehandStrokeStyle = undefined;
     };
 
     const collectConnectorTargetHighlights = (params: {
@@ -583,7 +585,8 @@ export function attachEvents(
 
         if (!shape && getActiveTool() === "freehand") {
             isFreehandDrawing = true;
-            freehandPoints = [{x, y}];
+            freehandPoints = [{x, y, t: performance.now()}];
+            freehandStrokeStyle = getDefaultShapeStyle();
             return;
         }
 
@@ -822,6 +825,7 @@ export function attachEvents(
                 canvas,
                 viewport,
                 getScenePixelRatio,
+                defaultShapeStyle: freehandStrokeStyle,
             });
             return;
         }
@@ -882,8 +886,9 @@ export function attachEvents(
                 setSelection,
                 renderScene,
                 resetToSelectTool,
-                getDefaultShapeStyle()
+                freehandStrokeStyle
             );
+            freehandStrokeStyle = undefined;
             return;
         }
 

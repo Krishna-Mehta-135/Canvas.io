@@ -45,8 +45,24 @@ export function createReplayController(options: CreateReplayControllerOptions) {
         const totalPoints = target.points.length;
         const step = Math.max(1, Math.floor(totalPoints / 80));
         let visiblePoints = 2;
+        const hasTiming = target.points.every((point) => typeof point.t === "number");
+        const firstPointTime = hasTiming ? (target.points[0]?.t as number) : 0;
+        const replayStartTime = performance.now();
 
         const drawFrame = () => {
+            if (hasTiming) {
+                const elapsedMs = performance.now() - replayStartTime;
+
+                while (
+                    visiblePoints < totalPoints &&
+                    ((target.points[visiblePoints]?.t as number) - firstPointTime) <= elapsedMs
+                ) {
+                    visiblePoints += 1;
+                }
+
+                visiblePoints = Math.max(2, Math.min(totalPoints, visiblePoints));
+            }
+
             const currentShapes = state.getShapes();
             const baseShapes = currentShapes.filter((shape) => shape.id !== shapeId);
             const replayPreviewShape = {
@@ -72,7 +88,9 @@ export function createReplayController(options: CreateReplayControllerOptions) {
                 return;
             }
 
-            visiblePoints = Math.min(totalPoints, visiblePoints + step);
+            if (!hasTiming) {
+                visiblePoints = Math.min(totalPoints, visiblePoints + step);
+            }
             replayFrameId = requestAnimationFrame(drawFrame);
         };
 

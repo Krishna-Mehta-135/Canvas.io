@@ -22,6 +22,13 @@ type Room = {
     canonicalPath: string;
 };
 
+type RawRoom = Partial<Room> & {
+    id?: number;
+    slug?: string;
+    createdAt?: string;
+    canonicalPath?: string;
+};
+
 function slugify(input: string): string {
     return input
         .trim()
@@ -37,6 +44,25 @@ function formatDate(isoDate: string): string {
     } catch {
         return isoDate;
     }
+}
+
+function normalizeRoom(room: RawRoom, handle: string | null): Room | null {
+    if (typeof room.id !== "number" || typeof room.slug !== "string") {
+        return null;
+    }
+
+    const fallbackCanonicalPath = handle && handle.length > 0
+        ? `/room/${encodeURIComponent(handle)}/${encodeURIComponent(room.slug)}`
+        : `/canvas/${encodeURIComponent(room.slug)}`;
+
+    return {
+        id: room.id,
+        slug: room.slug,
+        createdAt: typeof room.createdAt === "string" ? room.createdAt : new Date().toISOString(),
+        canonicalPath: typeof room.canonicalPath === "string" && room.canonicalPath.length > 0
+            ? room.canonicalPath
+            : fallbackCanonicalPath,
+    };
 }
 
 export default function RoomsPage() {
@@ -72,18 +98,27 @@ export default function RoomsPage() {
             const isAuthenticated = await ensureAuthenticated("/rooms");
             if (!isAuthenticated) return;
 
-            const [userResponse, roomsResponse] = await Promise.all([
-                apiClient.get(`${HTTP_BACKEND}/auth/current-user`),
-                apiClient.get(`${HTTP_BACKEND}/room/mine`),
-            ]);
-
+            const userResponse = await apiClient.get(`${HTTP_BACKEND}/auth/current-user`);
             const currentUser = userResponse.data?.data as CurrentUser;
-            const roomList = (roomsResponse.data?.data ?? []) as Room[];
-
             setUser(currentUser);
-            setRooms(Array.isArray(roomList) ? roomList : []);
+
+            try {
+                const roomsResponse = await apiClient.get(`${HTTP_BACKEND}/room/mine`);
+                const roomList = (roomsResponse.data?.data ?? []) as RawRoom[];
+
+                const normalizedRooms = Array.isArray(roomList)
+                    ? roomList
+                        .map((room) => normalizeRoom(room, currentUser.handle))
+                        .filter((room): room is Room => room !== null)
+                    : [];
+
+                setRooms(normalizedRooms);
+            } catch {
+                setRooms([]);
+                setError("Unable to load your rooms right now.");
+            }
         } catch {
-            setError("Unable to load your rooms right now.");
+            setError("Unable to load your account right now.");
         } finally {
             setLoading(false);
         }
@@ -107,7 +142,13 @@ export default function RoomsPage() {
 
         try {
             const response = await apiClient.post(`${HTTP_BACKEND}/room`, {slug});
-            const room = response.data?.data as Room;
+            const rawRoom = response.data?.data as RawRoom;
+            const room = normalizeRoom(rawRoom, user?.handle ?? null);
+
+            if (!room) {
+                throw new Error("Invalid room payload");
+            }
+
             setRooms((current) => [room, ...current.filter((entry) => entry.id !== room.id)]);
             setNewRoomSlug("");
             window.location.href = room.canonicalPath;

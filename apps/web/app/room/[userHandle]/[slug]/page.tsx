@@ -41,7 +41,9 @@ export default function RoomBySlugPage() {
                     throw new Error("Invalid room payload");
                 }
 
-                window.location.replace(`/canvas/${encodeURIComponent(roomSlug)}`);
+                window.location.replace(
+                    `/canvas/${encodeURIComponent(roomSlug)}?owner=${encodeURIComponent(userHandle)}`
+                );
             } catch (errorResponse) {
                 const axiosError = errorResponse as AxiosError<{message?: string}>;
                 if (axiosError.response?.status === 404) {

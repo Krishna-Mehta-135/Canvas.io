@@ -45,7 +45,7 @@ export function renderSelectionDragPreview(params: {
 export function renderFreehandPreview(params: {
     x: number;
     y: number;
-    freehandPoints: Array<{x: number; y: number}>;
+    freehandPoints: Array<{x: number; y: number; t?: number}>;
     shapes: Shape[];
     selectedShape: Shape | null;
     selectedShapeIds: string[];
@@ -53,6 +53,7 @@ export function renderFreehandPreview(params: {
     canvas: HTMLCanvasElement;
     viewport: Viewport;
     getScenePixelRatio: () => number;
+    defaultShapeStyle?: DefaultShapeStyle;
 }) {
     const {
         x,
@@ -65,13 +66,18 @@ export function renderFreehandPreview(params: {
         canvas,
         viewport,
         getScenePixelRatio,
+        defaultShapeStyle,
     } = params;
 
-    const nextPoints = [...freehandPoints, {x, y}];
+    const nextPoints = [...freehandPoints, {x, y, t: performance.now()}];
 
-    const preview: PreviewShape = {
+    const nextStyle = defaultShapeStyle ?? {};
+    const preview: PreviewShape & DefaultShapeStyle = {
         type: "freehand",
         points: nextPoints,
+        ...nextStyle,
+        roughness: nextStyle.roughness ?? DEFAULT_SHAPE_ROUGHNESS,
+        strokeStyle: nextStyle.strokeStyle ?? "solid",
     };
 
     render(

@@ -50,6 +50,29 @@ async function allocateUniqueHandle(name: string): Promise<string> {
     }
 }
 
+async function ensureUserHandle(user: {
+    id: string;
+    name: string;
+    handle?: string | null;
+}) {
+    if (typeof user.handle === "string" && user.handle.length > 0) {
+        return user.handle;
+    }
+
+    const uniqueHandle = await allocateUniqueHandle(user.name);
+
+    await (prismaClient.user as any).update({
+        where: {
+            id: user.id,
+        },
+        data: {
+            handle: uniqueHandle,
+        },
+    });
+
+    return uniqueHandle;
+}
+
 const signup = asyncHandler(async (req, res) => {
     const validationResult = CreateUserSchema.safeParse(req.body);
     if (!validationResult.success) {
@@ -141,6 +164,11 @@ const signin = asyncHandler(async (req, res) => {
     }
 
     const userTokenVersion = (user as any).tokenVersion ?? 0;
+    const ensuredHandle = await ensureUserHandle({
+        id: user.id,
+        name: user.name,
+        handle: (user as any).handle ?? null,
+    });
     const accessToken = generateAccessToken(user.id, user.name, userTokenVersion);
     const refreshToken = generateRefreshToken(user.id, user.name, userTokenVersion);
 
@@ -172,7 +200,7 @@ const signin = asyncHandler(async (req, res) => {
             {
                 id: user.id,
                 name: user.name,
-                handle: (user as any).handle ?? null,
+                handle: ensuredHandle,
                 email: user.email,
             },
             "Login successful"
@@ -210,7 +238,22 @@ const getCurrentUser = asyncHandler(async (req, res) => {
         throw new ApiError(404, "User not found");
     }
 
-    return res.status(200).json(new ApiResponse(200, user, "Current user fetched"));
+    const ensuredHandle = await ensureUserHandle({
+        id: user.id,
+        name: user.name,
+        handle: user.handle,
+    });
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            {
+                ...user,
+                handle: ensuredHandle,
+            },
+            "Current user fetched"
+        )
+    );
 });
 
 const refreshAccessToken = asyncHandler(async (req, res) => {

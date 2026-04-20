@@ -629,6 +629,7 @@ export default function CanvasPage() {
     const stateRef = useRef<CanvasState | null>(null);
     const [canvasState, setCanvasState] = useState<CanvasState | null>(null);
     const [resolvedRoomId, setResolvedRoomId] = useState<number | null>(null);
+    const canonicalRedirectIssuedRef = useRef(false);
     const [hoveredPersonaId, setHoveredPersonaId] = useState<string | null>(null);
     const [defaultRoughness, setDefaultRoughness] = useState<number>(DRAWING_PERSONAS[1]?.roughness ?? 1);
     const defaultRoughnessRef = useRef<number>(DRAWING_PERSONAS[1]?.roughness ?? 1);
@@ -848,10 +849,20 @@ export default function CanvasPage() {
 
             try {
                 const roomBySlug = await apiClient.get(`${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(effectiveSlug)}`);
+                const ownerHandle = roomBySlug.data?.data?.admin?.handle as string | undefined;
 
                 const resolvedRoomId = Number(roomBySlug.data?.data?.id);
                 if (!Number.isFinite(resolvedRoomId)) {
                     throw new Error("Invalid room id returned from slug lookup");
+                }
+
+                if (!canonicalRedirectIssuedRef.current && typeof ownerHandle === "string" && ownerHandle.length > 0) {
+                    canonicalRedirectIssuedRef.current = true;
+                    window.location.replace(`/room/${encodeURIComponent(ownerHandle)}/${encodeURIComponent(effectiveSlug)}`);
+                    return {
+                        resolvedRoomId,
+                        shapes: [],
+                    };
                 }
 
                 const shapes = await getShapesById(resolvedRoomId);
@@ -872,9 +883,16 @@ export default function CanvasPage() {
                         {slug: effectiveSlug}
                     );
 
+                    const ownerHandle = createRoomResponse.data?.data?.admin?.handle as string | undefined;
+
                     const resolvedRoomId = Number(createRoomResponse.data?.data?.id);
                     if (!Number.isFinite(resolvedRoomId)) {
                         throw new Error("Invalid room id returned while creating room");
+                    }
+
+                    if (!canonicalRedirectIssuedRef.current && typeof ownerHandle === "string" && ownerHandle.length > 0) {
+                        canonicalRedirectIssuedRef.current = true;
+                        window.location.replace(`/room/${encodeURIComponent(ownerHandle)}/${encodeURIComponent(effectiveSlug)}`);
                     }
 
                     return {
@@ -888,10 +906,20 @@ export default function CanvasPage() {
                     }
 
                     const roomBySlug = await apiClient.get(`${HTTP_BACKEND}/room/room/slug/${encodeURIComponent(effectiveSlug)}`);
+                    const ownerHandle = roomBySlug.data?.data?.admin?.handle as string | undefined;
 
                     const resolvedRoomId = Number(roomBySlug.data?.data?.id);
                     if (!Number.isFinite(resolvedRoomId)) {
                         throw new Error("Invalid room id returned from slug lookup");
+                    }
+
+                    if (!canonicalRedirectIssuedRef.current && typeof ownerHandle === "string" && ownerHandle.length > 0) {
+                        canonicalRedirectIssuedRef.current = true;
+                        window.location.replace(`/room/${encodeURIComponent(ownerHandle)}/${encodeURIComponent(effectiveSlug)}`);
+                        return {
+                            resolvedRoomId,
+                            shapes: [],
+                        };
                     }
 
                     const shapes = await getShapesById(resolvedRoomId);

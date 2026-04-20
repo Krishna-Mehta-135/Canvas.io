@@ -13,9 +13,14 @@ function normalizeCanvasTarget(rawValue: string) {
         const url = new URL(trimmed, window.location.origin);
         const segments = url.pathname.split("/").filter(Boolean);
         const canvasIndex = segments.indexOf("canvas");
+        const roomIndex = segments.indexOf("room");
+
+        if (roomIndex >= 0 && segments[roomIndex + 1] && segments[roomIndex + 2]) {
+            return `room/${segments[roomIndex + 1]}/${segments[roomIndex + 2]}`;
+        }
 
         if (canvasIndex >= 0 && segments[canvasIndex + 1]) {
-            return segments[canvasIndex + 1];
+            return `canvas/${segments[canvasIndex + 1]}`;
         }
 
         return segments[segments.length - 1] ?? trimmed;
@@ -34,7 +39,9 @@ export default function JoinCanvasCard() {
         const target = normalizeCanvasTarget(value);
         if (!target) return;
 
-        const destination = `/canvas/${target}`;
+        const destination = target.startsWith("room/") || target.startsWith("canvas/")
+            ? `/${target}`
+            : `/canvas/${target}`;
 
         setIsLoading(true);
         try {

@@ -16,6 +16,40 @@ function authDebug(message: string, meta?: Record<string, unknown>) {
     console.info("[auth-debug]", message, meta ?? {});
 }
 
+function toHandleBase(rawName: string): string {
+    const normalized = rawName
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+
+    if (normalized.length >= 3) {
+        return normalized.slice(0, 24);
+    }
+
+    return "user";
+}
+
+async function allocateUniqueHandle(name: string): Promise<string> {
+    const base = toHandleBase(name);
+    let handle = base;
+    let suffix = 1;
+
+    while (true) {
+        const existing = await (prismaClient.user as any).findFirst({
+            where: {handle},
+            select: {id: true},
+        });
+
+        if (!existing) {
+            return handle;
+        }
+
+        handle = `${base}-${suffix}`;
+        suffix += 1;
+    }
+}
+
 const signup = asyncHandler(async (req, res) => {
     const validationResult = CreateUserSchema.safeParse(req.body);
     if (!validationResult.success) {
@@ -25,6 +59,7 @@ const signup = asyncHandler(async (req, res) => {
     const {name, email, password} = validationResult.data;
 
     const hashedPassword = await hashPassword(password);
+    const uniqueHandle = await allocateUniqueHandle(name);
 
     //we dont check if user exixsts because we have added @unique in db schema. If the user is not unique, it will throw an error and user creation will be blocked.
 
@@ -34,6 +69,7 @@ const signup = asyncHandler(async (req, res) => {
         const user = await prismaClient.user.create({
             data: {
                 name,
+                handle: uniqueHandle,
                 email,
                 password: hashedPassword,
                 tokenVersion: 0,
@@ -66,6 +102,7 @@ const signup = asyncHandler(async (req, res) => {
                 {
                     id: user.id,
                     name: user.name,
+                    handle: (user as any).handle ?? uniqueHandle,
                     email: user.email,
                 },
                 "User created successfully"
@@ -135,6 +172,7 @@ const signin = asyncHandler(async (req, res) => {
             {
                 id: user.id,
                 name: user.name,
+                handle: (user as any).handle ?? null,
                 email: user.email,
             },
             "Login successful"
@@ -163,6 +201,7 @@ const getCurrentUser = asyncHandler(async (req, res) => {
         select: {
             id: true,
             name: true,
+            handle: true,
             email: true,
         },
     });

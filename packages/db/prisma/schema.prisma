@@ -19,6 +19,7 @@ model User {
   email           String  @unique
   password        String
   name            String
+  handle          String? @unique
   photo           String?
   tokenVersion    Int     @default(0)
   refreshTokenExp DateTime?
@@ -28,12 +29,14 @@ model User {
 
 model Room {
   id        Int      @id @default(autoincrement())
-  slug      String   @unique
+  slug      String
   createdAt DateTime @default(now())
   adminId   String
   admin     User     @relation(fields: [adminId], references: [id])
   chats     Chat[]
   shapes    Shape[]
+
+  @@unique([adminId, slug])
 }
 
 model Chat {

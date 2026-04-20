@@ -10,6 +10,7 @@ import {useTheme} from "../components/ThemeToggle";
 type ProfileData = {
     id: string;
     name: string;
+    handle: string | null;
     email: string;
 };
 
@@ -43,6 +44,7 @@ export default function ProfilePage() {
                     setProfile({
                         id: user.id,
                         name: user.name,
+                        handle: typeof user.handle === "string" ? user.handle : null,
                         email: user.email,
                     });
                 } else {
@@ -97,7 +99,12 @@ export default function ProfilePage() {
         }
 
         setActionError(null);
-        router.push(`/canvas/${encodeURIComponent(slug)}`);
+        if (!profile?.handle) {
+            setActionError("Your account handle is not ready yet. Try again in a moment.");
+            return;
+        }
+
+        router.push(`/room/${encodeURIComponent(profile.handle)}/${encodeURIComponent(slug)}`);
     };
 
     return (
@@ -257,12 +264,12 @@ export default function ProfilePage() {
                                 <div className="space-y-2">
                                     <button
                                         type="button"
-                                        onClick={() => router.push("/canvas/new")}
+                                        onClick={() => router.push("/rooms")}
                                         className={`w-full rounded-xl border px-3 py-2 text-left text-sm font-medium transition ${
                                             isDark ? "border-white/15 hover:bg-white/10" : "border-slate-300 hover:bg-slate-100"
                                         }`}
                                     >
-                                        Open new canvas
+                                        Open room dashboard
                                     </button>
                                     <div className="space-y-2 rounded-xl border border-current/10 p-2">
                                         <label htmlFor="room-slug" className="px-1 text-xs font-medium opacity-75">Join room by slug</label>

@@ -44,23 +44,7 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                 return;
             }
 
-            // Room slug must satisfy backend validation (3-20 chars).
-            const roomSlug = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-
-            try {
-                await apiClient.post(
-                    `${API_BASE}/room`,
-                    {slug: roomSlug}
-                );
-            } catch (createRoomError) {
-                const createRoomAxiosError = createRoomError as AxiosError<{message?: string}>;
-                // If slug collides, canvas page can still resolve existing room by slug.
-                if (createRoomAxiosError.response?.status !== 409) {
-                    throw createRoomError;
-                }
-            }
-
-            window.location.href = `/canvas/${roomSlug}`;
+            window.location.href = "/rooms";
         } catch (err) {
             const axiosError = err as AxiosError<{ message: string }>;
             const message =

@@ -13,6 +13,53 @@ import {
 } from "./connectionState.js";
 import {cacheRoomSyncState, initializeRoomSync, scheduleRoomPersist} from "./roomSync.js";
 import {commitRoomSnapshot, getRoomVersion, NODE_ID} from "@repo/redis-sync";
+import {
+    recordInvalidJsonPayload,
+    recordInvalidMessagePayload,
+    recordOversizedMessage,
+    recordRateLimitedSnapshot,
+    recordSnapshotCommitFailure,
+    recordSnapshotCommitted,
+    recordVersionMismatch,
+} from "./metrics.js";
+
+const WS_MAX_MESSAGE_BYTES = Number(process.env.WS_MAX_MESSAGE_BYTES ?? 512 * 1024);
+const WS_SNAPSHOT_RATE_LIMIT_COUNT = Number(process.env.WS_SNAPSHOT_RATE_LIMIT_COUNT ?? 30);
+const WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS = Number(process.env.WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS ?? 1000);
+
+const snapshotRateWindowBySocket = new WeakMap<AuthenticatedWebSocket, {windowStartMs: number; count: number}>();
+
+function rawDataByteLength(data: RawData) {
+    if (typeof data === "string") {
+        return Buffer.byteLength(data);
+    }
+
+    if (Array.isArray(data)) {
+        return data.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+    }
+
+    if (data instanceof ArrayBuffer) {
+        return data.byteLength;
+    }
+
+    return Buffer.byteLength(data);
+}
+
+function isSnapshotRateLimited(ws: AuthenticatedWebSocket) {
+    const now = Date.now();
+    const existing = snapshotRateWindowBySocket.get(ws);
+
+    if (!existing || now - existing.windowStartMs >= WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS) {
+        snapshotRateWindowBySocket.set(ws, {
+            windowStartMs: now,
+            count: 1,
+        });
+        return false;
+    }
+
+    existing.count += 1;
+    return existing.count > WS_SNAPSHOT_RATE_LIMIT_COUNT;
+}
 
 async function hasOwnerRoomAccess(roomId: number, userId: string) {
     const room = await prismaClient.room.findFirst({
@@ -40,10 +87,23 @@ function rejectForbidden(ws: AuthenticatedWebSocket) {
 }
 
 export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: string, data: RawData) {
+    const payloadBytes = rawDataByteLength(data);
+    if (payloadBytes > WS_MAX_MESSAGE_BYTES) {
+        recordOversizedMessage();
+        ws.send(
+            JSON.stringify({
+                type: "sync_error",
+                reason: "Payload exceeds maximum allowed size",
+            } as ServerMessage)
+        );
+        return;
+    }
+
     let parsedJson: unknown;
     try {
         parsedJson = JSON.parse(data.toString());
     } catch {
+        recordInvalidJsonPayload();
         ws.send(
             JSON.stringify({
                 type: "sync_error",
@@ -55,6 +115,7 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
 
     const messageValidation = ClientWsMessageSchema.safeParse(parsedJson);
     if (!messageValidation.success) {
+        recordInvalidMessagePayload();
         ws.send(
             JSON.stringify({
                 type: "sync_error",
@@ -168,6 +229,17 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
     if (parsed.type === "canvas_snapshot") {
         const {roomId, version, shapes} = parsed;
 
+        if (isSnapshotRateLimited(ws)) {
+            recordRateLimitedSnapshot();
+            ws.send(
+                JSON.stringify({
+                    type: "sync_error",
+                    reason: "Snapshot rate limit exceeded. Slow down and retry.",
+                } as ServerMessage)
+            );
+            return;
+        }
+
         if (typeof roomId !== "number" || roomId <= 0) {
             ws.send(
                 JSON.stringify({
@@ -192,6 +264,7 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
         // we send the authoritative snapshot so it can resync without guessing.
         const authoritativeVersion = await getRoomVersion(roomId);
         if (version !== authoritativeVersion) {
+            recordVersionMismatch();
             const roomState = await initializeRoomSync(roomId);
             const presenceState = getRoomPresenceState(roomId);
 
@@ -253,6 +326,7 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
         });
 
         if (!nextVersion) {
+            recordSnapshotCommitFailure();
             const roomState = await initializeRoomSync(roomId);
             const presenceState = getRoomPresenceState(roomId);
 
@@ -276,6 +350,8 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
             );
             return;
         }
+
+        recordSnapshotCommitted();
 
         scheduleRoomPersist(roomId, typedShapes);
         cacheRoomSyncState({

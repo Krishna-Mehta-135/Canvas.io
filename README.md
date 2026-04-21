@@ -112,6 +112,10 @@ pnpm dev
 | `PORT` | Yes | `apps/http-backend` | Set to `3001` to match frontend API config |
 | `DATABASE_URL` | Yes | `packages/db` and both backends | PostgreSQL connection string |
 | `REDIS_URL` | Yes for multi-node WS sync | `apps/ws-backend` | Redis connection string for room versioning and Pub/Sub |
+| `WS_MAX_MESSAGE_BYTES` | Optional | `apps/ws-backend` | Max accepted websocket payload bytes, default `524288` |
+| `WS_SNAPSHOT_RATE_LIMIT_COUNT` | Optional | `apps/ws-backend` | Max `canvas_snapshot` messages per window, default `30` |
+| `WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS` | Optional | `apps/ws-backend` | Snapshot rate limit window in ms, default `1000` |
+| `WS_METRICS_LOG_INTERVAL_MS` | Optional | `apps/ws-backend` | Metrics log interval in ms, default `30000` |
 | `WEB_APP_URL` | Yes for reset email links | `apps/http-backend` | Base URL of the web app, for example `http://localhost:3000` |
 | `GMAIL_USER` | Yes for password reset email | `apps/http-backend` | Gmail address used to authenticate SMTP |
 | `GMAIL_APP_PASSWORD` | Yes for password reset email | `apps/http-backend` | Google app password for the Gmail account |

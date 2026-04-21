@@ -46,8 +46,13 @@ export default function RoomBySlugPage() {
                 );
             } catch (errorResponse) {
                 const axiosError = errorResponse as AxiosError<{message?: string}>;
+                if (axiosError.response?.status === 403) {
+                    setError("Access denied. You do not have permission to open this room.");
+                    return;
+                }
+
                 if (axiosError.response?.status === 404) {
-                    setError("Room not found.");
+                    setError("Room unavailable.");
                     return;
                 }
 
@@ -65,7 +70,7 @@ export default function RoomBySlugPage() {
     return (
         <main className="grid min-h-screen place-items-center bg-[#f2f5fa] px-5">
             <div className="w-full max-w-md rounded-2xl border border-slate-300 bg-white p-6 text-center shadow-sm">
-                <h1 className="text-lg font-semibold text-slate-900">Opening room...</h1>
+                <h1 className="text-lg font-semibold text-slate-900">{error ? "Unable to open room" : "Opening room..."}</h1>
                 <p className="mt-2 text-sm text-slate-600">
                     {error ?? "Resolving room and loading canvas."}
                 </p>

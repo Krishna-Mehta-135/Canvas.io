@@ -4,6 +4,34 @@ import {ApiResponse} from "../utils/ApiResponse";
 import {CreateRoomSchema, RenameRoomSlugSchema} from "@repo/common/types";
 import {asyncHandler} from "../utils/asyncHandler";
 
+function requireUserId(userId?: string) {
+    if (!userId) {
+        throw new ApiError(401, "Unauthorized: User ID not found");
+    }
+
+    return userId;
+}
+
+async function assertOwnerRoomAccess(roomId: number, userId: string) {
+    const room = await prismaClient.room.findFirst({
+        where: {
+            id: roomId,
+            adminId: userId,
+        },
+        select: {
+            id: true,
+            adminId: true,
+        },
+    });
+
+    if (!room) {
+        // Return forbidden uniformly to avoid leaking room existence.
+        throw new ApiError(403, "Forbidden");
+    }
+
+    return room;
+}
+
 const createRoom = asyncHandler(async (req, res) => {
     const validationResult = CreateRoomSchema.safeParse(req.body);
     if (!validationResult.success) {
@@ -11,11 +39,7 @@ const createRoom = asyncHandler(async (req, res) => {
     }
 
     const {slug} = validationResult.data;
-    const userId = req.userId;
-
-    if (!userId) {
-        throw new ApiError(401, "Unauthorized: User ID not found");
-    }
+    const userId = requireUserId(req.userId);
 
     try {
         const room = await prismaClient.room.create({
@@ -54,11 +78,7 @@ const createRoom = asyncHandler(async (req, res) => {
 });
 
 const listMyRooms = asyncHandler(async (req, res) => {
-    const userId = req.userId;
-
-    if (!userId) {
-        throw new ApiError(401, "Unauthorized: User ID not found");
-    }
+    const userId = requireUserId(req.userId);
 
     const rooms = await prismaClient.room.findMany({
         where: {
@@ -92,6 +112,9 @@ const getShapes = asyncHandler(async (req, res) => {
     if (isNaN(roomId)) {
         throw new ApiError(400, "Invalid roomId");
     }
+
+    const userId = requireUserId(req.userId);
+    await assertOwnerRoomAccess(roomId, userId);
 
     try {
         const shapes = await prismaClient.shape.findMany({
@@ -129,6 +152,9 @@ const replaceShapes = asyncHandler(async (req, res) => {
     if (isNaN(roomId)) {
         throw new ApiError(400, "Invalid roomId");
     }
+
+    const userId = requireUserId(req.userId);
+    await assertOwnerRoomAccess(roomId, userId);
 
     const shapes = req.body?.shapes;
 
@@ -238,30 +264,19 @@ const getRoomIdFromSlug = asyncHandler(async (req, res) => {
 const getRoomByOwnerAndSlug = asyncHandler(async (req, res) => {
     const ownerHandle = req.params.userHandle;
     const slug = req.params.slug;
+    const userId = requireUserId(req.userId);
 
     if (typeof ownerHandle !== "string" || typeof slug !== "string") {
         throw new ApiError(400, "Invalid room route parameters");
     }
 
-    const owner = await prismaClient.user.findUnique({
-        where: {
-            handle: ownerHandle,
-        },
-        select: {
-            id: true,
-            name: true,
-            handle: true,
-        },
-    });
-
-    if (!owner) {
-        throw new ApiError(404, "Room owner not found");
-    }
-
     const room = await prismaClient.room.findFirst({
         where: {
-            adminId: owner.id,
+            adminId: userId,
             slug,
+            admin: {
+                handle: ownerHandle,
+            },
         },
         include: {
             admin: {
@@ -275,7 +290,7 @@ const getRoomByOwnerAndSlug = asyncHandler(async (req, res) => {
     });
 
     if (!room) {
-        throw new ApiError(404, "Room not found");
+        throw new ApiError(403, "Forbidden");
     }
 
     res.status(200).json(
@@ -283,7 +298,7 @@ const getRoomByOwnerAndSlug = asyncHandler(async (req, res) => {
             200,
             {
                 ...room,
-                canonicalPath: `/room/${owner.handle}/${room.slug}`,
+                canonicalPath: `/room/${room.admin.handle}/${room.slug}`,
             },
             "Room fetched successfully"
         )
@@ -302,26 +317,8 @@ const renameRoomSlug = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Incorrect input");
     }
 
-    const userId = req.userId;
-    if (!userId) {
-        throw new ApiError(401, "Unauthorized: User ID not found");
-    }
-
-    const room = await prismaClient.room.findUnique({
-        where: {id: roomId},
-        select: {
-            id: true,
-            adminId: true,
-        },
-    });
-
-    if (!room) {
-        throw new ApiError(404, "Room not found");
-    }
-
-    if (room.adminId !== userId) {
-        throw new ApiError(403, "Only room owner can rename room slug");
-    }
+    const userId = requireUserId(req.userId);
+    await assertOwnerRoomAccess(roomId, userId);
 
     try {
         const updatedRoom = await prismaClient.room.update({
@@ -360,10 +357,13 @@ const renameRoomSlug = asyncHandler(async (req, res) => {
 
 const getInviteLink = asyncHandler(async (req, res) => {
     const roomId = Number(req.params.roomId);
+    const userId = requireUserId(req.userId);
 
     if (isNaN(roomId)) {
         throw new ApiError(400, "Invalid roomId");
     }
+
+    await assertOwnerRoomAccess(roomId, userId);
 
     const room = await prismaClient.room.findUnique({
         where: {
@@ -380,7 +380,7 @@ const getInviteLink = asyncHandler(async (req, res) => {
     });
 
     if (!room) {
-        throw new ApiError(404, "Room not found");
+        throw new ApiError(403, "Forbidden");
     }
 
     // Generate invite link using canonical owner handle + slug URL shape.

@@ -1,6 +1,7 @@
 import {RawData} from "ws";
 import type {Shape} from "@repo/canvas-engine";
 import type {ServerMessage, WsMessage} from "@repo/common";
+import {prismaClient} from "@repo/db/client";
 import type {AuthenticatedWebSocket} from "./types.js";
 import {
     broadcastRoomPresenceState,
@@ -10,6 +11,31 @@ import {
     setRoomPresence,
 } from "./connectionState.js";
 import {initializeRoomSync, roomSyncState, scheduleRoomPersist} from "./roomSync.js";
+
+async function hasOwnerRoomAccess(roomId: number, userId: string) {
+    const room = await prismaClient.room.findFirst({
+        where: {
+            id: roomId,
+            adminId: userId,
+        },
+        select: {
+            id: true,
+        },
+    });
+
+    return Boolean(room);
+}
+
+function rejectForbidden(ws: AuthenticatedWebSocket) {
+    ws.send(
+        JSON.stringify({
+            type: "sync_error",
+            reason: "Forbidden",
+        } as ServerMessage)
+    );
+
+    ws.close(1008, "Forbidden");
+}
 
 export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: string, data: RawData) {
     const parsed = JSON.parse(data.toString()) as WsMessage;
@@ -24,6 +50,12 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
                     reason: "Invalid roomId",
                 } as ServerMessage)
             );
+            return;
+        }
+
+        const hasAccess = await hasOwnerRoomAccess(roomId, userId);
+        if (!hasAccess) {
+            rejectForbidden(ws);
             return;
         }
 
@@ -71,6 +103,16 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
             return;
         }
 
+        if (!ws.currentRoomId) {
+            ws.send(
+                JSON.stringify({
+                    type: "sync_error",
+                    reason: "Forbidden",
+                } as ServerMessage)
+            );
+            return;
+        }
+
         if (ws.currentRoomId !== roomId) {
             ws.send(
                 JSON.stringify({
@@ -105,6 +147,16 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
                 JSON.stringify({
                     type: "sync_error",
                     reason: "Invalid roomId",
+                } as ServerMessage)
+            );
+            return;
+        }
+
+        if (ws.currentRoomId !== roomId) {
+            ws.send(
+                JSON.stringify({
+                    type: "sync_error",
+                    reason: "Forbidden",
                 } as ServerMessage)
             );
             return;

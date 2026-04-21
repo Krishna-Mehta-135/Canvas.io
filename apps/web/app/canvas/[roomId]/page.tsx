@@ -642,6 +642,7 @@ export default function CanvasPage() {
     const [isSavingCanvas, setIsSavingCanvas] = useState(false);
     const [showRoomInfo, setShowRoomInfo] = useState(false);
     const [isGridVisible, setIsGridVisible] = useState(true);
+    const [isAccessDenied, setIsAccessDenied] = useState(false);
     const [showDebugOverlay, setShowDebugOverlay] = useState(false);
     const [debugPanelMode, setDebugPanelMode] = useState<DebugPanelMode>("compact");
     const [debugOverlaySnapshot, setDebugOverlaySnapshot] = useState<DebugOverlaySnapshot | null>(null);
@@ -807,6 +808,7 @@ export default function CanvasPage() {
         if (!roomId) return;
 
         isHydratingRef.current = true;
+        setIsAccessDenied(false);
         resolvedRoomIdRef.current = null;
         setResolvedRoomId(null);
         setInviteLink(null);
@@ -961,7 +963,7 @@ export default function CanvasPage() {
             setInspectorRevision((current) => current + 1);
         });
 
-        const loadShapes = async () => {
+        const loadShapes = async (): Promise<boolean> => {
             try {
                 const {resolvedRoomId, shapes} = await resolveRoomIdAndShapes();
                 resolvedRoomIdRef.current = resolvedRoomId;
@@ -970,13 +972,21 @@ export default function CanvasPage() {
                 if (!isUnmounted) {
                     state.hydrateShapes(shapes);
                 }
+
+                return true;
             } catch (error) {
                 const axiosError = error as AxiosError<{message?: string}>;
+                if (axiosError.response?.status === 403) {
+                    setIsAccessDenied(true);
+                    return false;
+                }
+
                 if (axiosError.response?.status === 404) {
-                    return;
+                    return false;
                 }
 
                 console.error("Failed to load shapes", error);
+                return false;
             } finally {
                 isHydratingRef.current = false;
             }
@@ -989,9 +999,9 @@ export default function CanvasPage() {
                 return;
             }
 
-            await loadShapes();
+            const canAccessRoom = await loadShapes();
 
-            if (isUnmounted) {
+            if (isUnmounted || !canAccessRoom) {
                 return;
             }
 
@@ -1381,6 +1391,19 @@ export default function CanvasPage() {
 
     return (
         <div className={`relative h-screen w-screen ${isDark ? "bg-[#121212]" : "bg-[#e2e8f0]"}`}>
+            {isAccessDenied && (
+                <div className="pointer-events-none absolute left-1/2 top-4 z-40 w-[min(92vw,560px)] -translate-x-1/2">
+                    <div
+                        className={`rounded-xl border px-4 py-3 text-sm shadow-lg ${
+                            isDark
+                                ? "border-red-400/40 bg-red-500/15 text-red-100"
+                                : "border-red-300 bg-red-50 text-red-700"
+                        }`}
+                    >
+                        You do not have permission to access this room.
+                    </div>
+                </div>
+            )}
             <div className="pointer-events-none absolute right-4 top-4 z-30">
                 <div className="pointer-events-auto relative">
                     <button

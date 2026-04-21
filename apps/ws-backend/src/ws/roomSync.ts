@@ -1,6 +1,7 @@
 import {prismaClient} from "@repo/db/client";
 import type {Shape} from "@repo/canvas-engine";
 import type {RoomSyncState} from "@repo/common";
+import {getRoomSnapshot, getRoomVersion, setRoomSnapshot} from "@repo/redis-sync";
 
 /**
  * roomSyncState
@@ -13,10 +14,23 @@ const pendingPersistTimer = new Map<number, ReturnType<typeof setTimeout>>();
 const pendingPersistShapes = new Map<number, Shape[]>();
 const persistInFlight = new Set<number>();
 
+// This cache is intentionally non-authoritative. Redis decides the current room
+// version; the cache only avoids repeated snapshot deserialization on the hot path.
+export function cacheRoomSyncState(state: RoomSyncState) {
+    roomSyncState.set(state.roomId, state);
+}
+
 export async function initializeRoomSync(roomId: number) {
-    if (roomSyncState.has(roomId)) {
-        return roomSyncState.get(roomId)!;
+    // Redis wins first. If it has the latest snapshot, we reuse it directly.
+    const redisState = await getRoomSnapshot(roomId);
+    if (redisState) {
+        cacheRoomSyncState(redisState);
+        return redisState;
     }
+
+    // If Redis has the version but no snapshot blob, preserve version continuity
+    // and rebuild the snapshot from Postgres.
+    const currentVersion = await getRoomVersion(roomId);
 
     const shapes = await prismaClient.shape.findMany({
         where: {
@@ -30,11 +44,12 @@ export async function initializeRoomSync(roomId: number) {
 
     const state: RoomSyncState = {
         roomId,
-        version: 0,
+        version: currentVersion,
         shapes: shapes.map((shape) => shape.props as Shape),
     };
 
-    roomSyncState.set(roomId, state);
+    cacheRoomSyncState(state);
+    await setRoomSnapshot(roomId, state.shapes, state.version);
     return state;
 }
 
@@ -107,6 +122,8 @@ async function persistQueuedRoom(roomId: number) {
 
 /**
  * Queue room persistence without blocking realtime sync path.
+ *
+ * We debounce writes so a burst of edits does not turn into a burst of DB work.
  */
 export function scheduleRoomPersist(roomId: number, shapes: Shape[], delayMs = 180) {
     pendingPersistShapes.set(roomId, shapes);

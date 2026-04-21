@@ -20,9 +20,11 @@ for (const envPath of envCandidates) {
 }
 
 const jwtSecret = process.env.JWT_SECRET;
+const redisUrl = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
 
 if (!jwtSecret) {
     throw new Error("JWT_SECRET is not defined");
 }
 
 export const JWT_SECRET: string = jwtSecret;
+export const REDIS_URL: string = redisUrl;

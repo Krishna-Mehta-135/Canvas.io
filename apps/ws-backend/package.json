@@ -18,11 +18,12 @@
   },
   "devDependencies": {
     "@repo/backend-common": "workspace: *",
-    "@repo/common": "workspace: *",
     "@repo/canvas-engine": "workspace: *",
+    "@repo/common": "workspace: *",
+    "@repo/db": "workspace: *",
+    "@repo/redis-sync": "workspace: *",
     "@repo/typescript-config": "workspace:*",
     "@types/jsonwebtoken": "^9.0.10",
-    "@repo/db": "workspace: *",
     "@types/ws": "^8.18.1"
   }
 }

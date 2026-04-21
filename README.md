@@ -7,7 +7,7 @@
 ![Prisma](https://img.shields.io/badge/prisma-ORM-2D3748?logo=prisma&logoColor=white)
 
 Canvas.io is a real-time collaborative whiteboard built as a Turborepo monorepo.
-It combines a modern Next.js frontend, an Express API, and a WebSocket realtime server, plus shared internal packages for types, DB access, UI, and canvas behavior.
+It combines a modern Next.js frontend, an Express API, a WebSocket realtime server, Redis for cross-node sync, plus shared internal packages for types, DB access, UI, and canvas behavior.
 
 ## Table of Contents
 
@@ -36,6 +36,7 @@ flowchart LR
 	U[Browser Client] -->|HTTP| W[apps/web Next.js]
 	W -->|REST calls| H[apps/http-backend Express]
 	W -->|WS events| S[apps/ws-backend WebSocket]
+	S -->|Pub/Sub + version state| R[(Redis)]
 	H -->|Prisma| D[(PostgreSQL)]
 	S -->|Prisma| D
 	H --> C[packages/common]
@@ -59,6 +60,7 @@ flowchart LR
 | --- | --- |
 | `packages/db` | Prisma schema, client, migrations |
 | `packages/common` | Shared types/schemas |
+| `packages/redis-sync` | Shared Redis room sync primitives |
 | `packages/canvas-engine` | Reusable canvas interaction/rendering logic |
 | `packages/ui` | Shared UI components |
 | `packages/backend-common` | Shared backend env/config loading |
@@ -109,6 +111,7 @@ pnpm dev
 | `JWT_SECRET` | Yes | `apps/http-backend`, `apps/ws-backend` | Required for auth token signing/verification |
 | `PORT` | Yes | `apps/http-backend` | Set to `3001` to match frontend API config |
 | `DATABASE_URL` | Yes | `packages/db` and both backends | PostgreSQL connection string |
+| `REDIS_URL` | Yes for multi-node WS sync | `apps/ws-backend` | Redis connection string for room versioning and Pub/Sub |
 | `WEB_APP_URL` | Yes for reset email links | `apps/http-backend` | Base URL of the web app, for example `http://localhost:3000` |
 | `GMAIL_USER` | Yes for password reset email | `apps/http-backend` | Gmail address used to authenticate SMTP |
 | `GMAIL_APP_PASSWORD` | Yes for password reset email | `apps/http-backend` | Google app password for the Gmail account |
@@ -194,5 +197,6 @@ Snap controls connector endpoint binding for `line` and `arrow` shapes:
 
 - If auth/canvas requests fail, ensure HTTP backend is running on port `3001`.
 - If Prisma cannot connect, verify `DATABASE_URL` and check DB health with `pnpm db:logs`.
+- If multi-node realtime sync is not behaving as expected, verify `REDIS_URL` and Redis connectivity first.
 - If either backend crashes on boot, confirm `JWT_SECRET` is set.
 - If code changes are not reflected in backend dev processes, rebuild/restart that app (current backend `dev` script compiles then starts).

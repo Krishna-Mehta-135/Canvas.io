@@ -11,7 +11,8 @@ import {
     joinActiveRoom,
     setRoomPresence,
 } from "./connectionState.js";
-import {initializeRoomSync, roomSyncState, scheduleRoomPersist} from "./roomSync.js";
+import {cacheRoomSyncState, initializeRoomSync, scheduleRoomPersist} from "./roomSync.js";
+import {commitRoomSnapshot, getRoomVersion, NODE_ID} from "@repo/redis-sync";
 
 async function hasOwnerRoomAccess(roomId: number, userId: string) {
     const room = await prismaClient.room.findFirst({
@@ -187,18 +188,17 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
             return;
         }
 
-        let roomState = roomSyncState.get(roomId);
-        if (!roomState) {
-            roomState = await initializeRoomSync(roomId);
-        }
-
-        if (version !== roomState.version) {
+        // Redis is the source of truth for the version. If the client is behind,
+        // we send the authoritative snapshot so it can resync without guessing.
+        const authoritativeVersion = await getRoomVersion(roomId);
+        if (version !== authoritativeVersion) {
+            const roomState = await initializeRoomSync(roomId);
             const presenceState = getRoomPresenceState(roomId);
 
             ws.send(
                 JSON.stringify({
                     type: "sync_error",
-                    reason: `Version mismatch: client has ${version}, server has ${roomState.version}`,
+                    reason: `Version mismatch: client has ${version}, server has ${authoritativeVersion}`,
                 } as ServerMessage)
             );
 
@@ -245,10 +245,44 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
             shapeIds.add(shape.id);
         }
 
-        scheduleRoomPersist(roomId, typedShapes);
+        // The commit is atomic in Redis: version bump, snapshot replacement, and
+        // cross-node publish all happen as one room transition.
+        const nextVersion = await commitRoomSnapshot(roomId, version, typedShapes, {
+            originNodeId: NODE_ID,
+            senderId: userId,
+        });
 
-        roomState.version += 1;
-        roomState.shapes = typedShapes;
+        if (!nextVersion) {
+            const roomState = await initializeRoomSync(roomId);
+            const presenceState = getRoomPresenceState(roomId);
+
+            ws.send(
+                JSON.stringify({
+                    type: "sync_error",
+                    reason: `Version mismatch: client has ${version}, server has ${roomState.version}`,
+                } as ServerMessage)
+            );
+
+            ws.send(
+                JSON.stringify({
+                    type: "room_joined",
+                    roomId,
+                    version: roomState.version,
+                    shapes: roomState.shapes,
+                    userId,
+                    connectedUsersCount: presenceState.connectedUsersCount,
+                    presences: presenceState.presences,
+                } as ServerMessage)
+            );
+            return;
+        }
+
+        scheduleRoomPersist(roomId, typedShapes);
+        cacheRoomSyncState({
+            roomId,
+            version: nextVersion,
+            shapes: typedShapes,
+        });
 
         // Ack sender with new authoritative version only to avoid
         // expensive full-state hydrate on every local edit.
@@ -256,14 +290,14 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
             JSON.stringify({
                 type: "canvas_snapshot_ack",
                 roomId,
-                version: roomState.version,
+                version: nextVersion,
             } as ServerMessage)
         );
 
         const broadcastMsg: ServerMessage = {
             type: "canvas_snapshot_broadcast",
             roomId,
-            version: roomState.version,
+            version: nextVersion,
             shapes: typedShapes,
             senderId: userId,
         };

@@ -1,6 +1,7 @@
 import {RawData} from "ws";
 import type {Shape} from "@repo/canvas-engine";
-import type {ServerMessage, WsMessage} from "@repo/common";
+import {ClientWsMessageSchema} from "@repo/common/ws-protocol";
+import type {ServerMessage} from "@repo/common";
 import {prismaClient} from "@repo/db/client";
 import type {AuthenticatedWebSocket} from "./types.js";
 import {
@@ -38,7 +39,31 @@ function rejectForbidden(ws: AuthenticatedWebSocket) {
 }
 
 export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: string, data: RawData) {
-    const parsed = JSON.parse(data.toString()) as WsMessage;
+    let parsedJson: unknown;
+    try {
+        parsedJson = JSON.parse(data.toString());
+    } catch {
+        ws.send(
+            JSON.stringify({
+                type: "sync_error",
+                reason: "Invalid JSON payload",
+            } as ServerMessage)
+        );
+        return;
+    }
+
+    const messageValidation = ClientWsMessageSchema.safeParse(parsedJson);
+    if (!messageValidation.success) {
+        ws.send(
+            JSON.stringify({
+                type: "sync_error",
+                reason: "Invalid message payload",
+            } as ServerMessage)
+        );
+        return;
+    }
+
+    const parsed = messageValidation.data;
 
     if (parsed.type === "join_room") {
         const roomId = parsed.roomId;

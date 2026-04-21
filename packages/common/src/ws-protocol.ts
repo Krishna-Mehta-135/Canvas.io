@@ -5,7 +5,15 @@
  * Version tracking prevents overwrite collisions and enables explicit resync.
  */
 
-import { Shape } from "@repo/canvas-engine";
+import type { Shape } from "@repo/canvas-engine";
+import {z} from "zod";
+
+const CanvasShapeSchema = z
+  .object({
+    id: z.string().min(1).max(200),
+    type: z.string().min(1).max(64),
+  })
+  .passthrough();
 
 /**
  * Cursor position shared between collaborators for presence rendering.
@@ -114,6 +122,39 @@ export type ClientMessage = Extract<
   WsMessage,
   { type: "join_room" | "canvas_snapshot" | "update_presence" }
 >;
+
+export const PresenceCursorSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+});
+
+export const JoinRoomMessageSchema = z.object({
+  type: z.literal("join_room"),
+  roomId: z.number().int().positive(),
+});
+
+export const CanvasSnapshotMessageSchema = z.object({
+  type: z.literal("canvas_snapshot"),
+  roomId: z.number().int().positive(),
+  version: z.number().int().min(0),
+  shapes: z.array(CanvasShapeSchema).max(5000),
+});
+
+export const UpdatePresenceMessageSchema = z.object({
+  type: z.literal("update_presence"),
+  roomId: z.number().int().positive(),
+  cursor: PresenceCursorSchema.nullable(),
+  selectedIds: z.array(z.string().min(1).max(200)).max(1000),
+  tool: z.string().min(1).max(64).nullable(),
+});
+
+export const ClientWsMessageSchema = z.discriminatedUnion("type", [
+  JoinRoomMessageSchema,
+  CanvasSnapshotMessageSchema,
+  UpdatePresenceMessageSchema,
+]);
+
+export type ClientWsMessage = z.infer<typeof ClientWsMessageSchema>;
 
 /**
  * Per-room sync state tracked by server.

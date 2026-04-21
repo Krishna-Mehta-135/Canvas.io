@@ -1,7 +1,14 @@
 import {prismaClient} from "@repo/db/client";
 import {ApiError} from "../utils/ApiError";
 import {ApiResponse} from "../utils/ApiResponse";
-import {CreateRoomSchema, RenameRoomSlugSchema} from "@repo/common/types";
+import {
+    CreateRoomSchema,
+    RenameRoomSlugSchema,
+    RoomIdParamSchema,
+    RoomSlugParamSchema,
+    OwnerSlugParamsSchema,
+    ReplaceShapesBodySchema,
+} from "@repo/common/types";
 import {asyncHandler} from "../utils/asyncHandler";
 
 function requireUserId(userId?: string) {
@@ -107,11 +114,12 @@ const listMyRooms = asyncHandler(async (req, res) => {
 });
 
 const getShapes = asyncHandler(async (req, res) => {
-    const roomId = Number(req.params.roomId);
-
-    if (isNaN(roomId)) {
+    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+    if (!paramsValidation.success) {
         throw new ApiError(400, "Invalid roomId");
     }
+
+    const {roomId} = paramsValidation.data;
 
     const userId = requireUserId(req.userId);
     await assertOwnerRoomAccess(roomId, userId);
@@ -147,30 +155,22 @@ const getShapes = asyncHandler(async (req, res) => {
 
 //save the full current canvas snapshot for this room
 const replaceShapes = asyncHandler(async (req, res) => {
-    const roomId = Number(req.params.roomId);
-
-    if (isNaN(roomId)) {
+    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+    if (!paramsValidation.success) {
         throw new ApiError(400, "Invalid roomId");
     }
+
+    const {roomId} = paramsValidation.data;
 
     const userId = requireUserId(req.userId);
     await assertOwnerRoomAccess(roomId, userId);
 
-    const shapes = req.body?.shapes;
-
-    if (!Array.isArray(shapes)) {
-        throw new ApiError(400, "shapes must be an array");
+    const bodyValidation = ReplaceShapesBodySchema.safeParse(req.body);
+    if (!bodyValidation.success) {
+        throw new ApiError(400, "Invalid shapes payload");
     }
 
-    for (const shape of shapes) {
-        if (typeof shape !== "object" || shape === null) {
-            throw new ApiError(400, "Each shape must be an object");
-        }
-
-        if (typeof shape.id !== "string" || typeof shape.type !== "string") {
-            throw new ApiError(400, "Each shape must include string id and type");
-        }
-    }
+    const {shapes} = bodyValidation.data;
 
     try {
         // Deduplicate shapes by ID (keep last occurrence) to avoid unique constraint violations
@@ -223,15 +223,17 @@ const replaceShapes = asyncHandler(async (req, res) => {
 });
 
 const getRoomIdFromSlug = asyncHandler(async (req, res) => {
-    const slug = req.params.slug;
-
-    if (typeof slug !== "string") {
+    const paramsValidation = RoomSlugParamSchema.safeParse(req.params);
+    if (!paramsValidation.success) {
         throw new ApiError(400, "Invalid slug");
     }
 
+    const userId = requireUserId(req.userId);
+    const {slug} = paramsValidation.data;
+
     const room = await prismaClient.room.findFirst({
         where: {
-            adminId: req.userId,
+            adminId: userId,
             slug,
         },
         include: {
@@ -262,13 +264,13 @@ const getRoomIdFromSlug = asyncHandler(async (req, res) => {
 });
 
 const getRoomByOwnerAndSlug = asyncHandler(async (req, res) => {
-    const ownerHandle = req.params.userHandle;
-    const slug = req.params.slug;
-    const userId = requireUserId(req.userId);
-
-    if (typeof ownerHandle !== "string" || typeof slug !== "string") {
+    const paramsValidation = OwnerSlugParamsSchema.safeParse(req.params);
+    if (!paramsValidation.success) {
         throw new ApiError(400, "Invalid room route parameters");
     }
+
+    const userId = requireUserId(req.userId);
+    const {userHandle: ownerHandle, slug} = paramsValidation.data;
 
     const room = await prismaClient.room.findFirst({
         where: {
@@ -306,11 +308,12 @@ const getRoomByOwnerAndSlug = asyncHandler(async (req, res) => {
 });
 
 const renameRoomSlug = asyncHandler(async (req, res) => {
-    const roomId = Number(req.params.roomId);
-
-    if (isNaN(roomId)) {
+    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+    if (!paramsValidation.success) {
         throw new ApiError(400, "Invalid roomId");
     }
+
+    const {roomId} = paramsValidation.data;
 
     const validationResult = RenameRoomSlugSchema.safeParse(req.body);
     if (!validationResult.success) {
@@ -356,12 +359,13 @@ const renameRoomSlug = asyncHandler(async (req, res) => {
 });
 
 const getInviteLink = asyncHandler(async (req, res) => {
-    const roomId = Number(req.params.roomId);
-    const userId = requireUserId(req.userId);
-
-    if (isNaN(roomId)) {
+    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+    if (!paramsValidation.success) {
         throw new ApiError(400, "Invalid roomId");
     }
+
+    const userId = requireUserId(req.userId);
+    const {roomId} = paramsValidation.data;
 
     await assertOwnerRoomAccess(roomId, userId);
 

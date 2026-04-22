@@ -21,6 +21,7 @@
     "@repo/canvas-engine": "workspace: *",
     "@repo/common": "workspace: *",
     "@repo/db": "workspace: *",
+    "@repo/queue-sync": "workspace: *",
     "@repo/redis-sync": "workspace: *",
     "@repo/typescript-config": "workspace:*",
     "@types/jsonwebtoken": "^9.0.10",

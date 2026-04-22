@@ -112,6 +112,14 @@ pnpm dev
 | `PORT` | Yes | `apps/http-backend` | Set to `3001` to match frontend API config |
 | `DATABASE_URL` | Yes | `packages/db` and both backends | PostgreSQL connection string |
 | `REDIS_URL` | Yes for multi-node WS sync | `apps/ws-backend` | Redis connection string for room versioning and Pub/Sub |
+| `RABBITMQ_URL` | Yes for durable cross-node sync | `apps/ws-backend` | RabbitMQ connection string for durable room event queue |
+| `RABBITMQ_ROOM_EVENTS_EXCHANGE` | Optional | `apps/ws-backend` | RabbitMQ exchange name for room events, default `canvas.room.events` |
+| `RABBITMQ_ROOM_EVENTS_QUEUE_PREFIX` | Optional | `apps/ws-backend` | Durable queue name prefix per node, default `canvas.room.events.node` |
+| `RABBITMQ_ROOM_EVENTS_PARTITIONS` | Optional | `apps/ws-backend` | Partition count for room routing keys, default `16` |
+| `RABBITMQ_PREFETCH` | Optional | `apps/ws-backend` | RabbitMQ consumer prefetch for backpressure, default `200` |
+| `RABBITMQ_DB_PERSIST_EXCHANGE` | Optional | `apps/ws-backend` | RabbitMQ exchange name for DB persist jobs, default `canvas.room.persist` |
+| `RABBITMQ_DB_PERSIST_QUEUE` | Optional | `apps/ws-backend` | Durable DB persist queue name, default `canvas.room.persist.jobs` |
+| `RABBITMQ_DB_PERSIST_ROUTING_KEY` | Optional | `apps/ws-backend` | Routing key for DB persist jobs, default `room.persist` |
 | `WS_MAX_MESSAGE_BYTES` | Optional | `apps/ws-backend` | Max accepted websocket payload bytes, default `524288` |
 | `WS_SNAPSHOT_RATE_LIMIT_COUNT` | Optional | `apps/ws-backend` | Max `canvas_snapshot` messages per window, default `30` |
 | `WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS` | Optional | `apps/ws-backend` | Snapshot rate limit window in ms, default `1000` |
@@ -202,7 +210,7 @@ Snap controls connector endpoint binding for `line` and `arrow` shapes:
 - If auth/canvas requests fail, ensure HTTP backend is running on port `3001`.
 - If Prisma cannot connect, verify `DATABASE_URL` and check DB health with `pnpm db:logs`.
 - If multi-node realtime sync is not behaving as expected, verify `REDIS_URL` and Redis connectivity first.
-- RabbitMQ starts with `pnpm db:up`. Check broker health at `http://localhost:15672`.
+- If durable queue fan-out lags or stalls, verify `RABBITMQ_URL` and broker health at `http://localhost:15672`.
 - If either backend crashes on boot, confirm `JWT_SECRET` is set.
 - If code changes are not reflected in backend dev processes, rebuild/restart that app (current backend `dev` script compiles then starts).
 

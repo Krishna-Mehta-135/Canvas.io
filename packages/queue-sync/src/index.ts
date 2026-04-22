@@ -1,0 +1,458 @@
+import amqp, {type Channel, type ChannelModel, type ConfirmChannel, type ConsumeMessage, type Options} from "amqplib";
+import {once} from "node:events";
+import type {Shape} from "@repo/canvas-engine";
+import {
+    RABBITMQ_DB_PERSIST_EXCHANGE,
+    RABBITMQ_DB_PERSIST_QUEUE,
+    RABBITMQ_DB_PERSIST_ROUTING_KEY,
+    RABBITMQ_PREFETCH,
+    RABBITMQ_ROOM_EVENTS_EXCHANGE,
+    RABBITMQ_ROOM_EVENTS_PARTITIONS,
+    RABBITMQ_ROOM_EVENTS_QUEUE_PREFIX,
+    RABBITMQ_URL,
+} from "@repo/backend-common/config";
+import {
+    RoomSnapshotBroadcastEventSchema,
+    type RoomSnapshotBroadcastEvent,
+} from "@repo/common/ws-protocol";
+import {z} from "zod";
+
+const DbPersistShapeSchema = z
+    .object({
+        id: z.string().min(1).max(200),
+        type: z.string().min(1).max(64),
+    })
+    .passthrough();
+
+const RoomPersistJobSchema = z.object({
+    jobId: z.string().min(8).max(128),
+    roomId: z.number().int().positive(),
+    version: z.number().int().min(1),
+    shapes: z.array(DbPersistShapeSchema).max(5000),
+    enqueuedAtMs: z.number().int().nonnegative(),
+});
+
+export type RoomPersistJob = {
+    jobId: string;
+    roomId: number;
+    version: number;
+    shapes: Shape[];
+    enqueuedAtMs: number;
+};
+
+let publisherConnection: ChannelModel | null = null;
+let publisherChannel: ConfirmChannel | null = null;
+let subscriberConnection: ChannelModel | null = null;
+let subscriberChannel: Channel | null = null;
+let persistSubscriberConnection: ChannelModel | null = null;
+let persistSubscriberChannel: Channel | null = null;
+let activeConsumerTag: string | null = null;
+let activePersistConsumerTag: string | null = null;
+let subscribedNodeId: string | null = null;
+let subscribedHandler: ((event: RoomSnapshotBroadcastEvent) => void | Promise<void>) | null = null;
+let persistSubscribedHandler: ((job: RoomPersistJob) => void | Promise<void>) | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let persistReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function normalizePositiveInt(value: number, fallback: number) {
+    if (!Number.isFinite(value) || value <= 0) {
+        return fallback;
+    }
+
+    return Math.floor(value);
+}
+
+function roomPartition(roomId: number) {
+    const partitions = normalizePositiveInt(RABBITMQ_ROOM_EVENTS_PARTITIONS, 16);
+    return roomId % partitions;
+}
+
+function partitionRoutingKey(partition: number) {
+    return `room.partition.${partition}`;
+}
+
+async function assertExchange(channel: Channel) {
+    await channel.assertExchange(RABBITMQ_ROOM_EVENTS_EXCHANGE, "direct", {
+        durable: true,
+    });
+}
+
+async function createPublisherChannel() {
+    publisherConnection = await amqp.connect(RABBITMQ_URL);
+    const connection = publisherConnection;
+
+    connection.on("error", (error) => {
+        console.error("[WS][RabbitMQ] publisher connection error", error);
+    });
+    connection.on("close", () => {
+        publisherConnection = null;
+        publisherChannel = null;
+    });
+
+    const channel = await connection.createConfirmChannel();
+    publisherChannel = channel;
+    await assertExchange(channel);
+    await channel.assertExchange(RABBITMQ_DB_PERSIST_EXCHANGE, "direct", {
+        durable: true,
+    });
+}
+
+async function createSubscriberChannel(nodeId: string) {
+    subscriberConnection = await amqp.connect(RABBITMQ_URL);
+    const connection = subscriberConnection;
+
+    connection.on("error", (error) => {
+        console.error("[WS][RabbitMQ] subscriber connection error", error);
+    });
+    connection.on("close", () => {
+        subscriberConnection = null;
+        subscriberChannel = null;
+        activeConsumerTag = null;
+
+        if (subscribedNodeId && subscribedHandler) {
+            scheduleResubscribe(subscribedNodeId, subscribedHandler);
+        }
+    });
+
+    const channel = await connection.createChannel();
+    subscriberChannel = channel;
+    await assertExchange(channel);
+
+    const queueName = `${RABBITMQ_ROOM_EVENTS_QUEUE_PREFIX}.${nodeId}`;
+
+    const queueOptions: Options.AssertQueue = {
+        durable: true,
+        arguments: {
+            // Prevent dead queues from living forever if a node is removed.
+            "x-expires": 24 * 60 * 60 * 1000,
+        },
+    };
+
+    const assertedQueue = await channel.assertQueue(queueName, queueOptions);
+
+    const partitions = normalizePositiveInt(RABBITMQ_ROOM_EVENTS_PARTITIONS, 16);
+    for (let partition = 0; partition < partitions; partition += 1) {
+        await channel.bindQueue(
+            assertedQueue.queue,
+            RABBITMQ_ROOM_EVENTS_EXCHANGE,
+            partitionRoutingKey(partition)
+        );
+    }
+
+    await channel.prefetch(normalizePositiveInt(RABBITMQ_PREFETCH, 200));
+
+    return assertedQueue.queue;
+}
+
+async function createPersistSubscriberChannel() {
+    persistSubscriberConnection = await amqp.connect(RABBITMQ_URL);
+    const connection = persistSubscriberConnection;
+
+    connection.on("error", (error) => {
+        console.error("[WS][RabbitMQ] persist subscriber connection error", error);
+    });
+
+    connection.on("close", () => {
+        persistSubscriberConnection = null;
+        persistSubscriberChannel = null;
+        activePersistConsumerTag = null;
+
+        if (persistSubscribedHandler) {
+            schedulePersistResubscribe(persistSubscribedHandler);
+        }
+    });
+
+    const channel = await connection.createChannel();
+    persistSubscriberChannel = channel;
+    await channel.assertExchange(RABBITMQ_DB_PERSIST_EXCHANGE, "direct", {
+        durable: true,
+    });
+    await channel.assertQueue(RABBITMQ_DB_PERSIST_QUEUE, {
+        durable: true,
+    });
+    await channel.bindQueue(
+        RABBITMQ_DB_PERSIST_QUEUE,
+        RABBITMQ_DB_PERSIST_EXCHANGE,
+        RABBITMQ_DB_PERSIST_ROUTING_KEY
+    );
+    await channel.prefetch(normalizePositiveInt(RABBITMQ_PREFETCH, 200));
+}
+
+async function ensurePublisherChannel() {
+    if (publisherConnection && publisherChannel) {
+        return;
+    }
+
+    await createPublisherChannel();
+}
+
+function scheduleResubscribe(nodeId: string, handler: (event: RoomSnapshotBroadcastEvent) => void | Promise<void>) {
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+    }
+
+    reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void subscribeDurableRoomEvents(nodeId, handler);
+    }, 1000);
+}
+
+function schedulePersistResubscribe(handler: (job: RoomPersistJob) => void | Promise<void>) {
+    if (persistReconnectTimer) {
+        clearTimeout(persistReconnectTimer);
+    }
+
+    persistReconnectTimer = setTimeout(() => {
+        persistReconnectTimer = null;
+        void subscribeRoomPersistJobs(handler);
+    }, 1000);
+}
+
+export async function publishDurableRoomEvent(event: RoomSnapshotBroadcastEvent) {
+    const validatedEvent = RoomSnapshotBroadcastEventSchema.parse(event);
+    await ensurePublisherChannel();
+
+    const routingKey = partitionRoutingKey(roomPartition(validatedEvent.roomId));
+    const content = Buffer.from(JSON.stringify(validatedEvent));
+
+    const acceptedByBuffer = publisherChannel!.publish(
+        RABBITMQ_ROOM_EVENTS_EXCHANGE,
+        routingKey,
+        content,
+        {
+            persistent: true,
+            contentType: "application/json",
+            timestamp: validatedEvent.publishedAtMs,
+            messageId: validatedEvent.actionId,
+            type: validatedEvent.type,
+        }
+    );
+
+    if (!acceptedByBuffer) {
+        await once(publisherChannel!, "drain");
+    }
+
+    await publisherChannel!.waitForConfirms();
+}
+
+async function consumeMessage(
+    message: ConsumeMessage,
+    handler: (event: RoomSnapshotBroadcastEvent) => void | Promise<void>
+) {
+    if (!subscriberChannel) {
+        return;
+    }
+
+    let payload: unknown;
+    try {
+        payload = JSON.parse(message.content.toString("utf8"));
+    } catch {
+        subscriberChannel.ack(message);
+        return;
+    }
+
+    const parsed = RoomSnapshotBroadcastEventSchema.safeParse(payload);
+    if (!parsed.success) {
+        subscriberChannel.ack(message);
+        return;
+    }
+
+    const normalizedEvent: RoomSnapshotBroadcastEvent = {
+        ...parsed.data,
+        shapes: parsed.data.shapes as Shape[],
+    };
+
+    try {
+        await handler(normalizedEvent);
+        subscriberChannel.ack(message);
+    } catch (error) {
+        console.error("[WS][RabbitMQ] failed to process durable room event", error);
+        subscriberChannel.nack(message, false, true);
+    }
+}
+
+async function consumePersistMessage(
+    message: ConsumeMessage,
+    handler: (job: RoomPersistJob) => void | Promise<void>
+) {
+    if (!persistSubscriberChannel) {
+        return;
+    }
+
+    let payload: unknown;
+    try {
+        payload = JSON.parse(message.content.toString("utf8"));
+    } catch {
+        persistSubscriberChannel.ack(message);
+        return;
+    }
+
+    const parsed = RoomPersistJobSchema.safeParse(payload);
+    if (!parsed.success) {
+        persistSubscriberChannel.ack(message);
+        return;
+    }
+
+    const job: RoomPersistJob = {
+        ...parsed.data,
+        shapes: parsed.data.shapes as Shape[],
+    };
+
+    try {
+        await handler(job);
+        persistSubscriberChannel.ack(message);
+    } catch (error) {
+        console.error("[WS][RabbitMQ] failed to process room persist job", error);
+        persistSubscriberChannel.nack(message, false, true);
+    }
+}
+
+export async function publishRoomPersistJob(job: RoomPersistJob) {
+    const validatedJob = RoomPersistJobSchema.parse(job);
+    await ensurePublisherChannel();
+
+    const acceptedByBuffer = publisherChannel!.publish(
+        RABBITMQ_DB_PERSIST_EXCHANGE,
+        RABBITMQ_DB_PERSIST_ROUTING_KEY,
+        Buffer.from(JSON.stringify(validatedJob)),
+        {
+            persistent: true,
+            contentType: "application/json",
+            timestamp: validatedJob.enqueuedAtMs,
+            messageId: validatedJob.jobId,
+            type: "room_persist_job",
+        }
+    );
+
+    if (!acceptedByBuffer) {
+        await once(publisherChannel!, "drain");
+    }
+
+    await publisherChannel!.waitForConfirms();
+}
+
+export async function subscribeRoomPersistJobs(
+    handler: (job: RoomPersistJob) => void | Promise<void>
+) {
+    persistSubscribedHandler = handler;
+
+    if (!persistSubscriberConnection || !persistSubscriberChannel) {
+        await createPersistSubscriberChannel();
+    }
+
+    if (activePersistConsumerTag) {
+        return;
+    }
+
+    const consumeResult = await persistSubscriberChannel!.consume(
+        RABBITMQ_DB_PERSIST_QUEUE,
+        (message) => {
+            if (!message) {
+                return;
+            }
+
+            void consumePersistMessage(message, handler);
+        },
+        {
+            noAck: false,
+        }
+    );
+
+    activePersistConsumerTag = consumeResult.consumerTag;
+}
+
+export async function subscribeDurableRoomEvents(
+    nodeId: string,
+    handler: (event: RoomSnapshotBroadcastEvent) => void | Promise<void>
+) {
+    subscribedNodeId = nodeId;
+    subscribedHandler = handler;
+
+    if (!subscriberConnection || !subscriberChannel) {
+        const queue = await createSubscriberChannel(nodeId);
+
+        const consumeResult = await subscriberChannel!.consume(
+            queue,
+            (message) => {
+                if (!message) {
+                    return;
+                }
+
+                void consumeMessage(message, handler);
+            },
+            {
+                noAck: false,
+            }
+        );
+
+        activeConsumerTag = consumeResult.consumerTag;
+        return;
+    }
+
+    if (activeConsumerTag) {
+        return;
+    }
+
+    const queue = `${RABBITMQ_ROOM_EVENTS_QUEUE_PREFIX}.${nodeId}`;
+    const consumeResult = await subscriberChannel.consume(
+        queue,
+        (message) => {
+            if (!message) {
+                return;
+            }
+
+            void consumeMessage(message, handler);
+        },
+        {
+            noAck: false,
+        }
+    );
+
+    activeConsumerTag = consumeResult.consumerTag;
+}
+
+export async function closeDurableRoomEventBus() {
+    if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+    }
+
+    if (persistReconnectTimer) {
+        clearTimeout(persistReconnectTimer);
+        persistReconnectTimer = null;
+    }
+
+    try {
+        if (subscriberChannel && activeConsumerTag) {
+            await subscriberChannel.cancel(activeConsumerTag);
+            activeConsumerTag = null;
+        }
+
+        if (persistSubscriberChannel && activePersistConsumerTag) {
+            await persistSubscriberChannel.cancel(activePersistConsumerTag);
+            activePersistConsumerTag = null;
+        }
+    } catch {
+        // Ignore shutdown races.
+    }
+
+    await Promise.all([
+        subscriberChannel?.close().catch(() => undefined),
+        subscriberConnection?.close().catch(() => undefined),
+        persistSubscriberChannel?.close().catch(() => undefined),
+        persistSubscriberConnection?.close().catch(() => undefined),
+        publisherChannel?.close().catch(() => undefined),
+        publisherConnection?.close().catch(() => undefined),
+    ]);
+
+    subscriberChannel = null;
+    subscriberConnection = null;
+    persistSubscriberChannel = null;
+    persistSubscriberConnection = null;
+    publisherChannel = null;
+    publisherConnection = null;
+    activePersistConsumerTag = null;
+    subscribedNodeId = null;
+    subscribedHandler = null;
+    persistSubscribedHandler = null;
+}

@@ -1,6 +1,8 @@
+import {randomUUID} from "node:crypto";
 import {prismaClient} from "@repo/db/client";
 import type {Shape} from "@repo/canvas-engine";
 import type {RoomSyncState} from "@repo/common";
+import {publishRoomPersistJob} from "@repo/queue-sync";
 import {getRoomSnapshot, getRoomVersion, setRoomSnapshot} from "@repo/redis-sync";
 
 /**
@@ -139,4 +141,23 @@ export function scheduleRoomPersist(roomId: number, shapes: Shape[], delayMs = 1
     }, delayMs);
 
     pendingPersistTimer.set(roomId, timer);
+}
+
+/**
+ * Persist through RabbitMQ so DB writes are durable and replayable.
+ * Falls back to in-process debounce persistence if the queue is unavailable.
+ */
+export async function enqueueRoomPersist(roomId: number, version: number, shapes: Shape[]) {
+    try {
+        await publishRoomPersistJob({
+            jobId: randomUUID(),
+            roomId,
+            version,
+            shapes,
+            enqueuedAtMs: Date.now(),
+        });
+    } catch (error) {
+        console.error(`[WS] Failed to enqueue room ${roomId} persist job; using local fallback`, error);
+        scheduleRoomPersist(roomId, shapes);
+    }
 }

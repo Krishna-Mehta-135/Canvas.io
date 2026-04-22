@@ -2,6 +2,7 @@ import {randomUUID} from "node:crypto";
 import Redis from "ioredis";
 import type {Shape} from "@repo/canvas-engine";
 import type {RoomSyncState} from "@repo/common";
+import {RoomSnapshotBroadcastEventSchema} from "@repo/common/ws-protocol";
 import {REDIS_URL} from "@repo/backend-common/config";
 
 export const NODE_ID = randomUUID();
@@ -28,6 +29,7 @@ export type RedisRoomEvent = {
     version: number;
     shapes: Shape[];
     senderId?: string;
+    actionId: string;
     publishedAtMs: number;
     type: "canvas_snapshot_broadcast";
 };
@@ -117,7 +119,7 @@ export async function commitRoomSnapshot(
     roomId: number,
     expectedVersion: number,
     snapshot: Shape[],
-    event: Pick<RedisRoomEvent, "originNodeId" | "senderId">
+    event: Pick<RedisRoomEvent, "originNodeId" | "senderId" | "actionId">
 ) {
     await ensureReady();
 
@@ -136,6 +138,7 @@ export async function commitRoomSnapshot(
             roomId,
             originNodeId: event.originNodeId,
             senderId: event.senderId,
+            actionId: event.actionId,
             publishedAtMs: Date.now(),
             type: "canvas_snapshot_broadcast",
             version: nextVersion,
@@ -170,11 +173,17 @@ export async function subscribeRoomEvents(handler: (event: RedisRoomEvent) => vo
             }
 
             const event = JSON.parse(message) as RedisRoomEvent;
-            if (typeof event.roomId !== "number" || !event.originNodeId) {
+            const parsedEvent = RoomSnapshotBroadcastEventSchema.safeParse(event);
+            if (!parsedEvent.success) {
                 return;
             }
 
-            await handler(event);
+            const normalizedEvent = {
+                ...parsedEvent.data,
+                shapes: parsedEvent.data.shapes as Shape[],
+            } as RedisRoomEvent;
+
+            await handler(normalizedEvent);
         } catch (error) {
             console.error("[WS][Redis] Failed to process room event", {channel, error});
         }

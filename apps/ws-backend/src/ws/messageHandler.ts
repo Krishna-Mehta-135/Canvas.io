@@ -1,9 +1,11 @@
+import {randomUUID} from "node:crypto";
 import {RawData} from "ws";
 import type {Shape} from "@repo/canvas-engine";
 import {ClientWsMessageSchema} from "@repo/common/ws-protocol";
 import type {ServerMessage} from "@repo/common";
 import {prismaClient} from "@repo/db/client";
 import type {AuthenticatedWebSocket} from "./types.js";
+import {publishDurableRoomEvent} from "@repo/queue-sync";
 import {
     broadcastRoomPresenceState,
     broadcastToRoom,
@@ -11,7 +13,7 @@ import {
     joinActiveRoom,
     setRoomPresence,
 } from "./connectionState.js";
-import {cacheRoomSyncState, initializeRoomSync, scheduleRoomPersist} from "./roomSync.js";
+import {cacheRoomSyncState, enqueueRoomPersist, initializeRoomSync} from "./roomSync.js";
 import {commitRoomSnapshot, getRoomVersion, NODE_ID} from "@repo/redis-sync";
 import {
     recordInvalidJsonPayload,
@@ -21,6 +23,7 @@ import {
     recordSnapshotCommitFailure,
     recordSnapshotCommitted,
     recordVersionMismatch,
+    recordDurablePublishFailure,
 } from "./metrics.js";
 
 const WS_MAX_MESSAGE_BYTES = Number(process.env.WS_MAX_MESSAGE_BYTES ?? 512 * 1024);
@@ -229,6 +232,7 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
     if (parsed.type === "canvas_snapshot") {
         const {roomId, version, shapes} = parsed;
         const snapshotStartedAtMs = Date.now();
+        const actionId = randomUUID();
 
         if (isSnapshotRateLimited(ws)) {
             recordRateLimitedSnapshot();
@@ -325,6 +329,7 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
         const nextVersion = await commitRoomSnapshot(roomId, version, typedShapes, {
             originNodeId: NODE_ID,
             senderId: userId,
+            actionId,
         });
 
         if (!nextVersion) {
@@ -357,7 +362,29 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
         const processLatencyMs = Math.max(0, Date.now() - snapshotStartedAtMs);
         recordSnapshotCommitted(commitLatencyMs, processLatencyMs);
 
-        scheduleRoomPersist(roomId, typedShapes);
+        try {
+            await publishDurableRoomEvent({
+                type: "canvas_snapshot_broadcast",
+                roomId,
+                version: nextVersion,
+                shapes: typedShapes,
+                senderId: userId,
+                originNodeId: NODE_ID,
+                actionId,
+                publishedAtMs: Date.now(),
+            });
+        } catch (error) {
+            // Redis Pub/Sub remains available as low-latency fan-out fallback.
+            recordDurablePublishFailure();
+            console.error("[WS] Failed to publish durable room event", {
+                roomId,
+                version: nextVersion,
+                actionId,
+                error,
+            });
+        }
+
+        await enqueueRoomPersist(roomId, nextVersion, typedShapes);
         cacheRoomSyncState({
             roomId,
             version: nextVersion,
@@ -380,6 +407,7 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
             version: nextVersion,
             shapes: typedShapes,
             senderId: userId,
+            actionId,
         };
 
         broadcastToRoom(roomId, broadcastMsg, ws);

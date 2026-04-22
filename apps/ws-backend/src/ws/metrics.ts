@@ -22,7 +22,11 @@ type CounterKey =
     | "redisFanoutLagLe10ms"
     | "redisFanoutLagLe50ms"
     | "redisFanoutLagLe100ms"
-    | "redisFanoutLagGt100ms";
+    | "redisFanoutLagGt100ms"
+    | "durableEventsConsumed"
+    | "durablePublishFailures"
+    | "duplicateCrossNodeEvents"
+    | "crossNodeVersionRegressions";
 
 type Counters = Record<CounterKey, number>;
 
@@ -51,6 +55,10 @@ const totals: Counters = {
     redisFanoutLagLe50ms: 0,
     redisFanoutLagLe100ms: 0,
     redisFanoutLagGt100ms: 0,
+    durableEventsConsumed: 0,
+    durablePublishFailures: 0,
+    duplicateCrossNodeEvents: 0,
+    crossNodeVersionRegressions: 0,
 };
 
 let windowCounters: Counters = {...totals};
@@ -150,6 +158,22 @@ export function recordRedisFanoutEvent(fanoutLagMs?: number) {
     }
 }
 
+export function recordDurableEventConsumed() {
+    inc("durableEventsConsumed");
+}
+
+export function recordDurablePublishFailure() {
+    inc("durablePublishFailures");
+}
+
+export function recordDuplicateCrossNodeEvent() {
+    inc("duplicateCrossNodeEvents");
+}
+
+export function recordCrossNodeVersionRegression() {
+    inc("crossNodeVersionRegressions");
+}
+
 export function startMetricsReporter(intervalMs = Number(process.env.WS_METRICS_LOG_INTERVAL_MS ?? 30000)) {
     if (reportStarted || !Number.isFinite(intervalMs) || intervalMs <= 0) {
         return;
@@ -184,6 +208,10 @@ export function startMetricsReporter(intervalMs = Number(process.env.WS_METRICS_
             redisFanoutLagLe50ms: 0,
             redisFanoutLagLe100ms: 0,
             redisFanoutLagGt100ms: 0,
+            durableEventsConsumed: 0,
+            durablePublishFailures: 0,
+            duplicateCrossNodeEvents: 0,
+            crossNodeVersionRegressions: 0,
         };
 
         console.info("[WS][metrics]", {

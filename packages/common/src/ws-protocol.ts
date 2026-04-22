@@ -15,6 +15,8 @@ const CanvasShapeSchema = z
   })
   .passthrough();
 
+const ActionIdSchema = z.string().min(8).max(128);
+
 /**
  * Cursor position shared between collaborators for presence rendering.
  */
@@ -73,6 +75,7 @@ export type WsMessage =
       version: number;
       shapes: Shape[];
       senderId: string;
+      actionId?: string;
     }
   | {
       type: "canvas_snapshot_ack";
@@ -107,6 +110,7 @@ export type ServerMessage =
       version: number;
       shapes: Shape[];
       senderId: string;
+      actionId?: string;
     }
   | {
       type: "canvas_snapshot_ack";
@@ -165,3 +169,29 @@ export interface RoomSyncState {
   version: number;
   shapes: Shape[];
 }
+
+/**
+ * Canonical server-to-server snapshot event used by Redis Pub/Sub and
+ * durable queue transport.
+ */
+export type RoomSnapshotBroadcastEvent = {
+  type: "canvas_snapshot_broadcast";
+  roomId: number;
+  version: number;
+  shapes: Shape[];
+  senderId?: string;
+  originNodeId: string;
+  actionId: string;
+  publishedAtMs: number;
+};
+
+export const RoomSnapshotBroadcastEventSchema = z.object({
+  type: z.literal("canvas_snapshot_broadcast"),
+  roomId: z.number().int().positive(),
+  version: z.number().int().min(1),
+  shapes: z.array(CanvasShapeSchema).max(5000),
+  senderId: z.string().min(1).max(200).optional(),
+  originNodeId: z.string().min(1).max(200),
+  actionId: ActionIdSchema,
+  publishedAtMs: z.number().int().nonnegative(),
+});

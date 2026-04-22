@@ -36,20 +36,21 @@ export default function RoomBySlugPage() {
 
                 const room = response.data?.data as ResolvedRoom;
                 const roomSlug = room?.slug;
-                const canonicalPath = room?.canonicalPath;
 
                 if (typeof roomSlug !== "string" || roomSlug.length === 0) {
                     throw new Error("Invalid room payload");
                 }
 
-                if (typeof canonicalPath === "string" && canonicalPath.length > 0) {
-                    window.location.replace(canonicalPath);
+                const destination = `/canvas/${encodeURIComponent(roomSlug)}?owner=${encodeURIComponent(userHandle)}`;
+                const currentLocation = `${window.location.pathname}${window.location.search}`;
+
+                // This route is a resolver shell only; always move to the canvas route.
+                // Guard against no-op replace calls that can trigger apparent refresh loops.
+                if (currentLocation === destination) {
                     return;
                 }
 
-                window.location.replace(
-                    `/canvas/${encodeURIComponent(roomSlug)}?owner=${encodeURIComponent(userHandle)}`
-                );
+                window.location.replace(destination);
             } catch (errorResponse) {
                 const axiosError = errorResponse as AxiosError<{message?: string}>;
                 if (axiosError.response?.status === 403) {

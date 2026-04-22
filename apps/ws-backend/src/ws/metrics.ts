@@ -10,7 +10,19 @@ type CounterKey =
     | "versionMismatches"
     | "snapshotsCommitted"
     | "snapshotCommitFailures"
-    | "redisFanoutEvents";
+    | "redisFanoutEvents"
+    | "snapshotCommitLatencyLe10ms"
+    | "snapshotCommitLatencyLe50ms"
+    | "snapshotCommitLatencyLe100ms"
+    | "snapshotCommitLatencyGt100ms"
+    | "snapshotProcessLatencyLe25ms"
+    | "snapshotProcessLatencyLe75ms"
+    | "snapshotProcessLatencyLe150ms"
+    | "snapshotProcessLatencyGt150ms"
+    | "redisFanoutLagLe10ms"
+    | "redisFanoutLagLe50ms"
+    | "redisFanoutLagLe100ms"
+    | "redisFanoutLagGt100ms";
 
 type Counters = Record<CounterKey, number>;
 
@@ -27,6 +39,18 @@ const totals: Counters = {
     snapshotsCommitted: 0,
     snapshotCommitFailures: 0,
     redisFanoutEvents: 0,
+    snapshotCommitLatencyLe10ms: 0,
+    snapshotCommitLatencyLe50ms: 0,
+    snapshotCommitLatencyLe100ms: 0,
+    snapshotCommitLatencyGt100ms: 0,
+    snapshotProcessLatencyLe25ms: 0,
+    snapshotProcessLatencyLe75ms: 0,
+    snapshotProcessLatencyLe150ms: 0,
+    snapshotProcessLatencyGt150ms: 0,
+    redisFanoutLagLe10ms: 0,
+    redisFanoutLagLe50ms: 0,
+    redisFanoutLagLe100ms: 0,
+    redisFanoutLagGt100ms: 0,
 };
 
 let windowCounters: Counters = {...totals};
@@ -70,16 +94,60 @@ export function recordVersionMismatch() {
     inc("versionMismatches");
 }
 
-export function recordSnapshotCommitted() {
+function recordCommitLatency(commitLatencyMs: number) {
+    if (commitLatencyMs <= 10) {
+        inc("snapshotCommitLatencyLe10ms");
+    } else if (commitLatencyMs <= 50) {
+        inc("snapshotCommitLatencyLe50ms");
+    } else if (commitLatencyMs <= 100) {
+        inc("snapshotCommitLatencyLe100ms");
+    } else {
+        inc("snapshotCommitLatencyGt100ms");
+    }
+}
+
+function recordSnapshotProcessLatency(processLatencyMs: number) {
+    if (processLatencyMs <= 25) {
+        inc("snapshotProcessLatencyLe25ms");
+    } else if (processLatencyMs <= 75) {
+        inc("snapshotProcessLatencyLe75ms");
+    } else if (processLatencyMs <= 150) {
+        inc("snapshotProcessLatencyLe150ms");
+    } else {
+        inc("snapshotProcessLatencyGt150ms");
+    }
+}
+
+export function recordSnapshotCommitted(commitLatencyMs?: number, processLatencyMs?: number) {
     inc("snapshotsCommitted");
+
+    if (typeof commitLatencyMs === "number" && Number.isFinite(commitLatencyMs) && commitLatencyMs >= 0) {
+        recordCommitLatency(commitLatencyMs);
+    }
+
+    if (typeof processLatencyMs === "number" && Number.isFinite(processLatencyMs) && processLatencyMs >= 0) {
+        recordSnapshotProcessLatency(processLatencyMs);
+    }
 }
 
 export function recordSnapshotCommitFailure() {
     inc("snapshotCommitFailures");
 }
 
-export function recordRedisFanoutEvent() {
+export function recordRedisFanoutEvent(fanoutLagMs?: number) {
     inc("redisFanoutEvents");
+
+    if (typeof fanoutLagMs === "number" && Number.isFinite(fanoutLagMs) && fanoutLagMs >= 0) {
+        if (fanoutLagMs <= 10) {
+            inc("redisFanoutLagLe10ms");
+        } else if (fanoutLagMs <= 50) {
+            inc("redisFanoutLagLe50ms");
+        } else if (fanoutLagMs <= 100) {
+            inc("redisFanoutLagLe100ms");
+        } else {
+            inc("redisFanoutLagGt100ms");
+        }
+    }
 }
 
 export function startMetricsReporter(intervalMs = Number(process.env.WS_METRICS_LOG_INTERVAL_MS ?? 30000)) {
@@ -104,6 +172,18 @@ export function startMetricsReporter(intervalMs = Number(process.env.WS_METRICS_
             snapshotsCommitted: 0,
             snapshotCommitFailures: 0,
             redisFanoutEvents: 0,
+            snapshotCommitLatencyLe10ms: 0,
+            snapshotCommitLatencyLe50ms: 0,
+            snapshotCommitLatencyLe100ms: 0,
+            snapshotCommitLatencyGt100ms: 0,
+            snapshotProcessLatencyLe25ms: 0,
+            snapshotProcessLatencyLe75ms: 0,
+            snapshotProcessLatencyLe150ms: 0,
+            snapshotProcessLatencyGt150ms: 0,
+            redisFanoutLagLe10ms: 0,
+            redisFanoutLagLe50ms: 0,
+            redisFanoutLagLe100ms: 0,
+            redisFanoutLagGt100ms: 0,
         };
 
         console.info("[WS][metrics]", {

@@ -9,7 +9,9 @@
     "check-types": "turbo run check-types",
     "db:up": "cd packages/db && docker-compose up -d",
     "db:down": "cd packages/db && docker-compose down",
-    "db:logs": "cd packages/db && docker-compose logs -f postgres"
+    "db:logs": "cd packages/db && docker-compose logs -f",
+    "queue:up": "cd packages/db && docker-compose --profile queue up -d rabbitmq",
+    "queue:down": "cd packages/db && docker-compose --profile queue down"
   },
   "devDependencies": {
     "prettier": "^3.7.4",

@@ -228,6 +228,7 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
 
     if (parsed.type === "canvas_snapshot") {
         const {roomId, version, shapes} = parsed;
+        const snapshotStartedAtMs = Date.now();
 
         if (isSnapshotRateLimited(ws)) {
             recordRateLimitedSnapshot();
@@ -320,6 +321,7 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
 
         // The commit is atomic in Redis: version bump, snapshot replacement, and
         // cross-node publish all happen as one room transition.
+        const commitStartedAtMs = Date.now();
         const nextVersion = await commitRoomSnapshot(roomId, version, typedShapes, {
             originNodeId: NODE_ID,
             senderId: userId,
@@ -351,7 +353,9 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
             return;
         }
 
-        recordSnapshotCommitted();
+        const commitLatencyMs = Math.max(0, Date.now() - commitStartedAtMs);
+        const processLatencyMs = Math.max(0, Date.now() - snapshotStartedAtMs);
+        recordSnapshotCommitted(commitLatencyMs, processLatencyMs);
 
         scheduleRoomPersist(roomId, typedShapes);
         cacheRoomSyncState({

@@ -28,6 +28,7 @@ export type RedisRoomEvent = {
     version: number;
     shapes: Shape[];
     senderId?: string;
+    publishedAtMs: number;
     type: "canvas_snapshot_broadcast";
 };
 
@@ -135,6 +136,7 @@ export async function commitRoomSnapshot(
             roomId,
             originNodeId: event.originNodeId,
             senderId: event.senderId,
+            publishedAtMs: Date.now(),
             type: "canvas_snapshot_broadcast",
             version: nextVersion,
             shapes: snapshot,

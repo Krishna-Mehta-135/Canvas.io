@@ -38,7 +38,6 @@ services:
     image: rabbitmq:3-management-alpine
     container_name: canvas-rabbitmq
     restart: unless-stopped
-    profiles: ["queue"]
     ports:
       - "5672:5672"
       - "15672:15672"

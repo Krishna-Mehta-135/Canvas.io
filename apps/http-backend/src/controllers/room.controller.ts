@@ -19,6 +19,14 @@ function requireUserId(userId?: string) {
     return userId;
 }
 
+function buildCanonicalRoomPath(room: {slug: string; admin: {handle: string | null}}) {
+    const handle = room.admin.handle?.trim();
+
+    // Use the owner handle when we have one. Fall back to the slug-only canvas
+    // route so invite/open flows still work for accounts that have not set a handle.
+    return handle ? `/room/${handle}/${room.slug}` : `/canvas/${room.slug}`;
+}
+
 async function assertOwnerRoomAccess(roomId: number, userId: string) {
     const room = await prismaClient.room.findFirst({
         where: {
@@ -64,7 +72,7 @@ const createRoom = asyncHandler(async (req, res) => {
             },
         });
 
-        const canonicalPath = `/room/${room.admin.handle ?? room.admin.name}/${room.slug}`;
+        const canonicalPath = buildCanonicalRoomPath(room);
 
         return res.status(201).json(
             new ApiResponse(
@@ -107,7 +115,7 @@ const listMyRooms = asyncHandler(async (req, res) => {
 
     const payload = rooms.map((room) => ({
         ...room,
-        canonicalPath: `/room/${room.admin.handle ?? room.admin.name}/${room.slug}`,
+        canonicalPath: buildCanonicalRoomPath(room),
     }));
 
     res.status(200).json(new ApiResponse(200, payload, "Rooms fetched successfully"));
@@ -256,7 +264,7 @@ const getRoomIdFromSlug = asyncHandler(async (req, res) => {
             200,
             {
                 ...room,
-                canonicalPath: `/room/${room.admin.handle ?? room.admin.name}/${room.slug}`,
+                canonicalPath: buildCanonicalRoomPath(room),
             },
             "RoomId successfully fetched from slug"
         )
@@ -300,7 +308,7 @@ const getRoomByOwnerAndSlug = asyncHandler(async (req, res) => {
             200,
             {
                 ...room,
-                canonicalPath: `/room/${room.admin.handle}/${room.slug}`,
+                canonicalPath: buildCanonicalRoomPath(room),
             },
             "Room fetched successfully"
         )
@@ -345,7 +353,7 @@ const renameRoomSlug = asyncHandler(async (req, res) => {
                 200,
                 {
                     ...updatedRoom,
-                    canonicalPath: `/room/${updatedRoom.admin.handle ?? updatedRoom.admin.name}/${updatedRoom.slug}`,
+                    canonicalPath: buildCanonicalRoomPath(updatedRoom),
                 },
                 "Room slug updated successfully"
             )
@@ -387,14 +395,12 @@ const getInviteLink = asyncHandler(async (req, res) => {
         throw new ApiError(403, "Forbidden");
     }
 
-    // Generate invite link using canonical owner handle + slug URL shape.
-    const ownerSegment = room.admin.handle ?? room.admin.name;
-    const inviteLink = `${req.protocol}://${req.get("host")}/room/${ownerSegment}/${room.slug}`;
+    const inviteLink = `${req.protocol}://${req.get("host")}${buildCanonicalRoomPath(room)}`;
 
     res.status(200).json(
         new ApiResponse(
             200,
-            { inviteLink, roomSlug: room.slug },
+            { inviteLink, canonicalPath: buildCanonicalRoomPath(room), roomSlug: room.slug },
             "Invite link generated successfully"
         )
     );

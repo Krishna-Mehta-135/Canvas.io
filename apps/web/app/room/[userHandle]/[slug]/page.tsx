@@ -36,9 +36,15 @@ export default function RoomBySlugPage() {
 
                 const room = response.data?.data as ResolvedRoom;
                 const roomSlug = room?.slug;
+                const canonicalPath = room?.canonicalPath;
 
                 if (typeof roomSlug !== "string" || roomSlug.length === 0) {
                     throw new Error("Invalid room payload");
+                }
+
+                if (typeof canonicalPath === "string" && canonicalPath.length > 0) {
+                    window.location.replace(canonicalPath);
+                    return;
                 }
 
                 window.location.replace(

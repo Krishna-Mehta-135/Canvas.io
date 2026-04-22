@@ -1,5 +1,5 @@
 {
-  "name": "Canvas.io",
+  "name": "canvas-io",
   "private": true,
   "scripts": {
     "build": "turbo run build",
@@ -9,9 +9,7 @@
     "check-types": "turbo run check-types",
     "db:up": "cd packages/db && docker-compose up -d",
     "db:down": "cd packages/db && docker-compose down",
-    "db:logs": "cd packages/db && docker-compose logs -f",
-    "queue:up": "cd packages/db && docker-compose --profile queue up -d rabbitmq",
-    "queue:down": "cd packages/db && docker-compose --profile queue down"
+    "db:logs": "cd packages/db && docker-compose logs -f"
   },
   "devDependencies": {
     "prettier": "^3.7.4",

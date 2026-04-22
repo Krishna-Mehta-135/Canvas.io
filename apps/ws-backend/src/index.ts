@@ -35,7 +35,7 @@ void subscribeRoomEvents(async (event) => {
         return;
     }
 
-    recordRedisFanoutEvent();
+    recordRedisFanoutEvent(Math.max(0, Date.now() - event.publishedAtMs));
 
     cacheRoomSyncState({
         roomId: event.roomId,

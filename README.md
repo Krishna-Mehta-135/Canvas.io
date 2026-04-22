@@ -27,7 +27,7 @@ It combines a modern Next.js frontend, an Express API, a WebSocket realtime serv
 - Real-time transport via WebSocket server
 - REST endpoints for auth, room lifecycle, and shape persistence
 - Shared workspace packages for consistency across services
-- Docker-powered local Postgres setup
+- Docker-powered local Postgres and Redis setup
 
 ## Architecture
 
@@ -75,10 +75,16 @@ flowchart LR
 pnpm install
 ```
 
-### 2. Start local PostgreSQL
+### 2. Start local infrastructure (PostgreSQL + Redis)
 
 ```bash
 pnpm db:up
+```
+
+Optional for queue-phase work (RabbitMQ):
+
+```bash
+pnpm queue:up
 ```
 
 ### 3. Configure environment
@@ -137,9 +143,11 @@ Notes:
 | `pnpm lint` | Run lint tasks |
 | `pnpm check-types` | Run type checks across workspace |
 | `pnpm format` | Format `ts`, `tsx`, and `md` files |
-| `pnpm db:up` | Start Postgres container |
-| `pnpm db:down` | Stop Postgres container |
-| `pnpm db:logs` | Follow Postgres logs |
+| `pnpm db:up` | Start Postgres + Redis containers |
+| `pnpm db:down` | Stop Postgres + Redis containers |
+| `pnpm db:logs` | Follow infrastructure logs |
+| `pnpm queue:up` | Start optional RabbitMQ container (queue profile) |
+| `pnpm queue:down` | Stop queue profile containers |
 
 ### Database package scripts
 
@@ -202,5 +210,10 @@ Snap controls connector endpoint binding for `line` and `arrow` shapes:
 - If auth/canvas requests fail, ensure HTTP backend is running on port `3001`.
 - If Prisma cannot connect, verify `DATABASE_URL` and check DB health with `pnpm db:logs`.
 - If multi-node realtime sync is not behaving as expected, verify `REDIS_URL` and Redis connectivity first.
+- For queue-phase testing, start RabbitMQ with `pnpm queue:up`, then check broker health at `http://localhost:15672`.
 - If either backend crashes on boot, confirm `JWT_SECRET` is set.
 - If code changes are not reflected in backend dev processes, rebuild/restart that app (current backend `dev` script compiles then starts).
+
+## Scaling
+
+- Realtime scaling SLOs, alert rules, and load-test workflow are documented in [docs/scaling-runbook.md](docs/scaling-runbook.md).

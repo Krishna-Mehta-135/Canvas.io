@@ -56,6 +56,8 @@ That split gives us the minimum infrastructure needed to support multiple WebSoc
 - `canvas:room:snapshot:<roomId>`: latest serialized room snapshot.
 - `canvas:room:<roomId>` channel: cross-node room updates.
 
+Redis room events also include `publishedAtMs` so WS nodes can measure cross-node fan-out lag.
+
 ### In memory
 
 - Active socket membership for each room.
@@ -110,6 +112,14 @@ Current scaling limits:
 - Add metrics: snapshot ack latency, version mismatch rate, Redis operation errors, Pub/Sub handling lag.
 - Add alerts for sustained mismatch spikes and Redis failure rates.
 - Add health probes that include Redis connectivity and ping latency.
+
+Current status:
+
+- Implemented periodic WS metrics logging.
+- Implemented payload-size guardrail and snapshot rate limiting.
+- Implemented latency bucket telemetry for snapshot commit, snapshot process path, and Redis fan-out lag.
+
+See [docs/scaling-runbook.md](docs/scaling-runbook.md) for SLO targets, alert rules, and load-test procedure.
 
 ### Phase 2B: Load and Capacity Testing
 

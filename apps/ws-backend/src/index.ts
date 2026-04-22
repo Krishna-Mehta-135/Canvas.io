@@ -30,6 +30,7 @@ import {
 
 const wss = new WebSocketServer({port: 8080});
 const RABBITMQ_RETRY_DELAY_MS = 2000;
+const WS_DEBUG_ERRORS = process.env.WS_DEBUG_ERRORS === "true";
 
 console.log("WebSocket server online on port 8080");
 startMetricsReporter();
@@ -193,7 +194,9 @@ wss.on("connection", function connection(ws: AuthenticatedWebSocket, request) {
         try {
             await handleSocketMessage(ws, userId, data);
         } catch (error) {
-            console.error("Invalid message", error);
+            if (WS_DEBUG_ERRORS) {
+                console.error("Invalid message", error);
+            }
             ws.send(
                 JSON.stringify({
                     type: "sync_error",

@@ -18,6 +18,8 @@ export default function RoomBySlugPage() {
     const userHandle = Array.isArray(params?.userHandle) ? params.userHandle[0] : params?.userHandle;
     const slug = Array.isArray(params?.slug) ? params.slug[0] : params?.slug;
     const [error, setError] = useState<string | null>(null);
+    const [requestState, setRequestState] = useState<"idle" | "sending" | "sent">("idle");
+    const [statusHint, setStatusHint] = useState<string | null>(null);
 
     useEffect(() => {
         if (!userHandle || !slug) return;
@@ -54,7 +56,21 @@ export default function RoomBySlugPage() {
             } catch (errorResponse) {
                 const axiosError = errorResponse as AxiosError<{message?: string}>;
                 if (axiosError.response?.status === 403) {
-                    setError("Access denied. You do not have permission to open this room.");
+                    setRequestState("sending");
+                    setStatusHint("Requesting access from room owner...");
+                    try {
+                        await apiClient.post(`${HTTP_BACKEND}/room/access/request`, {
+                            ownerHandle: userHandle,
+                            slug,
+                        });
+                        setRequestState("sent");
+                        setStatusHint("Waiting for owner approval. This page will auto-open when approved.");
+                        setError("Access request sent to room owner. You can open the room once approved.");
+                    } catch {
+                        setRequestState("idle");
+                        setStatusHint(null);
+                        setError("Access denied. Unable to send request right now.");
+                    }
                     return;
                 }
 
@@ -74,6 +90,46 @@ export default function RoomBySlugPage() {
         };
     }, [userHandle, slug]);
 
+    useEffect(() => {
+        if (!userHandle || !slug || requestState !== "sent") return;
+
+        let isUnmounted = false;
+
+        const pollForApproval = async () => {
+            try {
+                const response = await apiClient.get(
+                    `${HTTP_BACKEND}/room/resolve/${encodeURIComponent(userHandle)}/${encodeURIComponent(slug)}`
+                );
+
+                if (isUnmounted) return;
+
+                const room = response.data?.data as ResolvedRoom;
+                const roomSlug = room?.slug;
+                if (typeof roomSlug !== "string" || roomSlug.length === 0) {
+                    return;
+                }
+
+                const destination = `/canvas/${encodeURIComponent(roomSlug)}?owner=${encodeURIComponent(userHandle)}`;
+                window.location.replace(destination);
+            } catch (errorResponse) {
+                const axiosError = errorResponse as AxiosError;
+                if (axiosError.response?.status === 403) {
+                    return;
+                }
+            }
+        };
+
+        void pollForApproval();
+        const timer = window.setInterval(() => {
+            void pollForApproval();
+        }, 3000);
+
+        return () => {
+            isUnmounted = true;
+            window.clearInterval(timer);
+        };
+    }, [requestState, userHandle, slug]);
+
     return (
         <main className="grid min-h-screen place-items-center bg-[#f2f5fa] px-5">
             <div className="w-full max-w-md rounded-2xl border border-slate-300 bg-white p-6 text-center shadow-sm">
@@ -81,6 +137,12 @@ export default function RoomBySlugPage() {
                 <p className="mt-2 text-sm text-slate-600">
                     {error ?? "Resolving room and loading canvas."}
                 </p>
+                {requestState === "sending" && (
+                    <p className="mt-2 text-xs text-slate-500">Sending access request...</p>
+                )}
+                {requestState === "sent" && (
+                    <p className="mt-2 text-xs text-slate-500">{statusHint ?? "Waiting for approval..."}</p>
+                )}
             </div>
         </main>
     );

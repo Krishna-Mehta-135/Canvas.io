@@ -8,6 +8,8 @@ import {
     RoomSlugParamSchema,
     OwnerSlugParamsSchema,
     ReplaceShapesBodySchema,
+    RoomAccessRequestCreateSchema,
+    RoomAccessRequestDecisionSchema,
 } from "@repo/common/types";
 import {asyncHandler} from "../utils/asyncHandler";
 
@@ -45,6 +47,29 @@ async function assertOwnerRoomAccess(roomId: number, userId: string) {
     }
 
     return room;
+}
+
+async function hasRoomAccess(roomId: number, userId: string) {
+    const room = await prismaClient.room.findFirst({
+        where: {
+            id: roomId,
+            OR: [
+                {adminId: userId},
+                {
+                    members: {
+                        some: {
+                            userId,
+                        },
+                    },
+                },
+            ],
+        },
+        select: {
+            id: true,
+        },
+    });
+
+    return Boolean(room);
 }
 
 const createRoom = asyncHandler(async (req, res) => {
@@ -130,7 +155,10 @@ const getShapes = asyncHandler(async (req, res) => {
     const {roomId} = paramsValidation.data;
 
     const userId = requireUserId(req.userId);
-    await assertOwnerRoomAccess(roomId, userId);
+    const canAccess = await hasRoomAccess(roomId, userId);
+    if (!canAccess) {
+        throw new ApiError(403, "Forbidden");
+    }
 
     try {
         const shapes = await prismaClient.shape.findMany({
@@ -282,11 +310,20 @@ const getRoomByOwnerAndSlug = asyncHandler(async (req, res) => {
 
     const room = await prismaClient.room.findFirst({
         where: {
-            adminId: userId,
             slug,
             admin: {
                 handle: ownerHandle,
             },
+            OR: [
+                {adminId: userId},
+                {
+                    members: {
+                        some: {
+                            userId,
+                        },
+                    },
+                },
+            ],
         },
         include: {
             admin: {
@@ -406,6 +443,235 @@ const getInviteLink = asyncHandler(async (req, res) => {
     );
 });
 
+const requestRoomAccess = asyncHandler(async (req, res) => {
+    const validationResult = RoomAccessRequestCreateSchema.safeParse(req.body);
+    if (!validationResult.success) {
+        throw new ApiError(400, "Invalid access request payload");
+    }
+
+    const requesterId = requireUserId(req.userId);
+    const {ownerHandle, slug, note} = validationResult.data;
+
+    const room = await prismaClient.room.findFirst({
+        where: {
+            slug,
+            admin: {
+                handle: ownerHandle,
+            },
+        },
+        include: {
+            admin: {
+                select: {
+                    id: true,
+                    handle: true,
+                    name: true,
+                },
+            },
+        },
+    });
+
+    if (!room) {
+        throw new ApiError(404, "Room not found");
+    }
+
+    if (room.adminId === requesterId) {
+        throw new ApiError(400, "You already own this room");
+    }
+
+    const existingMembership = await prismaClient.roomMember.findUnique({
+        where: {
+            roomId_userId: {
+                roomId: room.id,
+                userId: requesterId,
+            },
+        },
+    });
+
+    if (existingMembership) {
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                {
+                    roomId: room.id,
+                    status: "approved",
+                },
+                "You already have access to this room"
+            )
+        );
+    }
+
+    const existingRequest = await prismaClient.roomAccessRequest.findUnique({
+        where: {
+            roomId_requesterId: {
+                roomId: room.id,
+                requesterId,
+            },
+        },
+    });
+
+    if (existingRequest && existingRequest.status === "pending") {
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                {
+                    requestId: existingRequest.id,
+                    roomId: room.id,
+                    status: existingRequest.status,
+                },
+                "Access request already pending"
+            )
+        );
+    }
+
+    const nextRequest = existingRequest
+        ? await prismaClient.roomAccessRequest.update({
+              where: {
+                  id: existingRequest.id,
+              },
+              data: {
+                  status: "pending",
+                  decisionNote: note,
+                  respondedAt: null,
+              },
+          })
+        : await prismaClient.roomAccessRequest.create({
+              data: {
+                  roomId: room.id,
+                  requesterId,
+                  status: "pending",
+                  decisionNote: note,
+              },
+          });
+
+    res.status(201).json(
+        new ApiResponse(
+            201,
+            {
+                requestId: nextRequest.id,
+                roomId: room.id,
+                status: nextRequest.status,
+            },
+            "Access request sent to room owner"
+        )
+    );
+});
+
+const listIncomingRoomAccessRequests = asyncHandler(async (req, res) => {
+    const ownerId = requireUserId(req.userId);
+
+    const requests = await prismaClient.roomAccessRequest.findMany({
+        where: {
+            status: "pending",
+            room: {
+                adminId: ownerId,
+            },
+        },
+        include: {
+            room: {
+                select: {
+                    id: true,
+                    slug: true,
+                    admin: {
+                        select: {
+                            handle: true,
+                            name: true,
+                        },
+                    },
+                },
+            },
+            requester: {
+                select: {
+                    id: true,
+                    name: true,
+                    handle: true,
+                    email: true,
+                },
+            },
+        },
+        orderBy: {
+            createdAt: "desc",
+        },
+    });
+
+    res.status(200).json(new ApiResponse(200, requests, "Incoming access requests fetched"));
+});
+
+const decideRoomAccessRequest = asyncHandler(async (req, res) => {
+    const validationResult = RoomAccessRequestDecisionSchema.safeParse(req.body);
+    if (!validationResult.success) {
+        throw new ApiError(400, "Invalid access decision payload");
+    }
+
+    const ownerId = requireUserId(req.userId);
+    const {requestId, action, note} = validationResult.data;
+
+    const accessRequest = await prismaClient.roomAccessRequest.findUnique({
+        where: {
+            id: requestId,
+        },
+        include: {
+            room: {
+                select: {
+                    id: true,
+                    adminId: true,
+                },
+            },
+        },
+    });
+
+    if (!accessRequest) {
+        throw new ApiError(404, "Access request not found");
+    }
+
+    if (accessRequest.room.adminId !== ownerId) {
+        throw new ApiError(403, "Forbidden");
+    }
+
+    if (accessRequest.status !== "pending") {
+        throw new ApiError(409, "Access request is already resolved");
+    }
+
+    await prismaClient.$transaction(async (tx) => {
+        await tx.roomAccessRequest.update({
+            where: {
+                id: accessRequest.id,
+            },
+            data: {
+                status: action === "approve" ? "approved" : "rejected",
+                respondedAt: new Date(),
+                decisionNote: note,
+            },
+        });
+
+        if (action === "approve") {
+            await tx.roomMember.upsert({
+                where: {
+                    roomId_userId: {
+                        roomId: accessRequest.room.id,
+                        userId: accessRequest.requesterId,
+                    },
+                },
+                create: {
+                    roomId: accessRequest.room.id,
+                    userId: accessRequest.requesterId,
+                },
+                update: {},
+            });
+        }
+    });
+
+    res.status(200).json(
+        new ApiResponse(
+            200,
+            {
+                requestId: accessRequest.id,
+                action,
+            },
+            `Access request ${action}d`
+        )
+    );
+});
+
 export {
     createRoom,
     listMyRooms,
@@ -415,4 +681,7 @@ export {
     getRoomByOwnerAndSlug,
     renameRoomSlug,
     getInviteLink,
+    requestRoomAccess,
+    listIncomingRoomAccessRequests,
+    decideRoomAccessRequest,
 };

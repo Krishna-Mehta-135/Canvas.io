@@ -24,6 +24,8 @@ model User {
   tokenVersion    Int     @default(0)
   refreshTokenExp DateTime?
   rooms           Room[]
+  roomMembers     RoomMember[]
+  roomAccessRequests RoomAccessRequest[]
   chats           Chat[]
 }
 
@@ -35,8 +37,36 @@ model Room {
   admin     User     @relation(fields: [adminId], references: [id])
   chats     Chat[]
   shapes    Shape[]
+  members   RoomMember[]
+  accessRequests RoomAccessRequest[]
 
   @@unique([adminId, slug])
+}
+
+model RoomMember {
+  id        Int      @id @default(autoincrement())
+  roomId    Int
+  userId    String
+  createdAt DateTime @default(now())
+  room      Room     @relation(fields: [roomId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([roomId, userId])
+}
+
+model RoomAccessRequest {
+  id             Int      @id @default(autoincrement())
+  roomId         Int
+  requesterId    String
+  status         String   @default("pending")
+  createdAt      DateTime @default(now())
+  respondedAt    DateTime?
+  decisionNote   String?
+  room           Room     @relation(fields: [roomId], references: [id])
+  requester      User     @relation(fields: [requesterId], references: [id])
+
+  @@index([roomId, status])
+  @@unique([roomId, requesterId])
 }
 
 model Chat {

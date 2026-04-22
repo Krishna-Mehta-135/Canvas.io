@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, FormEvent } from "react";
+import { useState, FormEvent, useEffect } from "react";
 import { AxiosError } from "axios";
 import { ArrowRight, Eye, EyeOff, Pencil, Loader2 } from "lucide-react";
 import { useSearchParams } from "next/navigation";
@@ -20,7 +20,35 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
     const [password, setPassword] = useState("");
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [checkingSession, setCheckingSession] = useState(true);
     const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        let isUnmounted = false;
+
+        const checkExistingSession = async () => {
+            try {
+                await apiClient.get(`${API_BASE}/auth/current-user`);
+
+                if (isUnmounted) {
+                    return;
+                }
+
+                const redirectTarget = searchParams.get("redirect");
+                window.location.href = redirectTarget && redirectTarget.length > 0 ? redirectTarget : "/rooms";
+            } catch {
+                if (!isUnmounted) {
+                    setCheckingSession(false);
+                }
+            }
+        };
+
+        void checkExistingSession();
+
+        return () => {
+            isUnmounted = true;
+        };
+    }, [searchParams]);
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
@@ -57,6 +85,16 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
             setLoading(false);
         }
     };
+
+    if (checkingSession) {
+        return (
+            <div className="min-h-screen bg-linear-to-b from-amber-50 via-white to-white flex items-center justify-center">
+                <div className="rounded-2xl border border-gray-200 bg-white px-5 py-4 text-sm font-medium text-gray-700 shadow-sm">
+                    Checking session...
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-linear-to-b from-amber-50 via-white to-white flex flex-col">

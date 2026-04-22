@@ -64,11 +64,20 @@ function isSnapshotRateLimited(ws: AuthenticatedWebSocket) {
     return existing.count > WS_SNAPSHOT_RATE_LIMIT_COUNT;
 }
 
-async function hasOwnerRoomAccess(roomId: number, userId: string) {
+async function hasRoomAccess(roomId: number, userId: string) {
     const room = await prismaClient.room.findFirst({
         where: {
             id: roomId,
-            adminId: userId,
+            OR: [
+                {adminId: userId},
+                {
+                    members: {
+                        some: {
+                            userId,
+                        },
+                    },
+                },
+            ],
         },
         select: {
             id: true,
@@ -143,7 +152,7 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
             return;
         }
 
-        const hasAccess = await hasOwnerRoomAccess(roomId, userId);
+        const hasAccess = await hasRoomAccess(roomId, userId);
         if (!hasAccess) {
             rejectForbidden(ws);
             return;

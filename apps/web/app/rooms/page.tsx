@@ -22,6 +22,21 @@ type Room = {
     canonicalPath: string;
 };
 
+type IncomingAccessRequest = {
+    id: number;
+    createdAt: string;
+    requester: {
+        id: string;
+        name: string;
+        handle: string | null;
+        email: string;
+    };
+    room: {
+        id: number;
+        slug: string;
+    };
+};
+
 type RawRoom = Partial<Room> & {
     id?: number;
     slug?: string;
@@ -83,6 +98,8 @@ export default function RoomsPage() {
     const [savingRename, setSavingRename] = useState(false);
 
     const [isLoggingOut, setIsLoggingOut] = useState(false);
+    const [incomingRequests, setIncomingRequests] = useState<IncomingAccessRequest[]>([]);
+    const [requestActionInFlightId, setRequestActionInFlightId] = useState<number | null>(null);
 
     const sortedRooms = useMemo(() => {
         return [...rooms].sort((a, b) => {
@@ -113,6 +130,10 @@ export default function RoomsPage() {
                     : [];
 
                 setRooms(normalizedRooms);
+
+                const requestResponse = await apiClient.get(`${HTTP_BACKEND}/room/access/requests/incoming`);
+                const requestList = requestResponse.data?.data;
+                setIncomingRequests(Array.isArray(requestList) ? (requestList as IncomingAccessRequest[]) : []);
             } catch {
                 setRooms([]);
                 setError("Unable to load your rooms right now.");
@@ -121,6 +142,25 @@ export default function RoomsPage() {
             setError("Unable to load your account right now.");
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleRequestDecision = async (requestId: number, action: "approve" | "reject") => {
+        setRequestActionInFlightId(requestId);
+        setError(null);
+
+        try {
+            await apiClient.post(`${HTTP_BACKEND}/room/access/requests/decision`, {
+                requestId,
+                action,
+            });
+
+            setIncomingRequests((current) => current.filter((request) => request.id !== requestId));
+        } catch (errorResponse) {
+            const axiosError = errorResponse as AxiosError<{message?: string}>;
+            setError(axiosError.response?.data?.message ?? `Unable to ${action} request.`);
+        } finally {
+            setRequestActionInFlightId(null);
         }
     };
 
@@ -267,6 +307,44 @@ export default function RoomsPage() {
                     </form>
 
                     {error && <p className={`mb-4 text-sm ${isDark ? "text-red-300" : "text-red-700"}`}>{error}</p>}
+
+                    <div className={`mb-6 rounded-xl border p-3 ${isDark ? "border-white/10 bg-black/15" : "border-slate-200 bg-white"}`}>
+                        <div className="mb-2 flex items-center justify-between">
+                            <h2 className="text-sm font-semibold">Incoming access requests</h2>
+                            <span className="text-xs opacity-70">{incomingRequests.length} pending</span>
+                        </div>
+                        {incomingRequests.length === 0 ? (
+                            <p className="text-xs opacity-70">No pending requests.</p>
+                        ) : (
+                            <div className="space-y-2">
+                                {incomingRequests.map((request) => (
+                                    <div key={request.id} className={`rounded-lg border p-2 ${isDark ? "border-white/10" : "border-slate-200"}`}>
+                                        <div className="text-xs opacity-80">
+                                            {request.requester.name} ({request.requester.handle ?? request.requester.email}) requested /{request.room.slug}
+                                        </div>
+                                        <div className="mt-2 flex gap-2">
+                                            <button
+                                                type="button"
+                                                disabled={requestActionInFlightId === request.id}
+                                                onClick={() => void handleRequestDecision(request.id, "approve")}
+                                                className={`rounded-md border px-2 py-1 text-xs font-medium ${isDark ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100" : "border-emerald-300 bg-emerald-50 text-emerald-800"}`}
+                                            >
+                                                Approve
+                                            </button>
+                                            <button
+                                                type="button"
+                                                disabled={requestActionInFlightId === request.id}
+                                                onClick={() => void handleRequestDecision(request.id, "reject")}
+                                                className={`rounded-md border px-2 py-1 text-xs font-medium ${isDark ? "border-red-300/30 bg-red-500/10 text-red-100" : "border-red-300 bg-red-50 text-red-800"}`}
+                                            >
+                                                Reject
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
 
                     {loading ? (
                         <p className="text-sm opacity-70">Loading rooms...</p>

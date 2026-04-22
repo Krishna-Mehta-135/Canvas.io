@@ -60,3 +60,15 @@ export const CanvasShapeSchema = z
 export const ReplaceShapesBodySchema = z.object({
     shapes: z.array(CanvasShapeSchema).max(5000),
 });
+
+export const RoomAccessRequestCreateSchema = z.object({
+    ownerHandle: UserHandleSchema,
+    slug: RoomSlugSchema,
+    note: z.string().trim().max(500).optional(),
+});
+
+export const RoomAccessRequestDecisionSchema = z.object({
+    requestId: z.coerce.number().int().positive(),
+    action: z.enum(["approve", "reject"]),
+    note: z.string().trim().max(500).optional(),
+});

@@ -171,6 +171,45 @@ type Toast = {
 
 type ExportFormat = "png" | "svg" | "pdf" | "json";
 
+type IncomingAccessRequest = {
+    id: number;
+    createdAt: string;
+    requester: {
+        id: string;
+        name: string;
+        handle: string | null;
+        email: string;
+    };
+    room: {
+        id: number;
+        slug: string;
+    };
+};
+
+function normalizeJoinTarget(rawValue: string) {
+    const trimmed = rawValue.trim();
+    if (!trimmed) return "";
+
+    try {
+        const url = new URL(trimmed, window.location.origin);
+        const segments = url.pathname.split("/").filter(Boolean);
+        const canvasIndex = segments.indexOf("canvas");
+        const roomIndex = segments.indexOf("room");
+
+        if (roomIndex >= 0 && segments[roomIndex + 1] && segments[roomIndex + 2]) {
+            return `room/${segments[roomIndex + 1]}/${segments[roomIndex + 2]}`;
+        }
+
+        if (canvasIndex >= 0 && segments[canvasIndex + 1]) {
+            return `canvas/${segments[canvasIndex + 1]}`;
+        }
+
+        return segments[segments.length - 1] ?? trimmed;
+    } catch {
+        return trimmed.replace(/^\/+|\/+$/g, "");
+    }
+}
+
 function getViewportStorageKey(roomKey: string) {
     return `canvas-viewport:${roomKey}`;
 }
@@ -627,6 +666,7 @@ export default function CanvasPage() {
     const [inspectorRevision, setInspectorRevision] = useState(0);
     const [inviteLink, setInviteLink] = useState<string | null>(null);
     const [syncStatus, setSyncStatus] = useState<"connected" | "disconnected" | "error">("disconnected");
+    const syncStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const stateRef = useRef<CanvasState | null>(null);
     const [canvasState, setCanvasState] = useState<CanvasState | null>(null);
@@ -638,6 +678,10 @@ export default function CanvasPage() {
     const defaultRoughnessRef = useRef<number>(DRAWING_PERSONAS[1]?.roughness ?? 1);
     const [viewport, setViewport] = useState<StoredViewport | null>(null);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
+    const [isJoinCanvasModalOpen, setIsJoinCanvasModalOpen] = useState(false);
+    const [joinCanvasInput, setJoinCanvasInput] = useState("");
+    const [isJoiningCanvas, setIsJoiningCanvas] = useState(false);
+    const [totalCanvases, setTotalCanvases] = useState(0);
     const [isReloadingCanvas, setIsReloadingCanvas] = useState(false);
     const [isSavingCanvas, setIsSavingCanvas] = useState(false);
     const [showRoomInfo, setShowRoomInfo] = useState(false);
@@ -648,6 +692,9 @@ export default function CanvasPage() {
     const [debugOverlaySnapshot, setDebugOverlaySnapshot] = useState<DebugOverlaySnapshot | null>(null);
     const [selectedExportFormat, setSelectedExportFormat] = useState<ExportFormat>("png");
     const [isSnapEnabled, setIsSnapEnabled] = useState(true);
+    const [incomingRoomAccessRequests, setIncomingRoomAccessRequests] = useState<IncomingAccessRequest[]>([]);
+    const [isLoadingIncomingRequests, setIsLoadingIncomingRequests] = useState(false);
+    const [requestDecisionInFlightId, setRequestDecisionInFlightId] = useState<number | null>(null);
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [isClearCanvasModalOpen, setIsClearCanvasModalOpen] = useState(false);
     const menuButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -691,6 +738,40 @@ export default function CanvasPage() {
         window.setTimeout(() => {
             setToasts((current) => current.filter((toast) => toast.id !== id));
         }, 3200);
+    }, []);
+
+    const loadIncomingRoomAccessRequests = useCallback(async () => {
+        if (resolvedRoomId === null) {
+            setIncomingRoomAccessRequests([]);
+            return;
+        }
+
+        setIsLoadingIncomingRequests(true);
+        try {
+            const response = await apiClient.get(`${HTTP_BACKEND}/room/access/requests/incoming`);
+            const requestList = response.data?.data;
+            const requests = Array.isArray(requestList) ? (requestList as IncomingAccessRequest[]) : [];
+            setIncomingRoomAccessRequests(
+                requests.filter((request) => Number(request.room?.id) === resolvedRoomId)
+            );
+        } catch (errorResponse) {
+            const axiosError = errorResponse as AxiosError<{message?: string}>;
+            if (axiosError.response?.status !== 403) {
+                setIncomingRoomAccessRequests([]);
+            }
+        } finally {
+            setIsLoadingIncomingRequests(false);
+        }
+    }, [resolvedRoomId]);
+
+    const loadTotalCanvases = useCallback(async () => {
+        try {
+            const response = await apiClient.get(`${HTTP_BACKEND}/room/mine`);
+            const roomList = response.data?.data;
+            setTotalCanvases(Array.isArray(roomList) ? roomList.length : 0);
+        } catch {
+            setTotalCanvases(0);
+        }
     }, []);
 
     useEffect(() => {
@@ -781,6 +862,23 @@ export default function CanvasPage() {
             window.removeEventListener("keydown", handleKeyDown);
         };
     }, [isMenuOpen]);
+
+    useEffect(() => {
+        if (resolvedRoomId === null) return;
+
+        void loadIncomingRoomAccessRequests();
+        const pollTimer = window.setInterval(() => {
+            void loadIncomingRoomAccessRequests();
+        }, 5000);
+
+        return () => {
+            window.clearInterval(pollTimer);
+        };
+    }, [resolvedRoomId, loadIncomingRoomAccessRequests]);
+
+    useEffect(() => {
+        void loadTotalCanvases();
+    }, [loadTotalCanvases]);
 
     useEffect(() => {
         if (!isMenuOpen) return;
@@ -1077,12 +1175,29 @@ export default function CanvasPage() {
     });
 
     useEffect(() => {
-        if (syncResult.lastSyncError) {
-            setSyncStatus("error");
-            return;
+        if (syncStatusTimerRef.current) {
+            clearTimeout(syncStatusTimerRef.current);
+            syncStatusTimerRef.current = null;
         }
 
-        setSyncStatus(syncResult.isConnected ? "connected" : "disconnected");
+        const nextStatus: "connected" | "disconnected" | "error" = syncResult.lastSyncError
+            ? "error"
+            : syncResult.isConnected
+                ? "connected"
+                : "disconnected";
+
+        // Stabilize indicator color for short-lived sync transitions.
+        syncStatusTimerRef.current = setTimeout(() => {
+            setSyncStatus(nextStatus);
+            syncStatusTimerRef.current = null;
+        }, 180);
+
+        return () => {
+            if (syncStatusTimerRef.current) {
+                clearTimeout(syncStatusTimerRef.current);
+                syncStatusTimerRef.current = null;
+            }
+        };
     }, [syncResult.isConnected, syncResult.lastSyncError]);
 
     useEffect(() => {
@@ -1291,6 +1406,54 @@ export default function CanvasPage() {
         setDebugPanelMode((current) => (current === "compact" ? "verbose" : "compact"));
     };
 
+    const handleJoinCanvasFromMenu = () => {
+        setJoinCanvasInput("");
+        setIsJoinCanvasModalOpen(true);
+    };
+
+    const handleSubmitJoinCanvas = async () => {
+        const target = normalizeJoinTarget(joinCanvasInput);
+        if (!target) {
+            pushToast("error", "Enter a valid invite link or room path.");
+            return;
+        }
+
+        const destination = target.startsWith("room/") || target.startsWith("canvas/")
+            ? `/${target}`
+            : `/canvas/${target}`;
+
+        setIsJoiningCanvas(true);
+        try {
+            await apiClient.get(`${HTTP_BACKEND}/auth/current-user`);
+            window.location.href = destination;
+        } catch {
+            const redirectTarget = encodeURIComponent(destination);
+            window.location.href = `/signin?redirect=${redirectTarget}`;
+        } finally {
+            setIsJoiningCanvas(false);
+        }
+    };
+
+    const handleAccessRequestDecision = async (requestId: number, action: "approve" | "reject") => {
+        if (requestDecisionInFlightId !== null) return;
+
+        setRequestDecisionInFlightId(requestId);
+        try {
+            await apiClient.post(`${HTTP_BACKEND}/room/access/requests/decision`, {
+                requestId,
+                action,
+            });
+
+            setIncomingRoomAccessRequests((current) => current.filter((request) => request.id !== requestId));
+            pushToast("success", action === "approve" ? "Access request approved." : "Access request rejected.");
+        } catch (errorResponse) {
+            const axiosError = errorResponse as AxiosError<{message?: string}>;
+            pushToast("error", axiosError.response?.data?.message ?? "Unable to update access request.");
+        } finally {
+            setRequestDecisionInFlightId(null);
+        }
+    };
+
     const handleExportJson = () => {
         if (!canvasState) return;
 
@@ -1430,6 +1593,15 @@ export default function CanvasPage() {
                         aria-label="More actions"
                     >
                         <span aria-hidden="true">⋯</span>
+                        {incomingRoomAccessRequests.length > 0 && (
+                            <span
+                                className={`absolute -right-1 -top-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1 text-[10px] font-semibold ${
+                                    isDark ? "bg-emerald-400 text-black" : "bg-emerald-600 text-white"
+                                }`}
+                            >
+                                {incomingRoomAccessRequests.length}
+                            </span>
+                        )}
                     </button>
 
                     {isMenuOpen && (
@@ -1610,6 +1782,20 @@ export default function CanvasPage() {
                                 type="button"
                                 role="menuitem"
                                 onClick={() => {
+                                    setIsMenuOpen(false);
+                                    setShowRoomInfo(false);
+                                    handleJoinCanvasFromMenu();
+                                }}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                }`}
+                            >
+                                <span>Join a canvas</span>
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
                                     handleCopyInvite();
                                     setIsMenuOpen(false);
                                     setShowRoomInfo(false);
@@ -1633,6 +1819,64 @@ export default function CanvasPage() {
                                 <span>Show room info</span>
                                 <span className="text-xs opacity-70">{showRoomInfo ? "Hide" : "Show"}</span>
                             </button>
+                            <div
+                                className={`mx-2 mt-2 rounded-lg border px-3 py-2 text-xs ${
+                                    isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"
+                                }`}
+                            >
+                                <div className="mb-2 flex items-center justify-between">
+                                    <span className="font-semibold">Pending room requests</span>
+                                    <span className="opacity-70">{incomingRoomAccessRequests.length}</span>
+                                </div>
+                                {isLoadingIncomingRequests ? (
+                                    <div className="opacity-70">Loading requests...</div>
+                                ) : incomingRoomAccessRequests.length === 0 ? (
+                                    <div className="opacity-70">No pending requests for this room.</div>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {incomingRoomAccessRequests.map((request) => (
+                                            <div
+                                                key={request.id}
+                                                className={`rounded-md border p-2 ${
+                                                    isDark ? "border-white/10" : "border-slate-200"
+                                                }`}
+                                            >
+                                                <div className="mb-2 opacity-80">
+                                                    {request.requester.name} ({request.requester.handle ?? request.requester.email})
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <button
+                                                        type="button"
+                                                        role="menuitem"
+                                                        disabled={requestDecisionInFlightId === request.id}
+                                                        onClick={() => void handleAccessRequestDecision(request.id, "approve")}
+                                                        className={`rounded-md border px-2 py-1 text-xs font-medium ${
+                                                            isDark
+                                                                ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100"
+                                                                : "border-emerald-300 bg-emerald-50 text-emerald-800"
+                                                        }`}
+                                                    >
+                                                        Approve
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        role="menuitem"
+                                                        disabled={requestDecisionInFlightId === request.id}
+                                                        onClick={() => void handleAccessRequestDecision(request.id, "reject")}
+                                                        className={`rounded-md border px-2 py-1 text-xs font-medium ${
+                                                            isDark
+                                                                ? "border-red-300/30 bg-red-500/10 text-red-100"
+                                                                : "border-red-300 bg-red-50 text-red-800"
+                                                        }`}
+                                                    >
+                                                        Reject
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                             {showRoomInfo && (
                                 <div
                                     className={`mx-2 mt-1 rounded-lg border px-3 py-2 text-xs ${
@@ -1762,6 +2006,61 @@ export default function CanvasPage() {
                     )}
                 </div>
             </div>
+
+            {isJoinCanvasModalOpen && (
+                <div className="absolute inset-0 z-40 grid place-items-center bg-black/40 px-4 backdrop-blur-sm">
+                    <div
+                        className={`w-full max-w-md rounded-2xl border p-5 shadow-2xl ${
+                            isDark ? "border-white/10 bg-[#1a1a1a] text-white" : "border-slate-300 bg-white text-slate-900"
+                        }`}
+                    >
+                        <h2 className="text-lg font-semibold">Join a canvas</h2>
+                        <p className={`mt-1 text-sm ${isDark ? "text-white/70" : "text-slate-600"}`}>
+                            Paste an invite link, room URL, or slug.
+                        </p>
+                        <input
+                            autoFocus
+                            value={joinCanvasInput}
+                            onChange={(event) => setJoinCanvasInput(event.target.value)}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                    event.preventDefault();
+                                    void handleSubmitJoinCanvas();
+                                }
+                            }}
+                            placeholder="https://.../room/owner/slug or /canvas/slug"
+                            className={`mt-4 w-full rounded-xl border px-3 py-2 text-sm outline-none ${
+                                isDark
+                                    ? "border-white/15 bg-[#242424] text-white placeholder:text-white/40 focus:border-white/30"
+                                    : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-slate-500"
+                            }`}
+                        />
+                        <div className="mt-4 flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setIsJoinCanvasModalOpen(false)}
+                                className={`rounded-lg border px-3 py-2 text-sm ${
+                                    isDark ? "border-white/15 hover:bg-white/10" : "border-slate-300 hover:bg-slate-100"
+                                }`}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={isJoiningCanvas}
+                                onClick={() => void handleSubmitJoinCanvas()}
+                                className={`rounded-lg px-3 py-2 text-sm font-semibold ${
+                                    isDark
+                                        ? "bg-white text-black hover:bg-white/90 disabled:opacity-70"
+                                        : "bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-70"
+                                }`}
+                            >
+                                {isJoiningCanvas ? "Joining..." : "Join"}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {selectedCount > 0 && (
                 <aside

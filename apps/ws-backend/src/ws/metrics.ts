@@ -175,6 +175,11 @@ export function recordCrossNodeVersionRegression() {
 }
 
 export function startMetricsReporter(intervalMs = Number(process.env.WS_METRICS_LOG_INTERVAL_MS ?? 30000)) {
+    const metricsEnabled = process.env.WS_METRICS_ENABLED === "true";
+    if (!metricsEnabled) {
+        return;
+    }
+
     if (reportStarted || !Number.isFinite(intervalMs) || intervalMs <= 0) {
         return;
     }

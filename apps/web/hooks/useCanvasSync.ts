@@ -19,6 +19,8 @@ import type {
 import type {Tool} from "@repo/canvas-engine";
 import {HTTP_BACKEND} from "../config";
 
+const WS_SYNC_DEBUG = process.env.NEXT_PUBLIC_WS_SYNC_DEBUG === "true";
+
 interface UseCanvasSyncOptions {
   roomId: number;
   state: CanvasState | null;
@@ -135,8 +137,7 @@ export function useCanvasSync({
 
       const shouldSendImmediately =
         hasJoinedRoomRef.current &&
-        !inFlightSnapshotRef.current &&
-        shapes.length !== syncStateRef.current.shapes.length;
+        !inFlightSnapshotRef.current;
 
       if (shouldSendImmediately) {
         flushQueuedSnapshot();
@@ -149,7 +150,7 @@ export function useCanvasSync({
 
       pendingSyncRef.current = setTimeout(() => {
         flushQueuedSnapshot();
-      }, 160);
+      }, 80);
     },
     [flushQueuedSnapshot, syncInFlightCounter]
   );
@@ -223,7 +224,9 @@ export function useCanvasSync({
     const ws = new WebSocket(WS_BACKEND_URL);
 
     ws.onopen = () => {
-      console.log("[WS] Connected, joining room", roomId);
+      if (WS_SYNC_DEBUG) {
+        console.log("[WS] Connected, joining room", roomId);
+      }
       appendTimelineEvent("socket_open", `joining room ${roomId}`);
       setLastSyncError(null);
       hasJoinedRoomRef.current = false;
@@ -238,12 +241,14 @@ export function useCanvasSync({
         const message = JSON.parse(event.data) as ServerMessage;
 
         if (message.type === "room_joined") {
-          console.log(
-            "[WS] Joined room, version:",
-            message.version,
-            "shapes:",
-            message.shapes.length
-          );
+          if (WS_SYNC_DEBUG) {
+            console.log(
+              "[WS] Joined room, version:",
+              message.version,
+              "shapes:",
+              message.shapes.length
+            );
+          }
           syncStateRef.current = {
             roomId: message.roomId,
             version: message.version,
@@ -271,12 +276,14 @@ export function useCanvasSync({
           // If edits happened while awaiting ack, send latest queued snapshot now.
           flushQueuedSnapshot();
         } else if (message.type === "canvas_snapshot_broadcast") {
-          console.log(
-            "[WS] Received snapshot from",
-            message.senderId,
-            "version:",
-            message.version
-          );
+          if (WS_SYNC_DEBUG) {
+            console.log(
+              "[WS] Received snapshot from",
+              message.senderId,
+              "version:",
+              message.version
+            );
+          }
 
           // Update local sync state
           syncStateRef.current = {
@@ -315,9 +322,15 @@ export function useCanvasSync({
             presences: message.presences,
           });
         } else if (message.type === "sync_error") {
-          console.warn("[WS] Sync error:", message.reason);
+          if (WS_SYNC_DEBUG) {
+            console.warn("[WS] Sync error:", message.reason);
+          }
           appendTimelineEvent("sync_error", message.reason);
-          setLastSyncError(message.reason);
+          const reasonLower = message.reason.toLowerCase();
+          const isTransientSyncError = reasonLower.includes("version mismatch");
+          if (!isTransientSyncError) {
+            setLastSyncError(message.reason);
+          }
           inFlightSnapshotRef.current = false;
           syncInFlightCounter();
 
@@ -334,12 +347,16 @@ export function useCanvasSync({
           // On version mismatch, server will push latest state via room_joined
         }
       } catch (err) {
-        console.error("[WS] Failed to parse message:", err);
+        if (WS_SYNC_DEBUG) {
+          console.error("[WS] Failed to parse message:", err);
+        }
       }
     };
 
     ws.onerror = () => {
-      console.warn("[WS] WebSocket connection error");
+      if (WS_SYNC_DEBUG) {
+        console.warn("[WS] WebSocket connection error");
+      }
       appendTimelineEvent("socket_error", "websocket connection error");
       setLastSyncError("WebSocket connection error");
       hasJoinedRoomRef.current = false;
@@ -348,7 +365,9 @@ export function useCanvasSync({
     };
 
     ws.onclose = (event) => {
-      console.log("[WS] Disconnected");
+      if (WS_SYNC_DEBUG) {
+        console.log("[WS] Disconnected");
+      }
       appendTimelineEvent("socket_close", event.reason || `code ${event.code}`);
       if (event.code === 1008) {
         setLastSyncError(event.reason || "WebSocket authentication failed");
@@ -379,7 +398,9 @@ export function useCanvasSync({
           };
           ws.send(JSON.stringify(message));
         } catch (error) {
-          console.warn("[WS] Failed to flush snapshot during cleanup", error);
+          if (WS_SYNC_DEBUG) {
+            console.warn("[WS] Failed to flush snapshot during cleanup", error);
+          }
         }
       }
 

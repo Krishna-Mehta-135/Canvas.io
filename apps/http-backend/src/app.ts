@@ -4,6 +4,7 @@ import cors from "cors";
 import {authRouter} from "./routes/auth.routes";
 import {errorHandler} from "./middlewares/error.middleware";
 import { roomRouter } from "./routes/room.routes";
+import {rateLimitMiddleware} from "./middlewares/rate-limit.middleware";
 
 const app: Express = express();
 
@@ -25,6 +26,7 @@ app.use(cors({
     },
     credentials: true,
 }));
+app.use(rateLimitMiddleware);
 app.use(express.json());
 app.use(cookieParser());
 

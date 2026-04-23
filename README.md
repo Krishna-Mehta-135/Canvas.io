@@ -217,3 +217,4 @@ Snap controls connector endpoint binding for `line` and `arrow` shapes:
 ## Scaling
 
 - Realtime scaling SLOs, alert rules, and load-test workflow are documented in [docs/scaling-runbook.md](docs/scaling-runbook.md).
+- Shared DB retry and circuit-breaker behavior is documented in [docs/db-resilience.md](docs/db-resilience.md).

@@ -54,6 +54,9 @@ importers:
       '@repo/db':
         specifier: 'workspace: *'
         version: link:../../packages/db
+      '@repo/redis-sync':
+        specifier: 'workspace: *'
+        version: link:../../packages/redis-sync
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config

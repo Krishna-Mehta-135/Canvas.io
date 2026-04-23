@@ -1,6 +1,6 @@
 "use client";
 
-import {useEffect, useMemo, useState} from "react";
+import {useEffect, useMemo, useRef, useState} from "react";
 import {convertToPoints, type Shape} from "@repo/canvas-engine";
 import type {RoomPresenceState} from "@repo/common";
 
@@ -27,7 +27,15 @@ type PresenceRender = {
 };
 
 const PRESENCE_COLORS = ["#f97316", "#22c55e", "#38bdf8", "#fb7185", "#eab308", "#c084fc"];
-const ACTIVE_WINDOW_MS = 1400;
+const ACTIVE_WINDOW_MS = 2200;
+const ACTIVITY_MOVE_EPSILON = 0.75;
+
+type SelectionBounds = {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+};
 
 function hashString(value: string) {
     let hash = 0;
@@ -38,18 +46,28 @@ function hashString(value: string) {
     return Math.abs(hash);
 }
 
-function getSelectionBounds(shapes: Shape[], selectedIds: string[]) {
-    const selectedShapes = shapes.filter((shape) => selectedIds.includes(shape.id));
-    if (selectedShapes.length === 0) return null;
+function getSelectionBounds(shapeById: Map<string, Shape>, selectedIds: string[]) {
+    const firstSelected = selectedIds
+        .map((id) => shapeById.get(id))
+        .find((shape): shape is Shape => Boolean(shape));
 
-    const first = convertToPoints(selectedShapes[0]!);
+    if (!firstSelected) {
+        return null;
+    }
+
+    const first = convertToPoints(firstSelected);
     let minX = first.x1;
     let minY = first.y1;
     let maxX = first.x2;
     let maxY = first.y2;
 
-    for (let index = 1; index < selectedShapes.length; index += 1) {
-        const box = convertToPoints(selectedShapes[index]!);
+    for (const selectedId of selectedIds) {
+        const selectedShape = shapeById.get(selectedId);
+        if (!selectedShape || selectedShape.id === firstSelected.id) {
+            continue;
+        }
+
+        const box = convertToPoints(selectedShape);
         minX = Math.min(minX, box.x1);
         minY = Math.min(minY, box.y1);
         maxX = Math.max(maxX, box.x2);
@@ -59,6 +77,20 @@ function getSelectionBounds(shapes: Shape[], selectedIds: string[]) {
     return {x1: minX, y1: minY, x2: maxX, y2: maxY};
 }
 
+function areBoundsMoving(previous: SelectionBounds | null, next: SelectionBounds | null) {
+    if (!previous || !next) {
+        return false;
+    }
+
+    return (
+        Math.abs(previous.x1 - next.x1) > ACTIVITY_MOVE_EPSILON ||
+        Math.abs(previous.y1 - next.y1) > ACTIVITY_MOVE_EPSILON ||
+        Math.abs(previous.x2 - next.x2) > ACTIVITY_MOVE_EPSILON ||
+        Math.abs(previous.y2 - next.y2) > ACTIVITY_MOVE_EPSILON
+    );
+}
+
+
 function isPresenceActing(presence: PresenceRender) {
     return presence.selectedIds.length > 0 || (presence.tool !== null && presence.tool !== "select");
 }
@@ -67,10 +99,21 @@ function isPresenceActing(presence: PresenceRender) {
  * Renders remote collaborators' selection outlines and activity labels above the canvas.
  */
 export function RemotePresenceLayer({presenceState, currentUserId, viewport, shapes, isDark}: RemotePresenceLayerProps) {
-    const presences = Array.isArray(presenceState?.presences) ? presenceState.presences : [];
-    const safeShapes = Array.isArray(shapes) ? shapes : [];
+    const presences = useMemo(() => (Array.isArray(presenceState?.presences) ? presenceState.presences : []), [
+        presenceState,
+    ]);
+    const safeShapes = useMemo(() => (Array.isArray(shapes) ? shapes : []), [shapes]);
     const [now, setNow] = useState(() => Date.now());
     const [lastActiveByUser, setLastActiveByUser] = useState<Record<string, number>>({});
+    const previousBoundsByUserRef = useRef<Record<string, SelectionBounds | null>>({});
+
+    const shapeById = useMemo(() => {
+        const index = new Map<string, Shape>();
+        for (const shape of safeShapes) {
+            index.set(shape.id, shape);
+        }
+        return index;
+    }, [safeShapes]);
 
     const remotePresences: PresenceRender[] = useMemo(
         () =>
@@ -86,19 +129,31 @@ export function RemotePresenceLayer({presenceState, currentUserId, viewport, sha
         [currentUserId, presences]
     );
 
+    const selectionBoundsByUser = useMemo(() => {
+        const byUser: Record<string, SelectionBounds | null> = {};
+        for (const presence of remotePresences) {
+            byUser[presence.userId] = getSelectionBounds(shapeById, presence.selectedIds);
+        }
+        return byUser;
+    }, [remotePresences, shapeById]);
+
     useEffect(() => {
         const timestamp = Date.now();
 
         setLastActiveByUser((previous) => {
             const next = {...previous};
             for (const presence of remotePresences) {
-                if (isPresenceActing(presence)) {
+                const nextBounds = selectionBoundsByUser[presence.userId] ?? null;
+                const previousBounds = previousBoundsByUserRef.current[presence.userId] ?? null;
+                if (isPresenceActing(presence) || areBoundsMoving(previousBounds, nextBounds)) {
                     next[presence.userId] = timestamp;
                 }
             }
             return next;
         });
-    }, [remotePresences, presenceState]);
+
+        previousBoundsByUserRef.current = selectionBoundsByUser;
+    }, [remotePresences, selectionBoundsByUser]);
 
     useEffect(() => {
         const timer = window.setInterval(() => {
@@ -123,14 +178,19 @@ export function RemotePresenceLayer({presenceState, currentUserId, viewport, sha
         return null;
     }
 
-    const floatingOnly = activePresences.filter(
-        (presence) => getSelectionBounds(safeShapes, presence.selectedIds) === null
-    );
+    const floatingOnly = activePresences.filter((presence) => {
+        const hasSelection = presence.selectedIds.length > 0;
+        const hasSelectionBounds = (selectionBoundsByUser[presence.userId] ?? null) !== null;
+
+        // When a user has selected shapes, avoid detaching their name into the
+        // floating stack; detached labels look like they move independently.
+        return !hasSelection && !hasSelectionBounds;
+    });
 
     return (
         <div className="pointer-events-none absolute inset-0 z-30">
             {activePresences.map((presence) => {
-                const selectionBounds = getSelectionBounds(safeShapes, presence.selectedIds);
+                const selectionBounds = selectionBoundsByUser[presence.userId] ?? null;
 
                 return (
                     <div key={presence.userId} className="absolute inset-0">

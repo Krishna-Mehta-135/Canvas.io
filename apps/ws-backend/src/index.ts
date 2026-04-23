@@ -236,23 +236,31 @@ wss.on("connection", function connection(ws: AuthenticatedWebSocket, request) {
         }
     }, 30000);
 
+    // Preserve in-order processing per socket. This avoids version-race
+    // mismatches when clients pipeline multiple snapshot messages.
+    let messageQueue = Promise.resolve();
+
     ws.on("message", async (data) => {
         const bytes = typeof data === "string" ? Buffer.byteLength(data) : Buffer.byteLength(data as Buffer);
         recordInboundMessage(bytes);
 
-        try {
-            await handleSocketMessage(ws, userId, data);
-        } catch (error) {
-            if (WS_DEBUG_ERRORS) {
-                console.error("Invalid message", error);
-            }
-            ws.send(
-                JSON.stringify({
-                    type: "sync_error",
-                    reason: "Invalid message format",
-                })
-            );
-        }
+        messageQueue = messageQueue
+            .then(async () => {
+                await handleSocketMessage(ws, userId, data);
+            })
+            .catch((error) => {
+                if (WS_DEBUG_ERRORS) {
+                    console.error("Invalid message", error);
+                }
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(
+                        JSON.stringify({
+                            type: "sync_error",
+                            reason: "Invalid message format",
+                        })
+                    );
+                }
+            });
     });
 
     ws.on("close", () => {

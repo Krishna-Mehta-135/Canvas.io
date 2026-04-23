@@ -25,6 +25,7 @@
     "@repo/backend-common": "workspace: *",
     "@repo/common": "workspace: *",
     "@repo/db": "workspace: *",
+    "@repo/redis-sync": "workspace: *",
     "@repo/typescript-config": "workspace:*",
     "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.19",

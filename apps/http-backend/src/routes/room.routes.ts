@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { authenticate } from "../middlewares/auth.middleware";
+import { idempotencyMiddleware } from "../middlewares/idempotency.middleware";
 import {
 	createRoom,
 	listMyRooms,
@@ -16,16 +17,16 @@ import {
 
 const roomRouter: Router = Router()
 
-roomRouter.post("/", authenticate, createRoom)
+roomRouter.post("/", authenticate, idempotencyMiddleware, createRoom)
 roomRouter.get("/mine", authenticate, listMyRooms)
 roomRouter.get("/:roomId/shapes",authenticate, getShapes);
-roomRouter.put("/:roomId/shapes", authenticate, replaceShapes);
+roomRouter.put("/:roomId/shapes", authenticate, idempotencyMiddleware, replaceShapes);
 roomRouter.get("/room/slug/:slug", authenticate, getRoomIdFromSlug)
 roomRouter.get("/resolve/:userHandle/:slug", authenticate, getRoomByOwnerAndSlug)
-roomRouter.patch("/:roomId/slug", authenticate, renameRoomSlug)
+roomRouter.patch("/:roomId/slug", authenticate, idempotencyMiddleware, renameRoomSlug)
 roomRouter.get("/:roomId/invite", authenticate, getInviteLink)
-roomRouter.post("/access/request", authenticate, requestRoomAccess)
+roomRouter.post("/access/request", authenticate, idempotencyMiddleware, requestRoomAccess)
 roomRouter.get("/access/requests/incoming", authenticate, listIncomingRoomAccessRequests)
-roomRouter.post("/access/requests/decision", authenticate, decideRoomAccessRequest)
+roomRouter.post("/access/requests/decision", authenticate, idempotencyMiddleware, decideRoomAccessRequest)
 
 export {roomRouter}

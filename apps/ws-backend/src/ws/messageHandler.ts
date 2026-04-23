@@ -14,7 +14,7 @@ import {
     setRoomPresence,
 } from "./connectionState.js";
 import {cacheRoomSyncState, enqueueRoomPersist, initializeRoomSync} from "./roomSync.js";
-import {commitRoomSnapshot, getRoomVersion, NODE_ID} from "@repo/redis-sync";
+import {commitRoomSnapshot, NODE_ID} from "@repo/redis-sync";
 import {
     recordInvalidJsonPayload,
     recordInvalidMessagePayload,
@@ -27,7 +27,9 @@ import {
 } from "./metrics.js";
 
 const WS_MAX_MESSAGE_BYTES = Number(process.env.WS_MAX_MESSAGE_BYTES ?? 512 * 1024);
-const WS_SNAPSHOT_RATE_LIMIT_COUNT = Number(process.env.WS_SNAPSHOT_RATE_LIMIT_COUNT ?? 30);
+// Higher default keeps drag/move streams smooth for multi-user sessions while
+// still preventing extreme snapshot floods.
+const WS_SNAPSHOT_RATE_LIMIT_COUNT = Number(process.env.WS_SNAPSHOT_RATE_LIMIT_COUNT ?? 90);
 const WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS = Number(process.env.WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS ?? 1000);
 
 const snapshotRateWindowBySocket = new WeakMap<AuthenticatedWebSocket, {windowStartMs: number; count: number}>();
@@ -274,35 +276,6 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
             return;
         }
 
-        // Redis is the source of truth for the version. If the client is behind,
-        // we send the authoritative snapshot so it can resync without guessing.
-        const authoritativeVersion = await getRoomVersion(roomId);
-        if (version !== authoritativeVersion) {
-            recordVersionMismatch();
-            const roomState = await initializeRoomSync(roomId);
-            const presenceState = getRoomPresenceState(roomId);
-
-            ws.send(
-                JSON.stringify({
-                    type: "sync_error",
-                    reason: `Version mismatch: client has ${version}, server has ${authoritativeVersion}`,
-                } as ServerMessage)
-            );
-
-            ws.send(
-                JSON.stringify({
-                    type: "room_joined",
-                    roomId,
-                    version: roomState.version,
-                    shapes: roomState.shapes,
-                    userId,
-                    connectedUsersCount: presenceState.connectedUsersCount,
-                    presences: presenceState.presences,
-                } as ServerMessage)
-            );
-            return;
-        }
-
         if (!Array.isArray(shapes)) {
             ws.send(
                 JSON.stringify({
@@ -371,28 +344,6 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
         const processLatencyMs = Math.max(0, Date.now() - snapshotStartedAtMs);
         recordSnapshotCommitted(commitLatencyMs, processLatencyMs);
 
-        try {
-            await publishDurableRoomEvent({
-                type: "canvas_snapshot_broadcast",
-                roomId,
-                version: nextVersion,
-                shapes: typedShapes,
-                senderId: userId,
-                originNodeId: NODE_ID,
-                actionId,
-                publishedAtMs: Date.now(),
-            });
-        } catch (error) {
-            // Redis Pub/Sub remains available as low-latency fan-out fallback.
-            recordDurablePublishFailure();
-            console.error("[WS] Failed to publish durable room event", {
-                roomId,
-                version: nextVersion,
-                actionId,
-                error,
-            });
-        }
-
         void enqueueRoomPersist(roomId, nextVersion, typedShapes);
         cacheRoomSyncState({
             roomId,
@@ -420,5 +371,29 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
         };
 
         broadcastToRoom(roomId, broadcastMsg, ws);
+
+        // Durable queue publication is intentionally detached from the hot path.
+        // Redis commit already finalized the authoritative room transition and
+        // local clients have been acked/broadcasted. Keeping this async avoids
+        // adding broker latency to live cursor/shape responsiveness.
+        void publishDurableRoomEvent({
+            type: "canvas_snapshot_broadcast",
+            roomId,
+            version: nextVersion,
+            shapes: typedShapes,
+            senderId: userId,
+            originNodeId: NODE_ID,
+            actionId,
+            publishedAtMs: Date.now(),
+        }).catch((error) => {
+            // Redis Pub/Sub remains available as low-latency fan-out fallback.
+            recordDurablePublishFailure();
+            console.error("[WS] Failed to publish durable room event", {
+                roomId,
+                version: nextVersion,
+                actionId,
+                error,
+            });
+        });
     }
 }

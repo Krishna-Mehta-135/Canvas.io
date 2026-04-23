@@ -119,11 +119,14 @@ export function broadcastToRoom(roomId: number, message: ServerMessage, senderWs
     const roomSockets = activeRooms.get(roomId);
     if (!roomSockets) return;
 
+    // Serialize once to reduce CPU/GC pressure when fan-out targets many peers.
+    const serializedMessage = JSON.stringify(message);
+
     for (const socket of roomSockets) {
         if (socket === senderWs) continue;
 
         if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify(message));
+            socket.send(serializedMessage);
         }
     }
 }
@@ -135,9 +138,11 @@ export function broadcastToRoomAll(roomId: number, message: ServerMessage) {
     const roomSockets = activeRooms.get(roomId);
     if (!roomSockets) return;
 
+    const serializedMessage = JSON.stringify(message);
+
     for (const socket of roomSockets) {
         if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify(message));
+            socket.send(serializedMessage);
         }
     }
 }

@@ -393,7 +393,7 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
             });
         }
 
-        await enqueueRoomPersist(roomId, nextVersion, typedShapes);
+        void enqueueRoomPersist(roomId, nextVersion, typedShapes);
         cacheRoomSyncState({
             roomId,
             version: nextVersion,

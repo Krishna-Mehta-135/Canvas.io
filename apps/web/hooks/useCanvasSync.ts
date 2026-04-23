@@ -20,6 +20,9 @@ import type {Tool} from "@repo/canvas-engine";
 import {HTTP_BACKEND} from "../config";
 
 const WS_SYNC_DEBUG = process.env.NEXT_PUBLIC_WS_SYNC_DEBUG === "true";
+const SNAPSHOT_MIN_SEND_INTERVAL_MS = Number(
+  process.env.NEXT_PUBLIC_WS_SNAPSHOT_MIN_SEND_INTERVAL_MS ?? 45
+);
 
 interface UseCanvasSyncOptions {
   roomId: number;
@@ -69,8 +72,13 @@ export function useCanvasSync({
   const inFlightSnapshotRef = useRef(false);
   const queuedSnapshotRef = useRef<Shape[] | null>(null);
   const snapshotSentAtRef = useRef<number | null>(null);
+  const lastSnapshotSentAtRef = useRef(0);
 
   const appendTimelineEvent = useCallback((type: string, detail: string) => {
+    if (!WS_SYNC_DEBUG) {
+      return;
+    }
+
     const now = new Date();
     const nextEvent: SyncTimelineEntry = {
       id: `${now.getTime()}-${Math.random().toString(16).slice(2, 8)}`,
@@ -107,6 +115,20 @@ export function useCanvasSync({
       return;
     }
 
+    const now = Date.now();
+    const elapsedSinceLastSend = now - lastSnapshotSentAtRef.current;
+    if (elapsedSinceLastSend < SNAPSHOT_MIN_SEND_INTERVAL_MS) {
+      const waitMs = SNAPSHOT_MIN_SEND_INTERVAL_MS - elapsedSinceLastSend;
+      if (pendingSyncRef.current) {
+        clearTimeout(pendingSyncRef.current);
+      }
+
+      pendingSyncRef.current = setTimeout(() => {
+        flushQueuedSnapshot();
+      }, waitMs);
+      return;
+    }
+
     const queuedShapes = queuedSnapshotRef.current;
     if (!queuedShapes) {
       syncInFlightCounter();
@@ -116,6 +138,7 @@ export function useCanvasSync({
     queuedSnapshotRef.current = null;
     inFlightSnapshotRef.current = true;
     snapshotSentAtRef.current = Date.now();
+    lastSnapshotSentAtRef.current = snapshotSentAtRef.current;
     appendTimelineEvent("snapshot_send", `v${syncStateRef.current.version} (${queuedShapes.length} shapes)`);
     syncInFlightCounter();
 
@@ -135,22 +158,13 @@ export function useCanvasSync({
       queuedSnapshotRef.current = shapes;
       syncInFlightCounter();
 
-      const shouldSendImmediately =
-        hasJoinedRoomRef.current &&
-        !inFlightSnapshotRef.current;
-
-      if (shouldSendImmediately) {
-        flushQueuedSnapshot();
-        return;
-      }
-
       if (pendingSyncRef.current) {
         clearTimeout(pendingSyncRef.current);
       }
 
       pendingSyncRef.current = setTimeout(() => {
         flushQueuedSnapshot();
-      }, 80);
+      }, SNAPSHOT_MIN_SEND_INTERVAL_MS);
     },
     [flushQueuedSnapshot, syncInFlightCounter]
   );
@@ -164,7 +178,12 @@ export function useCanvasSync({
     }
 
     pendingPresenceRef.current = setTimeout(() => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN || !isConnectedRef.current) {
+      if (
+        !wsRef.current ||
+        wsRef.current.readyState !== WebSocket.OPEN ||
+        !isConnectedRef.current ||
+        !hasJoinedRoomRef.current
+      ) {
         return;
       }
 
@@ -327,7 +346,11 @@ export function useCanvasSync({
           }
           appendTimelineEvent("sync_error", message.reason);
           const reasonLower = message.reason.toLowerCase();
-          const isTransientSyncError = reasonLower.includes("version mismatch");
+          const isTransientSyncError =
+            reasonLower.includes("version mismatch") ||
+            reasonLower.includes("rate limit") ||
+            (!hasJoinedRoomRef.current &&
+              (reasonLower.includes("forbidden") || reasonLower.includes("not active")));
           if (!isTransientSyncError) {
             setLastSyncError(message.reason);
           }
@@ -358,10 +381,9 @@ export function useCanvasSync({
         console.warn("[WS] WebSocket connection error");
       }
       appendTimelineEvent("socket_error", "websocket connection error");
+      // Keep connection status unchanged here. Some browsers emit error before close,
+      // and toggling to disconnected causes noisy UI flicker.
       setLastSyncError("WebSocket connection error");
-      hasJoinedRoomRef.current = false;
-      isConnectedRef.current = false;
-      setIsConnected(false);
     };
 
     ws.onclose = (event) => {
@@ -413,6 +435,7 @@ export function useCanvasSync({
       inFlightSnapshotRef.current = false;
       queuedSnapshotRef.current = null;
       snapshotSentAtRef.current = null;
+      lastSnapshotSentAtRef.current = 0;
       syncInFlightCounter();
       hasJoinedRoomRef.current = false;
       if (ws.readyState === WebSocket.OPEN) {

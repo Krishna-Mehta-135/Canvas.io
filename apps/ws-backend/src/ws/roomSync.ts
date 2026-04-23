@@ -15,6 +15,15 @@ export const roomSyncState = new Map<number, RoomSyncState>();
 const pendingPersistTimer = new Map<number, ReturnType<typeof setTimeout>>();
 const pendingPersistShapes = new Map<number, Shape[]>();
 const persistInFlight = new Set<number>();
+let durablePersistFailureCount = 0;
+let durablePersistRetryAfterMs = 0;
+
+function getDurablePersistCooldownMs(failureCount: number) {
+    const initialDelayMs = 2000;
+    const maxDelayMs = 30000;
+    const exponentialDelay = initialDelayMs * Math.pow(2, Math.max(0, failureCount - 1));
+    return Math.min(maxDelayMs, exponentialDelay);
+}
 
 // This cache is intentionally non-authoritative. Redis decides the current room
 // version; the cache only avoids repeated snapshot deserialization on the hot path.
@@ -148,6 +157,12 @@ export function scheduleRoomPersist(roomId: number, shapes: Shape[], delayMs = 1
  * Falls back to in-process debounce persistence if the queue is unavailable.
  */
 export async function enqueueRoomPersist(roomId: number, version: number, shapes: Shape[]) {
+    const now = Date.now();
+    if (now < durablePersistRetryAfterMs) {
+        scheduleRoomPersist(roomId, shapes);
+        return;
+    }
+
     try {
         await publishRoomPersistJob({
             jobId: randomUUID(),
@@ -156,8 +171,21 @@ export async function enqueueRoomPersist(roomId: number, version: number, shapes
             shapes,
             enqueuedAtMs: Date.now(),
         });
+        durablePersistFailureCount = 0;
+        durablePersistRetryAfterMs = 0;
     } catch (error) {
-        console.error(`[WS] Failed to enqueue room ${roomId} persist job; using local fallback`, error);
+        durablePersistFailureCount += 1;
+        const delayMs = getDurablePersistCooldownMs(durablePersistFailureCount);
+        durablePersistRetryAfterMs = Date.now() + delayMs;
+
+        if (durablePersistFailureCount === 1 || durablePersistFailureCount % 5 === 0) {
+            console.error(`[WS] Failed to enqueue room ${roomId} persist job; using local fallback`, {
+                failureCount: durablePersistFailureCount,
+                retryAfterMs: delayMs,
+                error,
+            });
+        }
+
         scheduleRoomPersist(roomId, shapes);
     }
 }

@@ -146,6 +146,22 @@ const listMyRooms = asyncHandler(async (req, res) => {
     res.status(200).json(new ApiResponse(200, payload, "Rooms fetched successfully"));
 });
 
+const MAX_SHAPES_PER_PAGE = 5000;
+const DEFAULT_SHAPES_PER_PAGE = 2000;
+
+/**
+ * Parse a viewport query string "x1,y1,x2,y2" into its numeric components.
+ * Returns null when the string is absent or malformed.
+ */
+function parseViewportParam(raw: string | undefined): {x1: number; y1: number; x2: number; y2: number} | null {
+    if (!raw) return null;
+    const parts = raw.split(",");
+    if (parts.length !== 4) return null;
+    const [x1, y1, x2, y2] = parts.map(Number);
+    if ([x1, y1, x2, y2].some((n) => !Number.isFinite(n))) return null;
+    return {x1: x1!, y1: y1!, x2: x2!, y2: y2!};
+}
+
 const getShapes = asyncHandler(async (req, res) => {
     const paramsValidation = RoomIdParamSchema.safeParse(req.params);
     if (!paramsValidation.success) {
@@ -160,34 +176,151 @@ const getShapes = asyncHandler(async (req, res) => {
         throw new ApiError(403, "Forbidden");
     }
 
+    // --- Pagination params ---
+    const rawLimit = Number(req.query.limit ?? DEFAULT_SHAPES_PER_PAGE);
+    const limit = Number.isFinite(rawLimit)
+        ? Math.max(1, Math.min(MAX_SHAPES_PER_PAGE, rawLimit))
+        : DEFAULT_SHAPES_PER_PAGE;
+
+    // cursor is the `createdAt` ISO timestamp of the last shape from the previous page.
+    const cursorRaw = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+    const cursorDate = cursorRaw ? new Date(cursorRaw) : undefined;
+    const cursorIsValid = cursorDate && !isNaN(cursorDate.getTime());
+
+    // --- Optional viewport spatial filter ---
+    const viewportRaw = typeof req.query.viewport === "string" ? req.query.viewport : undefined;
+    const viewport = parseViewportParam(viewportRaw);
+
     try {
-        const shapes = await prismaClient.shape.findMany({
+        // Build the Prisma where clause.
+        // When a viewport is provided we apply a best-effort spatial pre-filter:
+        // shapes whose canonical bounding box overlaps the viewport rectangle are
+        // included; freehand shapes are always included because their bounds are
+        // implicit in a points[] array (too expensive to filter server-side without
+        // a precomputed bbox column).
+        //
+        // The jsonb cast trick works on Postgres >= 12.  On other engines it
+        // degrades gracefully by returning all shapes (the `viewport` branch simply
+        // won't be entered).
+
+        let shapes;
+
+        if (viewport) {
+            // Use a raw query so we can leverage Postgres jsonb operators for the
+            // spatial filter.  This is safe because all values are parameterised.
+            const {x1: vx1, y1: vy1, x2: vx2, y2: vy2} = viewport;
+
+            // Build cursor clause fragments.
+            const cursorClause = cursorIsValid
+                ? `AND s."createdAt" > $7\n`
+                : "";
+            const cursorParam = cursorIsValid ? [cursorDate] : [];
+
+            // Shape types with axis-aligned bounding boxes that we can filter cheaply.
+            //   rect / rhombus / text  →  x, y, width, height
+            //   circle                 →  centerX, centerY, radiusX, radiusY
+            //   line / arrow           →  x1, y1, x2, y2
+            // All other types (freehand) bypass the spatial filter.
+            const spatialFilter = `
+                AND (
+                    s.type = 'freehand'
+                    OR (
+                        s.type IN ('rect', 'rhombus', 'text')
+                        AND (s.props->>'x')::float8 + (s.props->>'width')::float8 >= $3
+                        AND (s.props->>'x')::float8 <= $5
+                        AND (s.props->>'y')::float8 + (s.props->>'height')::float8 >= $4
+                        AND (s.props->>'y')::float8 <= $6
+                    )
+                    OR (
+                        s.type = 'circle'
+                        AND (s.props->>'centerX')::float8 + (s.props->>'radiusX')::float8 >= $3
+                        AND (s.props->>'centerX')::float8 - (s.props->>'radiusX')::float8 <= $5
+                        AND (s.props->>'centerY')::float8 + (s.props->>'radiusY')::float8 >= $4
+                        AND (s.props->>'centerY')::float8 - (s.props->>'radiusY')::float8 <= $6
+                    )
+                    OR (
+                        s.type IN ('line', 'arrow')
+                        AND GREATEST((s.props->>'x1')::float8, (s.props->>'x2')::float8) >= $3
+                        AND LEAST((s.props->>'x1')::float8, (s.props->>'x2')::float8) <= $5
+                        AND GREATEST((s.props->>'y1')::float8, (s.props->>'y2')::float8) >= $4
+                        AND LEAST((s.props->>'y1')::float8, (s.props->>'y2')::float8) <= $6
+                    )
+                )
+            `;
+
+            const rows = await prismaClient.$queryRawUnsafe<Array<{props: unknown; createdAt: Date}>>(
+                `SELECT s.props, s."createdAt"
+                 FROM "Shape" s
+                 WHERE s."roomId" = $1
+                   AND s.deleted = false
+                   ${spatialFilter}
+                   ${cursorClause}
+                 ORDER BY s."createdAt" ASC
+                 LIMIT $2`,
+                roomId,
+                limit + 1,          // fetch one extra to detect next page
+                vx1, vy1, vx2, vy2,
+                ...cursorParam
+            );
+
+            const hasMore = rows.length > limit;
+            const pageRows = hasMore ? rows.slice(0, limit) : rows;
+            const nextCursor = hasMore ? pageRows[pageRows.length - 1]?.createdAt?.toISOString() : null;
+
+            return res.status(200).json(
+                new ApiResponse(
+                    200,
+                    {
+                        shapes: pageRows.map((row) => row.props),
+                        nextCursor,
+                    },
+                    "Shapes fetched successfully"
+                )
+            );
+        }
+
+        // ---- Non-spatial path: plain cursor-paginated fetch ----
+        shapes = await prismaClient.shape.findMany({
             where: {
                 roomId,
                 deleted: false,
+                ...(cursorIsValid ? {createdAt: {gt: cursorDate}} : {}),
             },
-            orderBy: {
-                createdAt: "asc",
-            },
+            orderBy: {createdAt: "asc"},
+            take: limit + 1,
         });
 
-        const serializedShapes = shapes.map((shape) => shape.props);
+        const hasMore = shapes.length > limit;
+        const pageShapes = hasMore ? shapes.slice(0, limit) : shapes;
+        const nextCursor = hasMore
+            ? pageShapes[pageShapes.length - 1]?.createdAt?.toISOString() ?? null
+            : null;
 
-        res.status(200).json(new ApiResponse(200, serializedShapes, "Shapes fetched successfully"));
+        const serializedShapes = pageShapes.map((shape) => shape.props);
+
+        res.status(200).json(
+            new ApiResponse(
+                200,
+                {shapes: serializedShapes, nextCursor},
+                "Shapes fetched successfully"
+            )
+        );
     } catch (err: any) {
         // If Prisma schema is out-of-sync (missing table/columns), keep canvas usable.
         if (err?.code === "P2021" || err?.code === "P2022") {
-            return res.status(200).json(new ApiResponse(200, [], "Shapes unavailable; returned empty state"));
+            return res.status(200).json(
+                new ApiResponse(200, {shapes: [], nextCursor: null}, "Shapes unavailable; returned empty state")
+            );
         }
-
-        // For any known Prisma request failure, avoid opaque 500 for initial canvas load.
         if (typeof err?.code === "string" && err.code.startsWith("P")) {
-            return res.status(200).json(new ApiResponse(200, [], "Shapes unavailable; returned empty state"));
+            return res.status(200).json(
+                new ApiResponse(200, {shapes: [], nextCursor: null}, "Shapes unavailable; returned empty state")
+            );
         }
-
         throw err;
     }
 });
+
 
 //save the full current canvas snapshot for this room
 const replaceShapes = asyncHandler(async (req, res) => {

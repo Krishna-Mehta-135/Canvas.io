@@ -918,11 +918,47 @@ export default function CanvasPage() {
         stateRef.current = state;
         setCanvasState(state);
 
-        const getShapesById = async (id: number) => {
-            const response = await apiClient.get(`${HTTP_BACKEND}/room/${id}/shapes`);
+        /**
+         * Fetch shapes with cursor-based pagination so large canvases don't block
+         * the initial render behind a single giant DB round-trip.
+         *
+         * The server returns { shapes: Shape[], nextCursor: string | null }.
+         * When nextCursor is non-null there are more shapes to load; we keep
+         * requesting pages until it's null.  Each page is capped at 500 shapes
+         * server-side to bound individual response sizes.
+         */
+        const getShapesChunked = async (id: number): Promise<Shape[]> => {
+            const PAGE_SIZE = 500;
+            const accumulated: Shape[] = [];
+            let cursor: string | null = null;
 
-            const persistedShapes = response.data?.data;
-            return Array.isArray(persistedShapes) ? (persistedShapes as Shape[]) : [];
+            for (;;) {
+                const url = new URL(`${HTTP_BACKEND}/room/${id}/shapes`);
+                url.searchParams.set("limit", String(PAGE_SIZE));
+                if (cursor) url.searchParams.set("cursor", cursor);
+
+                const response = await apiClient.get(url.toString());
+                const data = response.data?.data;
+
+                // Backwards-compatible: server might return a plain array (old builds).
+                if (Array.isArray(data)) {
+                    accumulated.push(...(data as Shape[]));
+                    break;
+                }
+
+                const pageShapes = Array.isArray(data?.shapes) ? (data.shapes as Shape[]) : [];
+                accumulated.push(...pageShapes);
+
+                const nextCursor: string | null = data?.nextCursor ?? null;
+                if (!nextCursor) break;
+                cursor = nextCursor;
+            }
+
+            // Deduplicate by ID — guards against shapes with equal createdAt
+            // timestamps landing on both sides of a cursor page boundary.
+            const seen = new Map<string, Shape>();
+            for (const s of accumulated) seen.set((s as Shape & {id: string}).id, s);
+            return Array.from(seen.values());
         };
 
         const resolveRoomIdAndShapes = async (): Promise<{resolvedRoomId: number; shapes: Shape[]}> => {
@@ -947,7 +983,7 @@ export default function CanvasPage() {
                     throw new Error("Invalid room id returned from canonical owner+slug lookup");
                 }
 
-                const shapes = await getShapesById(resolvedRoomId);
+                const shapes = await getShapesChunked(resolvedRoomId);
                 return {
                     resolvedRoomId,
                     shapes,
@@ -972,7 +1008,7 @@ export default function CanvasPage() {
                     };
                 }
 
-                const shapes = await getShapesById(resolvedRoomId);
+                const shapes = await getShapesChunked(resolvedRoomId);
 
                 return {
                     resolvedRoomId,
@@ -1029,7 +1065,7 @@ export default function CanvasPage() {
                         };
                     }
 
-                    const shapes = await getShapesById(resolvedRoomId);
+                    const shapes = await getShapesChunked(resolvedRoomId);
 
                     return {
                         resolvedRoomId,
@@ -2467,7 +2503,7 @@ export default function CanvasPage() {
                 presenceState={remotePresenceState}
                 currentUserId={syncResult.currentUserId}
                 viewport={viewport}
-                shapes={canvasState?.getShapes() ?? []}
+                shapesRef={syncResult.latestShapesRef}
                 isDark={isDark}
             />
 

@@ -1,11 +1,20 @@
 /**
  * useCanvasSync
- * 
+ *
  * Manages bidirectional WebSocket sync between canvas state and server.
- * 
+ *
  * - On component mount: join room, receive sync_init
  * - On local changes: throttle-send canvas_snapshot
  * - On remote updates: hydrate state without notification loop
+ *
+ * Key optimisations in this version:
+ * - latestShapesRef: updated synchronously (before React re-renders) so the
+ *   RemotePresenceLayer can read frame-accurate shape positions every RAF.
+ * - Drag-burst detection: when consecutive snapshots arrive within
+ *   DRAG_BURST_WINDOW_MS we temporarily double in-flight budget and halve the
+ *   send interval so dragged shapes reach peers with minimal lag.
+ * - Rate-limit backoff: exponential wait after sync_error[rate limit] instead
+ *   of immediately re-queuing (avoids flood → reject → retry loops).
  */
 
 import { useEffect, useRef, useCallback, useState } from "react";
@@ -16,8 +25,8 @@ import type {
   RoomSyncState,
   RoomPresenceState,
 } from "@repo/common";
-import type {Tool} from "@repo/canvas-engine";
-import {HTTP_BACKEND} from "../config";
+import type { Tool } from "@repo/canvas-engine";
+import { HTTP_BACKEND } from "../config";
 
 const WS_SYNC_DEBUG = process.env.NEXT_PUBLIC_WS_SYNC_DEBUG === "true";
 const SNAPSHOT_MIN_SEND_INTERVAL_MS = Number(
@@ -27,8 +36,16 @@ const WS_MAX_IN_FLIGHT_SNAPSHOTS = Number(
   process.env.NEXT_PUBLIC_WS_MAX_IN_FLIGHT_SNAPSHOTS ?? 3
 );
 const REMOTE_HYDRATE_IDLE_GRACE_MS = Number(
-  process.env.NEXT_PUBLIC_WS_REMOTE_HYDRATE_IDLE_GRACE_MS ?? 12
+  process.env.NEXT_PUBLIC_WS_REMOTE_HYDRATE_IDLE_GRACE_MS ?? 6
 );
+
+/**
+ * During an active drag burst (consecutive snapshots within this window)
+ * we temporarily relax the throttle so peer canvases stay smooth.
+ */
+const DRAG_BURST_WINDOW_MS = 120;
+const DRAG_BURST_MIN_INTERVAL_MS = 8;
+const DRAG_BURST_MAX_IN_FLIGHT = 6;
 
 type PendingRemoteSnapshot = {
   roomId: number;
@@ -75,6 +92,7 @@ export function useCanvasSync({
   const [websocketLatencyMs, setWebsocketLatencyMs] = useState<number | null>(null);
   const [inFlightSnapshotCount, setInFlightSnapshotCount] = useState(0);
   const [eventTimeline, setEventTimeline] = useState<SyncTimelineEntry[]>([]);
+
   const wsRef = useRef<WebSocket | null>(null);
   const isConnectedRef = useRef(false);
   const isApplyingRemoteRef = useRef(false);
@@ -93,10 +111,31 @@ export function useCanvasSync({
   const pendingRemoteHydrateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const remoteHydrateRafRef = useRef<number | null>(null);
 
+  /**
+   * Live shapes ref — updated synchronously every time shapes are hydrated,
+   * before any React re-render.  RemotePresenceLayer reads this every frame
+   * so selection boxes are always positioned against the current shape state
+   * rather than waiting for a React re-render cycle.
+   */
+  const latestShapesRef = useRef<Shape[]>([]);
+
+  // Drag-burst detection.
+  const lastBurstSnapshotAtRef = useRef(0);
+  const isDragBurstActiveRef = useRef(false);
+  const dragBurstCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Rate-limit backoff state.
+  const rateLimitBackoffUntilRef = useRef(0);
+  const rateLimitBackoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const getEffectiveMinInterval = () =>
+    isDragBurstActiveRef.current ? DRAG_BURST_MIN_INTERVAL_MS : SNAPSHOT_MIN_SEND_INTERVAL_MS;
+
+  const getEffectiveMaxInFlight = () =>
+    isDragBurstActiveRef.current ? DRAG_BURST_MAX_IN_FLIGHT : WS_MAX_IN_FLIGHT_SNAPSHOTS;
+
   const appendTimelineEvent = useCallback((type: string, detail: string) => {
-    if (!WS_SYNC_DEBUG) {
-      return;
-    }
+    if (!WS_SYNC_DEBUG) return;
 
     const now = new Date();
     const nextEvent: SyncTimelineEntry = {
@@ -105,7 +144,6 @@ export function useCanvasSync({
       type,
       detail,
     };
-
     setEventTimeline((previous) => [...previous.slice(-59), nextEvent]);
   }, []);
 
@@ -119,7 +157,6 @@ export function useCanvasSync({
       clearTimeout(pendingRemoteHydrateTimerRef.current);
       pendingRemoteHydrateTimerRef.current = null;
     }
-
     if (remoteHydrateRafRef.current !== null && typeof window !== "undefined") {
       window.cancelAnimationFrame(remoteHydrateRafRef.current);
       remoteHydrateRafRef.current = null;
@@ -131,7 +168,6 @@ export function useCanvasSync({
       clearTimeout(pendingSyncRef.current);
       pendingSyncRef.current = null;
     }
-
     if (pendingSyncRafRef.current !== null && typeof window !== "undefined") {
       window.cancelAnimationFrame(pendingSyncRafRef.current);
       pendingSyncRafRef.current = null;
@@ -139,17 +175,13 @@ export function useCanvasSync({
   }, []);
 
   const scheduleRemoteHydrate = useCallback(() => {
-    if (!state) {
-      return;
-    }
+    if (!state) return;
 
     cancelScheduledRemoteHydrate();
 
     const applyLatestRemoteSnapshot = () => {
       const pending = pendingRemoteSnapshotRef.current;
-      if (!pending) {
-        return;
-      }
+      if (!pending) return;
 
       const sinceLastLocalEditMs = Date.now() - lastLocalEditAtRef.current;
       if (sinceLastLocalEditMs < REMOTE_HYDRATE_IDLE_GRACE_MS) {
@@ -166,6 +198,10 @@ export function useCanvasSync({
         version: pending.version,
         shapes: pending.shapes,
       };
+
+      // Update the live ref BEFORE hydrateShapes fires React subscribers —
+      // ensures RemotePresenceLayer reads the correct positions this frame.
+      latestShapesRef.current = pending.shapes;
 
       isApplyingRemoteRef.current = true;
       state.hydrateShapes(pending.shapes);
@@ -203,14 +239,19 @@ export function useCanvasSync({
       wsRef.current.readyState !== WebSocket.OPEN ||
       !hasJoinedRoomRef.current ||
       isApplyingRemoteRef.current ||
-      inFlightSnapshotCountRef.current >= WS_MAX_IN_FLIGHT_SNAPSHOTS
+      inFlightSnapshotCountRef.current >= getEffectiveMaxInFlight()
     ) {
+      return;
+    }
+
+    // Respect rate-limit backoff window.
+    if (rateLimitBackoffUntilRef.current > 0 && Date.now() < rateLimitBackoffUntilRef.current) {
       return;
     }
 
     const now = Date.now();
     const elapsedSinceLastSend = now - lastSnapshotSentAtRef.current;
-    if (elapsedSinceLastSend < SNAPSHOT_MIN_SEND_INTERVAL_MS) {
+    if (elapsedSinceLastSend < getEffectiveMinInterval()) {
       return;
     }
 
@@ -238,19 +279,16 @@ export function useCanvasSync({
     };
 
     wsRef.current.send(JSON.stringify(message));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appendTimelineEvent, roomId, syncInFlightCounter]);
 
   const scheduleSnapshotFlush = useCallback(() => {
-    if (pendingSyncRafRef.current !== null || typeof window === "undefined") {
-      return;
-    }
+    if (pendingSyncRafRef.current !== null || typeof window === "undefined") return;
 
     const tick = () => {
       pendingSyncRafRef.current = null;
-
       const hadQueuedSnapshot = Boolean(queuedSnapshotRef.current);
       flushQueuedSnapshot();
-
       if (queuedSnapshotRef.current && hadQueuedSnapshot) {
         pendingSyncRafRef.current = window.requestAnimationFrame(tick);
       }
@@ -259,19 +297,44 @@ export function useCanvasSync({
     pendingSyncRafRef.current = window.requestAnimationFrame(tick);
   }, [flushQueuedSnapshot]);
 
+  /**
+   * Track drag-burst activity.  When snapshots arrive within DRAG_BURST_WINDOW_MS
+   * of each other we activate burst mode which loosens the throttle.
+   */
+  const touchDragBurst = useCallback(() => {
+    const now = Date.now();
+    const sinceLastBurst = now - lastBurstSnapshotAtRef.current;
+    lastBurstSnapshotAtRef.current = now;
+
+    if (sinceLastBurst < DRAG_BURST_WINDOW_MS) {
+      isDragBurstActiveRef.current = true;
+
+      if (dragBurstCooldownTimerRef.current) {
+        clearTimeout(dragBurstCooldownTimerRef.current);
+      }
+      dragBurstCooldownTimerRef.current = setTimeout(() => {
+        isDragBurstActiveRef.current = false;
+        dragBurstCooldownTimerRef.current = null;
+      }, DRAG_BURST_WINDOW_MS * 2);
+    }
+  }, []);
+
   // Queue latest snapshot and send when no snapshot is currently in flight.
   const sendCanvasSnapshot = useCallback(
     (shapes: Shape[]) => {
       queuedSnapshotRef.current = shapes;
       syncInFlightCounter();
-
+      touchDragBurst();
       cancelScheduledSnapshotFlush();
 
-      // If no request is currently in flight and throttle budget allows,
-      // flush immediately to avoid adding an extra timer hop to every edit.
+      // Flush immediately if budget and interval allow.
+      const rateLimitCleared =
+        rateLimitBackoffUntilRef.current === 0 || Date.now() >= rateLimitBackoffUntilRef.current;
       const canFlushNow =
-        inFlightSnapshotCountRef.current < WS_MAX_IN_FLIGHT_SNAPSHOTS &&
-        Date.now() - lastSnapshotSentAtRef.current >= SNAPSHOT_MIN_SEND_INTERVAL_MS;
+        rateLimitCleared &&
+        inFlightSnapshotCountRef.current < getEffectiveMaxInFlight() &&
+        Date.now() - lastSnapshotSentAtRef.current >= getEffectiveMinInterval();
+
       if (canFlushNow) {
         flushQueuedSnapshot();
         return;
@@ -279,7 +342,8 @@ export function useCanvasSync({
 
       scheduleSnapshotFlush();
     },
-    [cancelScheduledSnapshotFlush, flushQueuedSnapshot, scheduleSnapshotFlush, syncInFlightCounter]
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cancelScheduledSnapshotFlush, flushQueuedSnapshot, scheduleSnapshotFlush, syncInFlightCounter, touchDragBurst]
   );
 
   /**
@@ -317,9 +381,10 @@ export function useCanvasSync({
     if (!enabled || !state) return;
 
     const unsubscribe = state.subscribe((shapes) => {
-      // Only send if we're connected and not applying a remote update
       if (!isApplyingRemoteRef.current) {
         lastLocalEditAtRef.current = Date.now();
+        // Keep the live ref current for every local edit too.
+        latestShapesRef.current = shapes;
         sendCanvasSnapshot(shapes);
       }
     });
@@ -334,10 +399,7 @@ export function useCanvasSync({
 
   useEffect(() => {
     if (!enabled || !state) return;
-
-    if (!isConnectedRef.current || !currentUserId) {
-      return;
-    }
+    if (!isConnectedRef.current || !currentUserId) return;
 
     sendPresenceSnapshot();
 
@@ -355,9 +417,7 @@ export function useCanvasSync({
     const ws = new WebSocket(WS_BACKEND_URL);
 
     ws.onopen = () => {
-      if (WS_SYNC_DEBUG) {
-        console.log("[WS] Connected, joining room", roomId);
-      }
+      if (WS_SYNC_DEBUG) console.log("[WS] Connected, joining room", roomId);
       appendTimelineEvent("socket_open", `joining room ${roomId}`);
       setLastSyncError(null);
       hasJoinedRoomRef.current = false;
@@ -373,12 +433,7 @@ export function useCanvasSync({
 
         if (message.type === "room_joined") {
           if (WS_SYNC_DEBUG) {
-            console.log(
-              "[WS] Joined room, version:",
-              message.version,
-              "shapes:",
-              message.shapes.length
-            );
+            console.log("[WS] Joined room, version:", message.version, "shapes:", message.shapes.length);
           }
           syncStateRef.current = {
             roomId: message.roomId,
@@ -400,27 +455,49 @@ export function useCanvasSync({
           appendTimelineEvent("room_joined", `v${message.version} (${message.shapes.length} shapes)`);
           syncInFlightCounter();
 
-          // Hydrate local state with server shapes
+          // Update live ref first, then hydrate.
           pendingRemoteSnapshotRef.current = null;
           cancelScheduledRemoteHydrate();
+
+          // If we have a preserved local snapshot (e.g. from a version-mismatch
+          // recovery), we apply the server state first to sync version metadata,
+          // then IMMEDIATELY re-apply the local state so the canvas never shows
+          // the old server position.  isApplyingRemoteRef stays true across both
+          // calls so no sendCanvasSnapshot fires for the intermediate server state.
+          const savedLocalShapes = queuedSnapshotRef.current;
+
           isApplyingRemoteRef.current = true;
+          latestShapesRef.current = message.shapes;
           state.hydrateShapes(message.shapes);
+
+          if (savedLocalShapes) {
+            // Re-apply the user's latest local state so the shape snaps back
+            // to where they left it — not to the server's stale position.
+            latestShapesRef.current = savedLocalShapes;
+            state.hydrateShapes(savedLocalShapes);
+          }
+
           isApplyingRemoteRef.current = false;
 
-          // If edits happened while awaiting ack, send latest queued snapshot now.
           flushQueuedSnapshot();
         } else if (message.type === "canvas_snapshot_broadcast") {
           if (WS_SYNC_DEBUG) {
-            console.log(
-              "[WS] Received snapshot from",
-              message.senderId,
-              "version:",
-              message.version
-            );
+            console.log("[WS] Received snapshot from", message.senderId, "version:", message.version);
           }
 
-          // Keep only the latest remote snapshot and hydrate on animation frame
-          // once local editing activity settles.
+          // Update the overlay ref immediately — the RemotePresenceLayer RAF
+          // loop reads this every frame, so the selection box snaps to the new
+          // position within ≤1 frame (~16ms) of the broadcast arriving, without
+          // waiting for the idle grace period or a second RAF hop.
+          //
+          // The canvas engine hydration is still deferred via scheduleRemoteHydrate
+          // so the grace period correctly protects local drag operations.
+          // Only update if the local user is not actively editing (i.e. the
+          // broadcast isn't going to conflict with an in-progress local drag).
+          if (Date.now() - lastLocalEditAtRef.current > REMOTE_HYDRATE_IDLE_GRACE_MS) {
+            latestShapesRef.current = message.shapes;
+          }
+
           pendingRemoteSnapshotRef.current = {
             roomId: message.roomId,
             version: message.version,
@@ -435,7 +512,10 @@ export function useCanvasSync({
             shapes: syncStateRef.current.shapes,
           };
           inFlightSnapshotCountRef.current = Math.max(0, inFlightSnapshotCountRef.current - 1);
-          optimisticSnapshotVersionRef.current = Math.max(optimisticSnapshotVersionRef.current, message.version + 1);
+          optimisticSnapshotVersionRef.current = Math.max(
+            optimisticSnapshotVersionRef.current,
+            message.version + 1
+          );
           if (snapshotSentAtRef.current !== null) {
             const latency = Math.max(0, Date.now() - snapshotSentAtRef.current);
             setWebsocketLatencyMs(latency);
@@ -454,27 +534,38 @@ export function useCanvasSync({
             presences: message.presences,
           });
         } else if (message.type === "sync_error") {
-          if (WS_SYNC_DEBUG) {
-            console.warn("[WS] Sync error:", message.reason);
-          }
+          if (WS_SYNC_DEBUG) console.warn("[WS] Sync error:", message.reason);
           appendTimelineEvent("sync_error", message.reason);
+
           const reasonLower = message.reason.toLowerCase();
           const isTransientSyncError =
             reasonLower.includes("version mismatch") ||
             reasonLower.includes("rate limit") ||
             (!hasJoinedRoomRef.current &&
               (reasonLower.includes("forbidden") || reasonLower.includes("not active")));
+
           if (!isTransientSyncError) {
             setLastSyncError(message.reason);
           }
+
           inFlightSnapshotCountRef.current = 0;
           syncInFlightCounter();
 
-          // Drop stale queued snapshots after version drift to avoid replaying old state
-          // over the authoritative server snapshot that follows.
-          if (message.reason.toLowerCase().includes("version mismatch")) {
-            inFlightSnapshotCountRef.current = 0;
-            queuedSnapshotRef.current = null;
+          // Version mismatch: server will push authoritative room_joined.
+          // IMPORTANT: Do NOT null out queuedSnapshotRef here — that would
+          // lose the user's latest local position and cause the shape to
+          // teleport back to wherever the server was when it rejected us.
+          //
+          // Instead, capture the latest local canvas state (if no snapshot is
+          // already queued) and hold it.  When room_joined arrives it resets
+          // optimisticSnapshotVersionRef to the server's version, then
+          // flushQueuedSnapshot() re-sends our latest state with that version.
+          if (reasonLower.includes("version mismatch")) {
+            if (!queuedSnapshotRef.current && state) {
+              // Preserve the current canvas position so it survives the resync.
+              queuedSnapshotRef.current = state.getShapes();
+            }
+            // Cancel any pending flush timer — room_joined will trigger a flush.
             if (pendingSyncRef.current) {
               clearTimeout(pendingSyncRef.current);
               pendingSyncRef.current = null;
@@ -482,33 +573,42 @@ export function useCanvasSync({
             return;
           }
 
-          // For transient errors (for example rate limits), immediately retry
-          // the latest queued snapshot rather than waiting for a future local edit.
-          scheduleSnapshotFlush();
+          // Rate limit: exponential backoff before retrying.
+          if (reasonLower.includes("rate limit")) {
+            const alreadyWaiting =
+              rateLimitBackoffUntilRef.current > 0 && Date.now() < rateLimitBackoffUntilRef.current;
+            const nextBackoffMs = alreadyWaiting
+              ? Math.min((rateLimitBackoffUntilRef.current - Date.now()) * 2, 4000)
+              : 250;
+            rateLimitBackoffUntilRef.current = Date.now() + nextBackoffMs;
 
-          // On version mismatch, server will push latest state via room_joined
+            if (rateLimitBackoffTimerRef.current) {
+              clearTimeout(rateLimitBackoffTimerRef.current);
+            }
+            rateLimitBackoffTimerRef.current = setTimeout(() => {
+              rateLimitBackoffUntilRef.current = 0;
+              rateLimitBackoffTimerRef.current = null;
+              scheduleSnapshotFlush();
+            }, nextBackoffMs);
+            return;
+          }
+
+          // Other transient errors: retry with next flush.
+          scheduleSnapshotFlush();
         }
       } catch (err) {
-        if (WS_SYNC_DEBUG) {
-          console.error("[WS] Failed to parse message:", err);
-        }
+        if (WS_SYNC_DEBUG) console.error("[WS] Failed to parse message:", err);
       }
     };
 
     ws.onerror = () => {
-      if (WS_SYNC_DEBUG) {
-        console.warn("[WS] WebSocket connection error");
-      }
+      if (WS_SYNC_DEBUG) console.warn("[WS] WebSocket connection error");
       appendTimelineEvent("socket_error", "websocket connection error");
-      // Keep connection status unchanged here. Some browsers emit error before close,
-      // and toggling to disconnected causes noisy UI flicker.
       setLastSyncError("WebSocket connection error");
     };
 
     ws.onclose = (event) => {
-      if (WS_SYNC_DEBUG) {
-        console.log("[WS] Disconnected");
-      }
+      if (WS_SYNC_DEBUG) console.log("[WS] Disconnected");
       appendTimelineEvent("socket_close", event.reason || `code ${event.code}`);
       if (event.code === 1008) {
         setLastSyncError(event.reason || "WebSocket authentication failed");
@@ -521,8 +621,7 @@ export function useCanvasSync({
     wsRef.current = ws;
 
     return () => {
-      // Flush the latest local snapshot before closing socket so refresh/navigation
-      // does not drop edits still waiting in the throttle window.
+      // Flush latest local snapshot before closing so navigation does not drop edits.
       if (
         isConnectedRef.current &&
         ws.readyState === WebSocket.OPEN &&
@@ -539,22 +638,25 @@ export function useCanvasSync({
           };
           ws.send(JSON.stringify(message));
         } catch (error) {
-          if (WS_SYNC_DEBUG) {
-            console.warn("[WS] Failed to flush snapshot during cleanup", error);
-          }
+          if (WS_SYNC_DEBUG) console.warn("[WS] Failed to flush snapshot during cleanup", error);
         }
       }
 
-      if (pendingSyncRef.current) {
-        clearTimeout(pendingSyncRef.current);
-      }
+      if (pendingSyncRef.current) clearTimeout(pendingSyncRef.current);
       if (pendingSyncRafRef.current !== null && typeof window !== "undefined") {
         window.cancelAnimationFrame(pendingSyncRafRef.current);
         pendingSyncRafRef.current = null;
       }
-      if (pendingPresenceRef.current) {
-        clearTimeout(pendingPresenceRef.current);
+      if (pendingPresenceRef.current) clearTimeout(pendingPresenceRef.current);
+      if (dragBurstCooldownTimerRef.current) {
+        clearTimeout(dragBurstCooldownTimerRef.current);
+        dragBurstCooldownTimerRef.current = null;
       }
+      if (rateLimitBackoffTimerRef.current) {
+        clearTimeout(rateLimitBackoffTimerRef.current);
+        rateLimitBackoffTimerRef.current = null;
+      }
+
       cancelScheduledRemoteHydrate();
       pendingRemoteSnapshotRef.current = null;
       inFlightSnapshotCountRef.current = 0;
@@ -562,11 +664,12 @@ export function useCanvasSync({
       snapshotSentAtRef.current = null;
       lastSnapshotSentAtRef.current = 0;
       optimisticSnapshotVersionRef.current = 0;
+      isDragBurstActiveRef.current = false;
+      rateLimitBackoffUntilRef.current = 0;
       syncInFlightCounter();
       hasJoinedRoomRef.current = false;
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
+
+      if (ws.readyState === WebSocket.OPEN) ws.close();
     };
   }, [
     roomId,
@@ -591,5 +694,11 @@ export function useCanvasSync({
     websocketLatencyMs,
     inFlightSnapshotCount,
     eventTimeline,
+    /**
+     * Live shapes ref — always current, updated synchronously before any
+     * React re-render.  Pass this to RemotePresenceLayer so selection boxes
+     * are frame-locked to the canvas engine, not to React render batches.
+     */
+    latestShapesRef,
   };
 }

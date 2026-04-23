@@ -1,20 +1,16 @@
 "use client";
 
-import {useEffect, useMemo, useRef, useState} from "react";
-import {convertToPoints, type Shape} from "@repo/canvas-engine";
-import type {RoomPresenceState} from "@repo/common";
+import { useEffect, useRef, useState, useMemo } from "react";
+import { convertToPoints, type Shape } from "@repo/canvas-engine";
+import type { RoomPresenceState } from "@repo/common";
 
-type ViewportLike = {
-    x: number;
-    y: number;
-    scale: number;
-};
+type ViewportLike = { x: number; y: number; scale: number };
 
 type RemotePresenceLayerProps = {
     presenceState: RoomPresenceState;
     currentUserId: string | null;
     viewport: ViewportLike | null;
-    shapes: Shape[];
+    shapesRef: React.RefObject<Shape[]>;
     isDark: boolean;
 };
 
@@ -26,209 +22,271 @@ type PresenceRender = {
     tool: string | null;
 };
 
+type SelectionBounds = { x1: number; y1: number; x2: number; y2: number };
+
 const PRESENCE_COLORS = ["#f97316", "#22c55e", "#38bdf8", "#fb7185", "#eab308", "#c084fc"];
 const ACTIVE_WINDOW_MS = 2200;
 const ACTIVITY_MOVE_EPSILON = 0.75;
 
-type SelectionBounds = {
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
-};
-
 function hashString(value: string) {
     let hash = 0;
-    for (let index = 0; index < value.length; index += 1) {
-        hash = (hash << 5) - hash + value.charCodeAt(index);
+    for (let i = 0; i < value.length; i++) {
+        hash = (hash << 5) - hash + value.charCodeAt(i);
         hash |= 0;
     }
     return Math.abs(hash);
 }
 
-function getSelectionBounds(shapeById: Map<string, Shape>, selectedIds: string[]) {
-    const firstSelected = selectedIds
-        .map((id) => shapeById.get(id))
-        .find((shape): shape is Shape => Boolean(shape));
-
-    if (!firstSelected) {
-        return null;
-    }
-
-    const first = convertToPoints(firstSelected);
-    let minX = first.x1;
-    let minY = first.y1;
-    let maxX = first.x2;
-    let maxY = first.y2;
-
-    for (const selectedId of selectedIds) {
-        const selectedShape = shapeById.get(selectedId);
-        if (!selectedShape || selectedShape.id === firstSelected.id) {
-            continue;
-        }
-
-        const box = convertToPoints(selectedShape);
-        minX = Math.min(minX, box.x1);
-        minY = Math.min(minY, box.y1);
-        maxX = Math.max(maxX, box.x2);
-        maxY = Math.max(maxY, box.y2);
-    }
-
-    return {x1: minX, y1: minY, x2: maxX, y2: maxY};
+function getColor(userId: string) {
+    return PRESENCE_COLORS[hashString(userId) % PRESENCE_COLORS.length] ?? PRESENCE_COLORS[0]!;
 }
 
-function areBoundsMoving(previous: SelectionBounds | null, next: SelectionBounds | null) {
-    if (!previous || !next) {
-        return false;
-    }
+function getSelectionBounds(shapeById: Map<string, Shape>, selectedIds: string[]): SelectionBounds | null {
+    const first = selectedIds.map((id) => shapeById.get(id)).find((s): s is Shape => Boolean(s));
+    if (!first) return null;
 
+    const f = convertToPoints(first);
+    let x1 = f.x1, y1 = f.y1, x2 = f.x2, y2 = f.y2;
+
+    for (const id of selectedIds) {
+        const s = shapeById.get(id);
+        if (!s || s.id === first.id) continue;
+        const b = convertToPoints(s);
+        x1 = Math.min(x1, b.x1); y1 = Math.min(y1, b.y1);
+        x2 = Math.max(x2, b.x2); y2 = Math.max(y2, b.y2);
+    }
+    return { x1, y1, x2, y2 };
+}
+
+function boundsChanged(a: SelectionBounds | null, b: SelectionBounds | null): boolean {
+    if (!a || !b) return a !== b;
     return (
-        Math.abs(previous.x1 - next.x1) > ACTIVITY_MOVE_EPSILON ||
-        Math.abs(previous.y1 - next.y1) > ACTIVITY_MOVE_EPSILON ||
-        Math.abs(previous.x2 - next.x2) > ACTIVITY_MOVE_EPSILON ||
-        Math.abs(previous.y2 - next.y2) > ACTIVITY_MOVE_EPSILON
+        Math.abs(a.x1 - b.x1) > ACTIVITY_MOVE_EPSILON ||
+        Math.abs(a.y1 - b.y1) > ACTIVITY_MOVE_EPSILON ||
+        Math.abs(a.x2 - b.x2) > ACTIVITY_MOVE_EPSILON ||
+        Math.abs(a.y2 - b.y2) > ACTIVITY_MOVE_EPSILON
     );
-}
-
-
-function isPresenceActing(presence: PresenceRender) {
-    return presence.selectedIds.length > 0 || (presence.tool !== null && presence.tool !== "select");
 }
 
 /**
- * Renders remote collaborators' selection outlines and activity labels above the canvas.
+ * Renders remote collaborators' selection outlines above the canvas.
+ *
+ * Architecture:
+ * - React state controls WHICH overlays exist (structural, ≤4×/sec).
+ * - The RAF loop mutates overlay div styles directly — zero React cost/frame.
+ * - Positions are exponentially eased toward the target (lerp) so rapid remote
+ *   moves stream smoothly instead of teleporting on each snapshot arrival.
  */
-export function RemotePresenceLayer({presenceState, currentUserId, viewport, shapes, isDark}: RemotePresenceLayerProps) {
-    const presences = useMemo(() => (Array.isArray(presenceState?.presences) ? presenceState.presences : []), [
-        presenceState,
-    ]);
-    const safeShapes = useMemo(() => (Array.isArray(shapes) ? shapes : []), [shapes]);
-    const [now, setNow] = useState(() => Date.now());
-    const [lastActiveByUser, setLastActiveByUser] = useState<Record<string, number>>({});
-    const previousBoundsByUserRef = useRef<Record<string, SelectionBounds | null>>({});
+export function RemotePresenceLayer({
+    presenceState,
+    currentUserId,
+    viewport,
+    shapesRef,
+    isDark,
+}: RemotePresenceLayerProps) {
+    // Structural state: which user IDs have visible overlays.
+    // Only updated ~4×/sec from the slow poll — drives React re-renders.
+    const [activeUserIds, setActiveUserIds] = useState<string[]>([]);
 
-    const shapeById = useMemo(() => {
-        const index = new Map<string, Shape>();
-        for (const shape of safeShapes) {
-            index.set(shape.id, shape);
-        }
-        return index;
-    }, [safeShapes]);
+    // ── Refs used by RAF loop (no re-renders on change) ────────────────────
+    const viewportRef = useRef(viewport);
+    const lastActiveByUserRef = useRef<Record<string, number>>({});
+    const prevTargetBoundsRef = useRef<Record<string, SelectionBounds | null>>({});
+    /** userId → rendered overlay div (for direct style writes). */
+    const overlayElemsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+    const rafRef = useRef<number | null>(null);
+    const lastFrameTimeRef = useRef<number>(0);
 
+    // Remote presences (excludes self), stable via useMemo.
     const remotePresences: PresenceRender[] = useMemo(
         () =>
-            presences
-                .filter((presence) => presence.userId !== currentUserId)
-                .map((presence) => {
-                    const color = PRESENCE_COLORS[hashString(presence.userId) % PRESENCE_COLORS.length] ?? PRESENCE_COLORS[0]!;
-                    return {
-                        ...presence,
-                        color,
-                    };
-                }),
-        [currentUserId, presences]
+            (presenceState?.presences ?? [])
+                .filter((p) => p.userId !== currentUserId)
+                .map((p) => ({ ...p, color: getColor(p.userId) })),
+        [presenceState, currentUserId]
     );
 
-    const selectionBoundsByUser = useMemo(() => {
-        const byUser: Record<string, SelectionBounds | null> = {};
-        for (const presence of remotePresences) {
-            byUser[presence.userId] = getSelectionBounds(shapeById, presence.selectedIds);
-        }
-        return byUser;
-    }, [remotePresences, shapeById]);
+    // Refs so the RAF loop reads latest values without restarting.
+    const remotePresencesRef = useRef(remotePresences);
+    useEffect(() => { remotePresencesRef.current = remotePresences; }, [remotePresences]);
+    useEffect(() => { viewportRef.current = viewport; }, [viewport]);
 
+    // ── RAF loop: pure DOM mutation, zero setState ──────────────────────
     useEffect(() => {
-        const timestamp = Date.now();
+        const tick = (timestamp: number) => {
+            lastFrameTimeRef.current = timestamp;
 
-        setLastActiveByUser((previous) => {
-            const next = {...previous};
-            for (const presence of remotePresences) {
-                const nextBounds = selectionBoundsByUser[presence.userId] ?? null;
-                const previousBounds = previousBoundsByUserRef.current[presence.userId] ?? null;
-                if (isPresenceActing(presence) || areBoundsMoving(previousBounds, nextBounds)) {
-                    next[presence.userId] = timestamp;
+            const vp = viewportRef.current;
+            const presences = remotePresencesRef.current;
+
+            if (vp && presences.length > 0) {
+                const shapes = shapesRef.current ?? [];
+                const shapeById = new Map<string, Shape>();
+                for (const s of shapes) shapeById.set(s.id, s);
+
+                const now = Date.now();
+
+                for (const presence of presences) {
+                    const { userId, selectedIds } = presence;
+
+                    // ── Compute target bounds from latest shapes ──────────
+                    const targetBounds = getSelectionBounds(shapeById, selectedIds);
+                    const prevTarget = prevTargetBoundsRef.current[userId] ?? null;
+
+                    // Track activity.
+                    const isActing =
+                        selectedIds.length > 0 ||
+                        (presence.tool !== null && presence.tool !== "select");
+                    if (isActing || boundsChanged(prevTarget, targetBounds)) {
+                        lastActiveByUserRef.current[userId] = now;
+                    }
+                    prevTargetBoundsRef.current[userId] = targetBounds;
+
+                    const el = overlayElemsRef.current.get(userId);
+                    if (!el) continue;
+
+                    if (!targetBounds || selectedIds.length === 0) {
+                        el.style.transform = "translate3d(-9999px,-9999px,0)";
+                        el.style.visibility = "hidden";
+                        continue;
+                    }
+
+                    // ── Snap directly to shape position (no lerp) ────────
+                    // The box must track the shape with zero additional lag.
+                    // Smoothness comes from high-frequency burst snapshots.
+                    const left = targetBounds.x1 * vp.scale + vp.x;
+                    const top  = targetBounds.y1 * vp.scale + vp.y;
+                    const w    = (targetBounds.x2 - targetBounds.x1) * vp.scale;
+                    const h    = (targetBounds.y2 - targetBounds.y1) * vp.scale;
+
+                    el.style.transform = `translate3d(${left}px,${top}px,0)`;
+                    el.style.width     = `${w}px`;
+                    el.style.height    = `${h}px`;
+                    el.style.visibility = "visible";
                 }
             }
-            return next;
-        });
 
-        previousBoundsByUserRef.current = selectionBoundsByUser;
-    }, [remotePresences, selectionBoundsByUser]);
-
-    useEffect(() => {
-        const timer = window.setInterval(() => {
-            setNow(Date.now());
-        }, 250);
-
-        return () => {
-            window.clearInterval(timer);
+            rafRef.current = requestAnimationFrame(tick);
         };
+
+        rafRef.current = requestAnimationFrame(tick);
+        return () => {
+            if (rafRef.current !== null) {
+                cancelAnimationFrame(rafRef.current);
+                rafRef.current = null;
+            }
+        };
+    }, [shapesRef]); // shapesRef is stable — effect runs once
+
+    // ── Slow poll: update the set of shown overlays (~4×/sec) ────────────
+    useEffect(() => {
+        const checkActive = () => {
+            const now = Date.now();
+            const presences = remotePresencesRef.current;
+
+            const nextIds = presences
+                .filter((p) => {
+                    const lastActive = lastActiveByUserRef.current[p.userId] ?? 0;
+                    const isActing =
+                        p.selectedIds.length > 0 ||
+                        (p.tool !== null && p.tool !== "select");
+                    return isActing || now - lastActive <= ACTIVE_WINDOW_MS;
+                })
+                .map((p) => p.userId);
+
+            setActiveUserIds((prev) => {
+                const prevSet = new Set(prev);
+                const changed = prev.length !== nextIds.length || nextIds.some((id) => !prevSet.has(id));
+                return changed ? nextIds : prev;
+            });
+        };
+
+        checkActive();
+        const timer = window.setInterval(checkActive, 250);
+        return () => window.clearInterval(timer);
     }, []);
 
-    const activePresences = useMemo(() => {
-        return remotePresences.filter((presence) => {
-            const lastActiveAt = lastActiveByUser[presence.userId] ?? 0;
-            return now - lastActiveAt <= ACTIVE_WINDOW_MS;
-        });
-    }, [lastActiveByUser, now, remotePresences]);
+    // Immediately refresh active set when presences change.
+    useEffect(() => {
+        const now = Date.now();
+        for (const p of remotePresences) {
+            const isActing =
+                p.selectedIds.length > 0 || (p.tool !== null && p.tool !== "select");
+            if (isActing) lastActiveByUserRef.current[p.userId] = now;
+        }
 
-    const canRenderOverlay = Boolean(viewport) && (presenceState?.connectedUsersCount ?? 0) > 1;
+        const nextIds = remotePresences
+            .filter((p) => {
+                const lastActive = lastActiveByUserRef.current[p.userId] ?? 0;
+                const isActing =
+                    p.selectedIds.length > 0 || (p.tool !== null && p.tool !== "select");
+                return isActing || now - lastActive <= ACTIVE_WINDOW_MS;
+            })
+            .map((p) => p.userId);
 
-    if (!canRenderOverlay || activePresences.length === 0 || !viewport) {
-        return null;
-    }
+        setActiveUserIds(nextIds);
+    }, [remotePresences]);
 
-    const floatingOnly = activePresences.filter((presence) => {
-        const hasSelection = presence.selectedIds.length > 0;
-        const hasSelectionBounds = (selectionBoundsByUser[presence.userId] ?? null) !== null;
+    const canRender = Boolean(viewport) && (presenceState?.connectedUsersCount ?? 0) > 1;
+    if (!canRender) return null;
 
-        // When a user has selected shapes, avoid detaching their name into the
-        // floating stack; detached labels look like they move independently.
-        return !hasSelection && !hasSelectionBounds;
+    const presenceByUserId = new Map(remotePresences.map((p) => [p.userId, p]));
+
+    const floatingIds = activeUserIds.filter((id) => {
+        const p = presenceByUserId.get(id);
+        return p && p.selectedIds.length === 0;
     });
 
     return (
         <div className="pointer-events-none absolute inset-0 z-30">
-            {activePresences.map((presence) => {
-                const selectionBounds = selectionBoundsByUser[presence.userId] ?? null;
-
+            {activeUserIds.map((userId) => {
+                const presence = presenceByUserId.get(userId);
+                if (!presence) return null;
                 return (
-                    <div key={presence.userId} className="absolute inset-0">
-                        {selectionBounds && (
-                            <div
-                                className={`absolute rounded-md border-2 ${isDark ? "bg-transparent" : "bg-white/5"}`}
-                                style={{
-                                    left: `${selectionBounds.x1 * viewport.scale + viewport.x}px`,
-                                    top: `${selectionBounds.y1 * viewport.scale + viewport.y}px`,
-                                    width: `${(selectionBounds.x2 - selectionBounds.x1) * viewport.scale}px`,
-                                    height: `${(selectionBounds.y2 - selectionBounds.y1) * viewport.scale}px`,
-                                    borderColor: presence.color,
-                                    boxShadow: `0 0 0 1px ${presence.color}22, 0 0 18px ${presence.color}33`,
-                                }}
-                            >
-                                <div
-                                    className="absolute -top-3 right-2 rounded-full px-2 py-0.5 text-[10px] font-semibold text-white shadow-lg"
-                                    style={{backgroundColor: presence.color}}
-                                >
-                                    {presence.userName}
-                                </div>
-                            </div>
-                        )}
+                    <div
+                        key={userId}
+                        ref={(el) => {
+                            if (el) overlayElemsRef.current.set(userId, el as HTMLDivElement);
+                            else overlayElemsRef.current.delete(userId);
+                        }}
+                        className={`absolute rounded-md border-2 ${isDark ? "bg-transparent" : "bg-white/5"}`}
+                        style={{
+                            transform: "translate3d(-9999px,-9999px,0)",
+                            top: 0,
+                            left: 0,
+                            width: 0,
+                            height: 0,
+                            willChange: "transform, width, height",
+                            visibility: "hidden",
+                            borderColor: presence.color,
+                            boxShadow: `0 0 0 1px ${presence.color}22, 0 0 18px ${presence.color}33`,
+                        }}
+                    >
+                        <div
+                            className="absolute -top-3 right-2 rounded-full px-2 py-0.5 text-[10px] font-semibold text-white shadow-lg"
+                            style={{ backgroundColor: presence.color }}
+                        >
+                            {presence.userName}
+                        </div>
                     </div>
                 );
             })}
 
-            {floatingOnly.length > 0 && (
+            {floatingIds.length > 0 && (
                 <div className="absolute right-4 top-16 flex flex-col gap-2">
-                    {floatingOnly.map((presence) => (
-                        <div
-                            key={`floating-${presence.userId}`}
-                            className="rounded-full px-2 py-1 text-[10px] font-semibold text-white shadow-lg"
-                            style={{backgroundColor: presence.color}}
-                        >
-                            {presence.userName}
-                        </div>
-                    ))}
+                    {floatingIds.map((userId) => {
+                        const presence = presenceByUserId.get(userId);
+                        if (!presence) return null;
+                        return (
+                            <div
+                                key={`floating-${userId}`}
+                                className="rounded-full px-2 py-1 text-[10px] font-semibold text-white shadow-lg"
+                                style={{ backgroundColor: presence.color }}
+                            >
+                                {presence.userName}
+                            </div>
+                        );
+                    })}
                 </div>
             )}
         </div>

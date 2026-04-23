@@ -1,6 +1,7 @@
 import "@repo/backend-common/config";
 import {WebSocketServer, WebSocket} from "ws";
 import {subscribeDurableRoomEvents, subscribeRoomPersistJobs} from "@repo/queue-sync";
+import {RABBITMQ_URL} from "@repo/backend-common/config";
 import {checkUser} from "./ws/auth.js";
 import {
     activeRooms,
@@ -29,8 +30,34 @@ import {
 } from "./ws/metrics.js";
 
 const wss = new WebSocketServer({port: 8080});
-const RABBITMQ_RETRY_DELAY_MS = 2000;
+const RABBITMQ_INITIAL_RETRY_DELAY_MS = Number(process.env.WS_RABBITMQ_RETRY_INITIAL_MS ?? 2000);
+const RABBITMQ_MAX_RETRY_DELAY_MS = Number(process.env.WS_RABBITMQ_RETRY_MAX_MS ?? 30000);
+const WS_ENABLE_DURABLE_QUEUE = process.env.WS_ENABLE_DURABLE_QUEUE !== "false";
 const WS_DEBUG_ERRORS = process.env.WS_DEBUG_ERRORS === "true";
+let durableEventRetryAttempt = 0;
+let persistRetryAttempt = 0;
+
+function nextRetryDelayMs(attempt: number) {
+    const boundedAttempt = Math.max(1, attempt);
+    const exponentialDelay = RABBITMQ_INITIAL_RETRY_DELAY_MS * Math.pow(2, boundedAttempt - 1);
+    return Math.min(RABBITMQ_MAX_RETRY_DELAY_MS, exponentialDelay);
+}
+
+function shouldLogRetry(attempt: number) {
+    return attempt === 1 || attempt % 5 === 0;
+}
+
+function safeRabbitMqUrl(rawUrl: string) {
+    try {
+        const parsed = new URL(rawUrl);
+        if (parsed.password) {
+            parsed.password = "***";
+        }
+        return parsed.toString();
+    } catch {
+        return "invalid-rabbitmq-url";
+    }
+}
 
 console.log("WebSocket server online on port 8080");
 startMetricsReporter();
@@ -128,15 +155,24 @@ void subscribeRoomEvents(async (event) => {
 function startDurableRoomEventConsumer() {
     void subscribeDurableRoomEvents(NODE_ID, async (event) => {
         await applyCrossNodeRoomEvent(event, "rabbitmq");
+    }).then(() => {
+        durableEventRetryAttempt = 0;
     }).catch((error) => {
-        console.error("[WS] Durable room event consumer unavailable; retrying", {
-            delayMs: RABBITMQ_RETRY_DELAY_MS,
-            error,
-        });
+        durableEventRetryAttempt += 1;
+        const delayMs = nextRetryDelayMs(durableEventRetryAttempt);
+
+        if (shouldLogRetry(durableEventRetryAttempt)) {
+            console.error("[WS] Durable room event consumer unavailable; retrying", {
+                attempt: durableEventRetryAttempt,
+                delayMs,
+                rabbitmqUrl: safeRabbitMqUrl(RABBITMQ_URL),
+                error,
+            });
+        }
 
         setTimeout(() => {
             startDurableRoomEventConsumer();
-        }, RABBITMQ_RETRY_DELAY_MS).unref();
+        }, delayMs).unref();
     });
 }
 
@@ -151,20 +187,33 @@ function startRoomPersistConsumer() {
 
         await persistShapes(job.roomId, job.shapes);
         latestPersistedVersionByRoom.set(job.roomId, job.version);
+    }).then(() => {
+        persistRetryAttempt = 0;
     }).catch((error) => {
-        console.error("[WS] Durable DB persist consumer unavailable; retrying", {
-            delayMs: RABBITMQ_RETRY_DELAY_MS,
-            error,
-        });
+        persistRetryAttempt += 1;
+        const delayMs = nextRetryDelayMs(persistRetryAttempt);
+
+        if (shouldLogRetry(persistRetryAttempt)) {
+            console.error("[WS] Durable DB persist consumer unavailable; retrying", {
+                attempt: persistRetryAttempt,
+                delayMs,
+                rabbitmqUrl: safeRabbitMqUrl(RABBITMQ_URL),
+                error,
+            });
+        }
 
         setTimeout(() => {
             startRoomPersistConsumer();
-        }, RABBITMQ_RETRY_DELAY_MS).unref();
+        }, delayMs).unref();
     });
 }
 
-startDurableRoomEventConsumer();
-startRoomPersistConsumer();
+if (WS_ENABLE_DURABLE_QUEUE) {
+    startDurableRoomEventConsumer();
+    startRoomPersistConsumer();
+} else {
+    console.warn("[WS] Durable RabbitMQ consumers disabled (WS_ENABLE_DURABLE_QUEUE=false)");
+}
 
 wss.on("connection", function connection(ws: AuthenticatedWebSocket, request) {
     const authUser = checkUser(request);

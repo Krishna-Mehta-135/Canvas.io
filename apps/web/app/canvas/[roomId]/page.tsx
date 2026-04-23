@@ -667,6 +667,7 @@ export default function CanvasPage() {
     const [inviteLink, setInviteLink] = useState<string | null>(null);
     const [syncStatus, setSyncStatus] = useState<"connected" | "disconnected" | "error">("disconnected");
     const syncStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const inspectorRevisionRafRef = useRef<number | null>(null);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const stateRef = useRef<CanvasState | null>(null);
     const [canvasState, setCanvasState] = useState<CanvasState | null>(null);
@@ -681,7 +682,6 @@ export default function CanvasPage() {
     const [isJoinCanvasModalOpen, setIsJoinCanvasModalOpen] = useState(false);
     const [joinCanvasInput, setJoinCanvasInput] = useState("");
     const [isJoiningCanvas, setIsJoiningCanvas] = useState(false);
-    const [totalCanvases, setTotalCanvases] = useState(0);
     const [isReloadingCanvas, setIsReloadingCanvas] = useState(false);
     const [isSavingCanvas, setIsSavingCanvas] = useState(false);
     const [showRoomInfo, setShowRoomInfo] = useState(false);
@@ -763,16 +763,6 @@ export default function CanvasPage() {
             setIsLoadingIncomingRequests(false);
         }
     }, [resolvedRoomId]);
-
-    const loadTotalCanvases = useCallback(async () => {
-        try {
-            const response = await apiClient.get(`${HTTP_BACKEND}/room/mine`);
-            const roomList = response.data?.data;
-            setTotalCanvases(Array.isArray(roomList) ? roomList.length : 0);
-        } catch {
-            setTotalCanvases(0);
-        }
-    }, []);
 
     useEffect(() => {
         controlsRef.current?.rerender();
@@ -875,10 +865,6 @@ export default function CanvasPage() {
             window.clearInterval(pollTimer);
         };
     }, [resolvedRoomId, loadIncomingRoomAccessRequests]);
-
-    useEffect(() => {
-        void loadTotalCanvases();
-    }, [loadTotalCanvases]);
 
     useEffect(() => {
         if (!isMenuOpen) return;
@@ -1058,7 +1044,14 @@ export default function CanvasPage() {
         const unsubscribe = state.subscribe(() => {
             // Ensure remote websocket updates repaint immediately without requiring focus.
             controlsRef.current?.rerender();
-            setInspectorRevision((current) => current + 1);
+            if (inspectorRevisionRafRef.current !== null) {
+                return;
+            }
+
+            inspectorRevisionRafRef.current = window.requestAnimationFrame(() => {
+                inspectorRevisionRafRef.current = null;
+                setInspectorRevision((current) => current + 1);
+            });
         });
 
         const loadShapes = async (): Promise<boolean> => {
@@ -1142,6 +1135,11 @@ export default function CanvasPage() {
             // Stop listening to state updates when this page unmounts.
             // Without this, a stale callback could keep firing saves.
             unsubscribe();
+
+            if (inspectorRevisionRafRef.current !== null) {
+                window.cancelAnimationFrame(inspectorRevisionRafRef.current);
+                inspectorRevisionRafRef.current = null;
+            }
         };
     }, [roomId, ownerHandleFromQuery]);
 
@@ -1186,11 +1184,18 @@ export default function CanvasPage() {
                 ? "connected"
                 : "disconnected";
 
-        // Stabilize indicator color for short-lived sync transitions.
+        // Keep red/yellow transitions slower than green transitions so transient
+        // WS jitter does not cause visible status flapping.
+        const delayMs = nextStatus === "connected"
+            ? 120
+            : syncStatus === "connected"
+                ? 1200
+                : 320;
+
         syncStatusTimerRef.current = setTimeout(() => {
             setSyncStatus(nextStatus);
             syncStatusTimerRef.current = null;
-        }, 180);
+        }, delayMs);
 
         return () => {
             if (syncStatusTimerRef.current) {
@@ -1198,7 +1203,7 @@ export default function CanvasPage() {
                 syncStatusTimerRef.current = null;
             }
         };
-    }, [syncResult.isConnected, syncResult.lastSyncError]);
+    }, [syncResult.isConnected, syncResult.lastSyncError, syncStatus]);
 
     useEffect(() => {
         if (!showDebugOverlay) return;

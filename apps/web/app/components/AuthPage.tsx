@@ -2,10 +2,13 @@
 
 import { useState, FormEvent, useEffect } from "react";
 import { AxiosError } from "axios";
-import { ArrowRight, Eye, EyeOff, Pencil, Loader2 } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Pencil, Loader2, Sparkles, Sun, Moon } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import {HTTP_BACKEND} from "../../config";
-import {apiClient} from "../lib/apiClient";
+import { motion, AnimatePresence } from "motion/react";
+import Link from "next/link";
+import { HTTP_BACKEND } from "../../config";
+import { apiClient } from "../lib/apiClient";
+import { useTheme } from "./ThemeProvider";
 
 const API_BASE = HTTP_BACKEND;
 
@@ -15,6 +18,7 @@ interface AuthPageProps {
 
 export function AuthPage({ isSignIn }: AuthPageProps) {
     const searchParams = useSearchParams();
+    const { theme, toggleTheme } = useTheme();
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -25,61 +29,36 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
 
     useEffect(() => {
         let isUnmounted = false;
-
         const checkExistingSession = async () => {
             try {
                 await apiClient.get(`${API_BASE}/auth/current-user`);
-
-                if (isUnmounted) {
-                    return;
-                }
-
+                if (isUnmounted) return;
                 const redirectTarget = searchParams.get("redirect");
                 window.location.href = redirectTarget && redirectTarget.length > 0 ? redirectTarget : "/rooms";
             } catch {
-                if (!isUnmounted) {
-                    setCheckingSession(false);
-                }
+                if (!isUnmounted) setCheckingSession(false);
             }
         };
-
         void checkExistingSession();
-
-        return () => {
-            isUnmounted = true;
-        };
+        return () => { isUnmounted = true; };
     }, [searchParams]);
 
     const handleSubmit = async (e: FormEvent) => {
         e.preventDefault();
         setError(null);
         setLoading(true);
-
         try {
-            const endpoint = isSignIn
-                ? `${API_BASE}/auth/signin`
-                : `${API_BASE}/auth/signup`;
-
-            const payload = isSignIn
-                ? { email, password }
-                : { name, email, password };
-
+            const endpoint = isSignIn ? `${API_BASE}/auth/signin` : `${API_BASE}/auth/signup`;
+            const payload = isSignIn ? { email, password } : { name, email, password };
             await apiClient.post(endpoint, payload);
-
             const redirectTarget = searchParams.get("redirect");
-            if (redirectTarget) {
-                window.location.href = redirectTarget;
-                return;
-            }
-
+            if (redirectTarget) { window.location.href = redirectTarget; return; }
             window.location.href = "/rooms";
         } catch (err) {
             const axiosError = err as AxiosError<{ message: string }>;
             const message =
                 axiosError.response?.data?.message ||
-                (isSignIn
-                    ? "Invalid email or password."
-                    : "Something went wrong. Please try again.");
+                (isSignIn ? "Invalid email or password." : "Something went wrong. Please try again.");
             setError(message);
         } finally {
             setLoading(false);
@@ -88,80 +67,150 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
 
     if (checkingSession) {
         return (
-            <div className="min-h-screen bg-linear-to-b from-amber-50 via-white to-white flex items-center justify-center">
-                <div className="rounded-2xl border border-gray-200 bg-white px-5 py-4 text-sm font-medium text-gray-700 shadow-sm">
-                    Checking session...
-                </div>
+            <div className="min-h-screen bg-white dark:bg-[#0a0a0a] flex items-center justify-center transition-colors duration-300">
+                <motion.div
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex items-center gap-3 text-gray-500 dark:text-white/60 text-sm"
+                >
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Checking session…
+                </motion.div>
             </div>
         );
     }
 
     return (
-        <div className="min-h-screen bg-linear-to-b from-amber-50 via-white to-white flex flex-col">
-            {/* Decorative background blobs */}
-            <div className="fixed -top-20 -left-12 h-72 w-72 rounded-full bg-amber-300/20 blur-3xl pointer-events-none" />
-            <div className="fixed top-16 right-0 h-72 w-72 rounded-full bg-cyan-300/25 blur-3xl pointer-events-none" />
-            <div className="fixed bottom-0 left-1/2 -translate-x-1/2 h-64 w-96 rounded-full bg-blue-300/15 blur-3xl pointer-events-none" />
+        <div className="min-h-screen bg-white dark:bg-[#0a0a0a] flex flex-col relative overflow-hidden transition-colors duration-300">
+            {/* Animated background gradients — subtle in light, vivid in dark */}
+            <motion.div
+                className="fixed inset-0 pointer-events-none"
+                animate={{
+                    background: [
+                        "radial-gradient(circle at 20% 50%, rgba(99,102,241,0.12) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(168,85,247,0.1) 0%, transparent 50%)",
+                        "radial-gradient(circle at 80% 50%, rgba(168,85,247,0.12) 0%, transparent 50%), radial-gradient(circle at 20% 80%, rgba(99,102,241,0.1) 0%, transparent 50%)",
+                        "radial-gradient(circle at 20% 50%, rgba(99,102,241,0.12) 0%, transparent 50%), radial-gradient(circle at 80% 20%, rgba(168,85,247,0.1) 0%, transparent 50%)",
+                    ],
+                }}
+                transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
+            />
+            {/* Subtle grid */}
+            <div className="fixed inset-0 pointer-events-none bg-[linear-gradient(rgba(100,100,100,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(100,100,100,0.06)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:64px_64px]" />
 
             {/* Header */}
-            <header className="relative z-10 flex items-center justify-between max-w-6xl mx-auto w-full px-5 sm:px-8 lg:px-10 py-5">
-                <a href="/" className="flex items-center gap-2.5 group">
-                    <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm group-hover:bg-blue-700 transition-colors">
-                        <Pencil className="w-5 h-5 text-white" />
+            <motion.header
+                initial={{ y: -40, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.5 }}
+                className="relative z-10 flex items-center justify-between max-w-6xl mx-auto w-full px-6 py-5"
+            >
+                <Link href="/" className="flex items-center gap-2.5 group">
+                    <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center shadow-lg">
+                        <Pencil className="w-4 h-4 text-white" />
                     </div>
-                    <span className="text-lg font-bold text-gray-900 tracking-tight">Canvas</span>
-                </a>
-                <a
-                    href={isSignIn ? "/signup" : "/signin"}
-                    className="text-sm text-gray-500 hover:text-gray-900 transition-colors font-medium"
-                >
-                    {isSignIn ? (
-                        <>
-                            No account?{" "}
-                            <span className="text-blue-600 hover:text-blue-700 font-semibold">Sign up</span>
-                        </>
-                    ) : (
-                        <>
-                            Already have an account?{" "}
-                            <span className="text-blue-600 hover:text-blue-700 font-semibold">Sign in</span>
-                        </>
-                    )}
-                </a>
-            </header>
+                    <span className="text-lg font-bold text-gray-900 dark:text-white tracking-tight">
+                        Canvas<span className="text-indigo-500 dark:text-indigo-400">.io</span>
+                    </span>
+                </Link>
 
-            {/* Main content */}
-            <main className="relative z-10 flex flex-1 items-center justify-center px-5 sm:px-8 py-12">
-                <div className="w-full max-w-md">
-                    {/* Card */}
-                    <div className="bg-white rounded-3xl border-2 border-gray-200 shadow-xl shadow-gray-100/80 p-8 sm:p-10">
-                        {/* Title */}
-                        <div className="mb-8">
-                            <h1 className="text-3xl font-bold text-gray-900 mb-2 tracking-tight">
-                                {isSignIn ? "Welcome back" : "Create your account"}
-                            </h1>
-                            <p className="text-gray-500 text-sm leading-relaxed">
-                                {isSignIn
-                                    ? "Sign in to continue sketching your ideas."
-                                    : "Join thousands of teams sketching together."}
-                            </p>
-                        </div>
+                <div className="flex items-center gap-4">
+                    {/* Theme toggle */}
+                    <motion.button
+                        onClick={toggleTheme}
+                        className="p-2.5 rounded-full bg-gray-100 dark:bg-white/10 border border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/70 hover:text-gray-900 dark:hover:text-white transition-colors"
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.92 }}
+                        aria-label="Toggle theme"
+                    >
+                        <AnimatePresence mode="wait">
+                            {theme === "dark" ? (
+                                <motion.div key="moon" initial={{ opacity: 0, rotate: -90, scale: 0.5 }} animate={{ opacity: 1, rotate: 0, scale: 1 }} exit={{ opacity: 0, rotate: 90, scale: 0.5 }} transition={{ duration: 0.2 }}>
+                                    <Moon className="w-4 h-4" />
+                                </motion.div>
+                            ) : (
+                                <motion.div key="sun" initial={{ opacity: 0, rotate: 90, scale: 0.5 }} animate={{ opacity: 1, rotate: 0, scale: 1 }} exit={{ opacity: 0, rotate: -90, scale: 0.5 }} transition={{ duration: 0.2 }}>
+                                    <Sun className="w-4 h-4" />
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                    </motion.button>
 
-                        {/* Error message */}
-                        {error && (
-                            <div className="mb-6 px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm font-medium">
-                                {error}
-                            </div>
+                    <Link
+                        href={isSignIn ? "/signup" : "/signin"}
+                        className="text-sm text-gray-500 dark:text-white/50 hover:text-gray-900 dark:hover:text-white transition-colors font-medium"
+                    >
+                        {isSignIn ? (
+                            <>No account? <span className="text-indigo-500 dark:text-indigo-400 font-semibold">Sign up</span></>
+                        ) : (
+                            <>Have an account? <span className="text-indigo-500 dark:text-indigo-400 font-semibold">Sign in</span></>
                         )}
+                    </Link>
+                </div>
+            </motion.header>
+
+            {/* Main */}
+            <main className="relative z-10 flex flex-1 items-center justify-center px-6 py-12">
+                <motion.div
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6, ease: "easeOut" }}
+                    className="w-full max-w-md"
+                >
+                    {/* Badge */}
+                    <motion.div
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        transition={{ delay: 0.1 }}
+                        className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-white/5 border border-gray-200 dark:border-white/10 mb-6"
+                    >
+                        <Sparkles className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400" />
+                        <span className="text-xs text-gray-600 dark:text-white/60">AI-Powered Infinite Canvas</span>
+                    </motion.div>
+
+                    {/* Title */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.15 }}
+                        className="mb-8"
+                    >
+                        <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2 tracking-tight">
+                            {isSignIn ? "Welcome back" : "Get started"}
+                        </h1>
+                        <p className="text-gray-500 dark:text-white/50 text-base leading-relaxed">
+                            {isSignIn
+                                ? "Sign in to continue building on your canvas."
+                                : "Join thousands of teams sketching together."}
+                        </p>
+                    </motion.div>
+
+                    {/* Card */}
+                    <motion.div
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: 0.2 }}
+                        className="bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/10 rounded-3xl p-8 shadow-xl dark:shadow-none"
+                    >
+                        {/* Error */}
+                        <AnimatePresence>
+                            {error && (
+                                <motion.div
+                                    initial={{ opacity: 0, y: -8, height: 0 }}
+                                    animate={{ opacity: 1, y: 0, height: "auto" }}
+                                    exit={{ opacity: 0, y: -8, height: 0 }}
+                                    className="mb-5 px-4 py-3 rounded-xl bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 text-sm font-medium"
+                                >
+                                    {error}
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
 
                         {/* Form */}
-                        <form onSubmit={handleSubmit} className="space-y-5">
-                            {/* Name field — only for signup */}
+                        <form onSubmit={handleSubmit} className="space-y-4">
+                            {/* Name */}
                             {!isSignIn && (
                                 <div>
-                                    <label
-                                        htmlFor="name"
-                                        className="block text-sm font-semibold text-gray-700 mb-1.5"
-                                    >
+                                    <label htmlFor="name" className="block text-sm font-medium text-gray-700 dark:text-white/70 mb-1.5">
                                         Full name
                                     </label>
                                     <input
@@ -172,17 +221,14 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                                         value={name}
                                         onChange={(e) => setName(e.target.value)}
                                         required
-                                        className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 bg-white text-gray-900 placeholder-gray-400 text-sm font-medium transition-all outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 hover:border-gray-300"
+                                        className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30 text-sm transition-all outline-none focus:border-indigo-500/70 focus:ring-2 focus:ring-indigo-500/15 hover:border-gray-300 dark:hover:border-white/20"
                                     />
                                 </div>
                             )}
 
-                            {/* Email field */}
+                            {/* Email */}
                             <div>
-                                <label
-                                    htmlFor="email"
-                                    className="block text-sm font-semibold text-gray-700 mb-1.5"
-                                >
+                                <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-white/70 mb-1.5">
                                     Email address
                                 </label>
                                 <input
@@ -193,24 +239,18 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
                                     required
-                                    className="w-full px-4 py-3 rounded-xl border-2 border-gray-200 bg-white text-gray-900 placeholder-gray-400 text-sm font-medium transition-all outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 hover:border-gray-300"
+                                    className="w-full px-4 py-3 rounded-xl bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30 text-sm transition-all outline-none focus:border-indigo-500/70 focus:ring-2 focus:ring-indigo-500/15 hover:border-gray-300 dark:hover:border-white/20"
                                 />
                             </div>
 
-                            {/* Password field */}
+                            {/* Password */}
                             <div>
                                 <div className="flex items-center justify-between mb-1.5">
-                                    <label
-                                        htmlFor="password"
-                                        className="block text-sm font-semibold text-gray-700"
-                                    >
+                                    <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-white/70">
                                         Password
                                     </label>
                                     {isSignIn && (
-                                        <a
-                                            href="/forgot-password"
-                                            className="text-xs text-blue-600 hover:text-blue-700 font-medium transition-colors"
-                                        >
+                                        <a href="/forgot-password" className="text-xs text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 font-medium transition-colors">
                                             Forgot password?
                                         </a>
                                     )}
@@ -225,75 +265,78 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                                         onChange={(e) => setPassword(e.target.value)}
                                         required
                                         minLength={isSignIn ? undefined : 8}
-                                        className="w-full px-4 py-3 pr-11 rounded-xl border-2 border-gray-200 bg-white text-gray-900 placeholder-gray-400 text-sm font-medium transition-all outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 hover:border-gray-300"
+                                        className="w-full px-4 py-3 pr-11 rounded-xl bg-gray-50 dark:bg-white/5 border border-gray-200 dark:border-white/10 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-white/30 text-sm transition-all outline-none focus:border-indigo-500/70 focus:ring-2 focus:ring-indigo-500/15 hover:border-gray-300 dark:hover:border-white/20"
                                     />
                                     <button
                                         type="button"
-                                        onClick={() => setShowPassword((prev) => !prev)}
-                                        className="absolute inset-y-0 right-0 flex items-center px-3.5 text-gray-400 hover:text-gray-600 transition-colors"
+                                        onClick={() => setShowPassword((p) => !p)}
+                                        className="absolute inset-y-0 right-0 flex items-center px-3.5 text-gray-400 dark:text-white/30 hover:text-gray-600 dark:hover:text-white/60 transition-colors"
                                         tabIndex={-1}
                                         aria-label={showPassword ? "Hide password" : "Show password"}
                                     >
-                                        {showPassword ? (
-                                            <EyeOff className="w-4 h-4" />
-                                        ) : (
-                                            <Eye className="w-4 h-4" />
-                                        )}
+                                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                                     </button>
                                 </div>
                                 {!isSignIn && (
-                                    <p className="mt-1.5 text-xs text-gray-400">
-                                        Must be at least 8 characters.
-                                    </p>
+                                    <p className="mt-1.5 text-xs text-gray-400 dark:text-white/30">Must be at least 8 characters.</p>
                                 )}
                             </div>
 
-                            {/* Submit button */}
-                            <button
+                            {/* Submit */}
+                            <motion.button
                                 type="submit"
                                 disabled={loading}
-                                className="group w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 active:bg-blue-800 transition-all shadow-lg shadow-blue-500/25 hover:shadow-xl hover:shadow-blue-500/30 transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-60 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none mt-2"
+                                className="group relative w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-semibold text-sm overflow-hidden disabled:opacity-60 disabled:cursor-not-allowed mt-2 shadow-lg shadow-indigo-500/25"
+                                whileHover={loading ? {} : { scale: 1.02 }}
+                                whileTap={loading ? {} : { scale: 0.98 }}
                             >
-                                {loading ? (
-                                    <>
-                                        <Loader2 className="w-4 h-4 animate-spin" />
-                                        {isSignIn ? "Signing in…" : "Creating account…"}
-                                    </>
-                                ) : (
-                                    <>
-                                        {isSignIn ? "Sign in" : "Create account"}
-                                        <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
-                                    </>
-                                )}
-                            </button>
+                                <motion.div
+                                    className="absolute inset-0 bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400"
+                                    initial={{ x: "100%" }}
+                                    whileHover={{ x: "0%" }}
+                                    transition={{ duration: 0.3 }}
+                                />
+                                <span className="relative z-10 flex items-center gap-2">
+                                    {loading ? (
+                                        <>
+                                            <Loader2 className="w-4 h-4 animate-spin" />
+                                            {isSignIn ? "Signing in…" : "Creating account…"}
+                                        </>
+                                    ) : (
+                                        <>
+                                            {isSignIn ? "Sign in" : "Create account"}
+                                            <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                                        </>
+                                    )}
+                                </span>
+                            </motion.button>
                         </form>
 
-                        {/* Divider + social sign-in placeholder */}
-                        <div className="mt-8 pt-6 border-t border-gray-100">
-                            <p className="text-center text-xs text-gray-400 leading-relaxed">
-                                By continuing you agree to our{" "}
-                                <a href="#" className="text-gray-600 hover:text-gray-900 underline underline-offset-2">
-                                    Terms of Service
-                                </a>{" "}
-                                and{" "}
-                                <a href="#" className="text-gray-600 hover:text-gray-900 underline underline-offset-2">
-                                    Privacy Policy
-                                </a>.
-                            </p>
-                        </div>
-                    </div>
+                        {/* Terms */}
+                        <p className="text-center text-xs text-gray-400 dark:text-white/30 leading-relaxed mt-6 pt-5 border-t border-gray-100 dark:border-white/5">
+                            By continuing you agree to our{" "}
+                            <a href="#" className="text-gray-600 dark:text-white/50 hover:text-gray-900 dark:hover:text-white underline underline-offset-2 transition-colors">Terms</a>
+                            {" "}and{" "}
+                            <a href="#" className="text-gray-600 dark:text-white/50 hover:text-gray-900 dark:hover:text-white underline underline-offset-2 transition-colors">Privacy Policy</a>.
+                        </p>
+                    </motion.div>
 
-                    {/* Bottom switch link */}
-                    <p className="text-center text-sm text-gray-500 mt-6">
+                    {/* Bottom switch */}
+                    <motion.p
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        transition={{ delay: 0.4 }}
+                        className="text-center text-sm text-gray-500 dark:text-white/40 mt-6"
+                    >
                         {isSignIn ? "New to Canvas?" : "Already have an account?"}{" "}
-                        <a
+                        <Link
                             href={isSignIn ? "/signup" : "/signin"}
-                            className="text-blue-600 hover:text-blue-700 font-semibold transition-colors"
+                            className="text-indigo-500 dark:text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-300 font-semibold transition-colors"
                         >
                             {isSignIn ? "Create a free account" : "Sign in instead"}
-                        </a>
-                    </p>
-                </div>
+                        </Link>
+                    </motion.p>
+                </motion.div>
             </main>
         </div>
     );

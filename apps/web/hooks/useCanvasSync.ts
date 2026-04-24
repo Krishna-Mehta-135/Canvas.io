@@ -24,6 +24,8 @@ import type {
   ServerMessage,
   RoomSyncState,
   RoomPresenceState,
+  PersistedChatMessage,
+  ClientMessage,
 } from "@repo/common";
 import type { Tool } from "@repo/canvas-engine";
 import { HTTP_BACKEND } from "../config";
@@ -92,6 +94,7 @@ export function useCanvasSync({
   const [websocketLatencyMs, setWebsocketLatencyMs] = useState<number | null>(null);
   const [inFlightSnapshotCount, setInFlightSnapshotCount] = useState(0);
   const [eventTimeline, setEventTimeline] = useState<SyncTimelineEntry[]>([]);
+  const [realtimeChatMessages, setRealtimeChatMessages] = useState<PersistedChatMessage[]>([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const isConnectedRef = useRef(false);
@@ -145,6 +148,30 @@ export function useCanvasSync({
       detail,
     };
     setEventTimeline((previous) => [...previous.slice(-59), nextEvent]);
+  }, []);
+
+  const appendRealtimeChatMessage = useCallback((message: PersistedChatMessage) => {
+    setRealtimeChatMessages((previous) => {
+      if (previous.some((existing) => existing.id === message.id)) {
+        return previous;
+      }
+
+      return [...previous, message].slice(-240);
+    });
+  }, []);
+
+  const sendWsMessage = useCallback((message: ClientMessage) => {
+    if (
+      !wsRef.current ||
+      wsRef.current.readyState !== WebSocket.OPEN ||
+      !isConnectedRef.current ||
+      !hasJoinedRoomRef.current
+    ) {
+      return false;
+    }
+
+    wsRef.current.send(JSON.stringify(message));
+    return true;
   }, []);
 
   const syncInFlightCounter = useCallback(() => {
@@ -412,6 +439,8 @@ export function useCanvasSync({
   useEffect(() => {
     if (!enabled || !state) return;
 
+    setRealtimeChatMessages([]);
+
     const ws = new WebSocket(WS_BACKEND_URL);
 
     ws.onopen = () => {
@@ -531,6 +560,8 @@ export function useCanvasSync({
             connectedUsersCount: message.connectedUsersCount,
             presences: message.presences,
           });
+        } else if (message.type === "chat_message_created") {
+          appendRealtimeChatMessage(message.message);
         } else if (message.type === "sync_error") {
           if (WS_SYNC_DEBUG) console.warn("[WS] Sync error:", message.reason);
           appendTimelineEvent("sync_error", message.reason);
@@ -680,6 +711,7 @@ export function useCanvasSync({
     syncInFlightCounter,
     cancelScheduledRemoteHydrate,
     scheduleRemoteHydrate,
+    appendRealtimeChatMessage,
   ]);
 
   return {
@@ -692,6 +724,8 @@ export function useCanvasSync({
     websocketLatencyMs,
     inFlightSnapshotCount,
     eventTimeline,
+    realtimeChatMessages,
+    sendWsMessage,
     /**
      * Live shapes ref — always current, updated synchronously before any
      * React re-render.  Pass this to RemotePresenceLayer so selection boxes

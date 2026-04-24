@@ -10,6 +10,7 @@ import {
 	replaceShapes,
 	renameRoomSlug,
 	getInviteLink,
+	getRoomChatBootstrap,
 	requestRoomAccess,
 	listIncomingRoomAccessRequests,
 	decideRoomAccessRequest,
@@ -21,6 +22,7 @@ const roomRouter: Router = Router()
 
 roomRouter.post("/", authenticate, idempotencyMiddleware, createRoom)
 roomRouter.get("/mine", authenticate, listMyRooms)
+roomRouter.get("/:roomId/chat/bootstrap", authenticate, getRoomChatBootstrap)
 roomRouter.get("/:roomId/shapes",authenticate, getShapes);
 roomRouter.put("/:roomId/shapes", authenticate, idempotencyMiddleware, replaceShapes);
 roomRouter.get("/room/slug/:slug", authenticate, getRoomIdFromSlug)

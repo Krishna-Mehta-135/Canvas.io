@@ -81,3 +81,38 @@ export const AiGenerateRequestSchema = z.object({
 export const AiGenerateJobIdParamSchema = z.object({
     jobId: z.string().min(8).max(128),
 });
+
+export const ChatParticipantSchema = z.object({
+    id: z.string().min(1).max(200),
+    name: z.string().min(1).max(200),
+    handle: z.string().min(1).max(200).nullable(),
+    photo: z.string().min(1).max(2048).nullable().optional(),
+});
+
+export type ChatParticipant = z.infer<typeof ChatParticipantSchema>;
+
+export const ChatMessageKindSchema = z.enum(["group", "direct", "comment"]);
+
+export type ChatMessageKind = z.infer<typeof ChatMessageKindSchema>;
+
+export const PersistedChatMessageSchema = z.object({
+    id: z.number().int().positive(),
+    roomId: z.number().int().positive(),
+    kind: ChatMessageKindSchema,
+    body: z.string().min(1).max(4000),
+    shapeId: z.string().min(1).max(200).nullable(),
+    createdAt: z.string().min(1).max(64),
+    sender: ChatParticipantSchema,
+    recipient: ChatParticipantSchema.nullable(),
+});
+
+export type PersistedChatMessage = z.infer<typeof PersistedChatMessageSchema>;
+
+export const RoomChatBootstrapSchema = z.object({
+    participants: z.array(ChatParticipantSchema),
+    groupMessages: z.array(PersistedChatMessageSchema),
+    directMessages: z.array(PersistedChatMessageSchema),
+    comments: z.array(PersistedChatMessageSchema),
+});
+
+export type RoomChatBootstrap = z.infer<typeof RoomChatBootstrapSchema>;

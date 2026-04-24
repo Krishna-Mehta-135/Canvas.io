@@ -12,6 +12,8 @@ import {
     RoomAccessRequestDecisionSchema,
     AiGenerateRequestSchema,
     AiGenerateJobIdParamSchema,
+    type ChatParticipant,
+    type PersistedChatMessage,
 } from "@repo/common/types";
 import {asyncHandler} from "../utils/asyncHandler";
 import {publishAiGenerateJob} from "@repo/queue-sync";
@@ -34,6 +36,49 @@ function buildCanonicalRoomPath(room: {slug: string; admin: {handle: string | nu
     // Use the owner handle when we have one. Fall back to the slug-only canvas
     // route so invite/open flows still work for accounts that have not set a handle.
     return handle ? `/room/${handle}/${room.slug}` : `/canvas/${room.slug}`;
+}
+
+type ChatRecordWithUsers = {
+    id: number;
+    roomId: number;
+    message: string;
+    messageType: "GROUP" | "DIRECT" | "COMMENT";
+    shapeId: string | null;
+    createdAt: Date;
+    user: ChatParticipant;
+    recipient: ChatParticipant | null;
+};
+
+function mapChatParticipant(user: {
+    id: string;
+    name: string;
+    handle: string | null;
+    photo?: string | null;
+}): ChatParticipant {
+    return {
+        id: user.id,
+        name: user.name,
+        handle: user.handle,
+        photo: user.photo ?? null,
+    };
+}
+
+function mapPersistedChatMessage(chat: ChatRecordWithUsers): PersistedChatMessage {
+    return {
+        id: chat.id,
+        roomId: chat.roomId,
+        kind:
+            chat.messageType === "DIRECT"
+                ? "direct"
+                : chat.messageType === "COMMENT"
+                    ? "comment"
+                    : "group",
+        body: chat.message,
+        shapeId: chat.shapeId ?? null,
+        createdAt: chat.createdAt.toISOString(),
+        sender: chat.user,
+        recipient: chat.recipient,
+    };
 }
 
 async function assertOwnerRoomAccess(roomId: number, userId: string) {
@@ -326,6 +371,204 @@ const getShapes = asyncHandler(async (req, res) => {
         }
         throw err;
     }
+});
+
+const getRoomChatBootstrap = asyncHandler(async (req, res) => {
+    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+    if (!paramsValidation.success) {
+        throw new ApiError(400, "Invalid roomId");
+    }
+
+    const {roomId} = paramsValidation.data;
+    const userId = requireUserId(req.userId);
+    const canAccess = await hasRoomAccess(roomId, userId);
+    if (!canAccess) {
+        throw new ApiError(403, "Forbidden");
+    }
+
+    const room = await prismaClient.room.findUnique({
+        where: {id: roomId},
+        select: {
+            admin: {
+                select: {
+                    id: true,
+                    name: true,
+                    handle: true,
+                    photo: true,
+                },
+            },
+            members: {
+                select: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            handle: true,
+                            photo: true,
+                        },
+                    },
+                },
+            },
+        },
+    });
+
+    if (!room) {
+        throw new ApiError(404, "Room not found");
+    }
+
+    let groupMessagesRaw: Array<any> = [];
+    let directMessagesRaw: Array<any> = [];
+    let commentsRaw: Array<any> = [];
+
+    try {
+        [groupMessagesRaw, directMessagesRaw, commentsRaw] = await Promise.all([
+            prismaClient.chat.findMany({
+                where: {
+                    roomId,
+                    messageType: "GROUP",
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            handle: true,
+                            photo: true,
+                        },
+                    },
+                    recipient: {
+                        select: {
+                            id: true,
+                            name: true,
+                            handle: true,
+                            photo: true,
+                        },
+                    },
+                },
+                orderBy: {
+                    createdAt: "desc",
+                },
+                take: 80,
+            }),
+            prismaClient.chat.findMany({
+                where: {
+                    roomId,
+                    messageType: "DIRECT",
+                    OR: [
+                        {userId},
+                        {recipientId: userId},
+                    ],
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            handle: true,
+                            photo: true,
+                        },
+                    },
+                    recipient: {
+                        select: {
+                            id: true,
+                            name: true,
+                            handle: true,
+                            photo: true,
+                        },
+                    },
+                },
+                orderBy: {
+                    createdAt: "desc",
+                },
+                take: 160,
+            }),
+            prismaClient.chat.findMany({
+                where: {
+                    roomId,
+                    messageType: "COMMENT",
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            handle: true,
+                            photo: true,
+                        },
+                    },
+                    recipient: {
+                        select: {
+                            id: true,
+                            name: true,
+                            handle: true,
+                            photo: true,
+                        },
+                    },
+                },
+                orderBy: {
+                    createdAt: "desc",
+                },
+                take: 120,
+            }),
+        ]);
+    } catch (error: any) {
+        if (error?.code !== "P2021" && error?.code !== "P2022") {
+            throw error;
+        }
+
+        groupMessagesRaw = [];
+        directMessagesRaw = [];
+        commentsRaw = [];
+    }
+
+    const participantsMap = new Map<string, ChatParticipant>();
+    participantsMap.set(room.admin.id, mapChatParticipant(room.admin));
+    for (const member of room.members) {
+        participantsMap.set(member.user.id, mapChatParticipant(member.user));
+    }
+
+    const groupMessages = [...groupMessagesRaw]
+        .reverse()
+        .map((chat) =>
+            mapPersistedChatMessage({
+                ...chat,
+                user: mapChatParticipant(chat.user),
+                recipient: chat.recipient ? mapChatParticipant(chat.recipient) : null,
+            })
+        );
+
+    const directMessages = [...directMessagesRaw]
+        .reverse()
+        .map((chat) =>
+            mapPersistedChatMessage({
+                ...chat,
+                user: mapChatParticipant(chat.user),
+                recipient: chat.recipient ? mapChatParticipant(chat.recipient) : null,
+            })
+        );
+
+    const comments = [...commentsRaw]
+        .reverse()
+        .map((chat) =>
+            mapPersistedChatMessage({
+                ...chat,
+                user: mapChatParticipant(chat.user),
+                recipient: chat.recipient ? mapChatParticipant(chat.recipient) : null,
+            })
+        );
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            {
+                participants: [...participantsMap.values()],
+                groupMessages,
+                directMessages,
+                comments,
+            },
+            "Chat bootstrap fetched"
+        )
+    );
 });
 
 
@@ -967,6 +1210,7 @@ export {
     createRoom,
     listMyRooms,
     getShapes,
+    getRoomChatBootstrap,
     replaceShapes,
     getRoomIdFromSlug,
     getRoomByOwnerAndSlug,
@@ -979,4 +1223,3 @@ export {
     getAiGenerateStatus,
     receiveAiResult,
 };
-

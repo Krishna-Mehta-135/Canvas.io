@@ -2,18 +2,20 @@ import {randomUUID} from "node:crypto";
 import {RawData} from "ws";
 import type {Shape} from "@repo/canvas-engine";
 import {ClientWsMessageSchema} from "@repo/common/ws-protocol";
-import type {ServerMessage} from "@repo/common";
+import type {PersistedChatMessage, ServerMessage} from "@repo/common";
 import {prismaClient} from "@repo/db/client";
 import type {AuthenticatedWebSocket} from "./types.js";
 import {publishDurableRoomEvent} from "@repo/queue-sync";
 import {
     broadcastRoomPresenceState,
     broadcastToRoom,
+    broadcastToRoomAll,
+    broadcastToRoomUsers,
     getRoomPresenceState,
     joinActiveRoom,
     setRoomPresence,
 } from "./connectionState.js";
-import {cacheRoomSyncState, enqueueRoomPersist, initializeRoomSync} from "./roomSync.js";
+import {cacheRoomSyncState, enqueueRoomPersist, initializeRoomSync, roomSyncState} from "./roomSync.js";
 import {commitRoomSnapshot, NODE_ID} from "@repo/redis-sync";
 import {
     recordInvalidJsonPayload,
@@ -22,7 +24,6 @@ import {
     recordRateLimitedSnapshot,
     recordSnapshotCommitFailure,
     recordSnapshotCommitted,
-    recordVersionMismatch,
     recordDurablePublishFailure,
 } from "./metrics.js";
 
@@ -98,6 +99,57 @@ function rejectForbidden(ws: AuthenticatedWebSocket) {
     );
 
     ws.close(1008, "Forbidden");
+}
+
+function mapChatParticipant(user: {
+    id: string;
+    name: string;
+    handle: string | null;
+    photo?: string | null;
+}) {
+    return {
+        id: user.id,
+        name: user.name,
+        handle: user.handle,
+        photo: user.photo ?? null,
+    };
+}
+
+function mapPersistedChatMessage(chat: {
+    id: number;
+    roomId: number;
+    message: string;
+    messageType: "GROUP" | "DIRECT" | "COMMENT";
+    shapeId: string | null;
+    createdAt: Date;
+    user: {
+        id: string;
+        name: string;
+        handle: string | null;
+        photo?: string | null;
+    };
+    recipient: {
+        id: string;
+        name: string;
+        handle: string | null;
+        photo?: string | null;
+    } | null;
+}): PersistedChatMessage {
+    return {
+        id: chat.id,
+        roomId: chat.roomId,
+        kind:
+            chat.messageType === "DIRECT"
+                ? "direct"
+                : chat.messageType === "COMMENT"
+                    ? "comment"
+                    : "group",
+        body: chat.message,
+        shapeId: chat.shapeId ?? null,
+        createdAt: chat.createdAt.toISOString(),
+        sender: mapChatParticipant(chat.user),
+        recipient: chat.recipient ? mapChatParticipant(chat.recipient) : null,
+    };
 }
 
 export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: string, data: RawData) {
@@ -192,7 +244,7 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
     }
 
     if (parsed.type === "update_presence") {
-        const {roomId, cursor, selectedIds} = parsed;
+        const {roomId, selectedIds} = parsed;
 
         if (typeof roomId !== "number" || roomId <= 0) {
             ws.send(
@@ -395,5 +447,146 @@ export async function handleSocketMessage(ws: AuthenticatedWebSocket, userId: st
                 error,
             });
         });
+        return;
+    }
+
+    if (parsed.type === "send_chat_message") {
+        const {roomId, kind, body} = parsed;
+
+        if (typeof roomId !== "number" || roomId <= 0) {
+            ws.send(
+                JSON.stringify({
+                    type: "sync_error",
+                    reason: "Invalid roomId",
+                } as ServerMessage)
+            );
+            return;
+        }
+
+        if (ws.currentRoomId !== roomId) {
+            ws.send(
+                JSON.stringify({
+                    type: "sync_error",
+                    reason: "Forbidden",
+                } as ServerMessage)
+            );
+            return;
+        }
+
+        if (!ws.userId) {
+            return;
+        }
+
+        let recipientId: string | null = null;
+        let shapeId: string | null = null;
+
+        if (kind === "direct") {
+            recipientId = typeof parsed.recipientUserId === "string" ? parsed.recipientUserId : null;
+
+            if (!recipientId || recipientId === ws.userId) {
+                ws.send(
+                    JSON.stringify({
+                        type: "sync_error",
+                        reason: "Invalid direct message recipient",
+                    } as ServerMessage)
+                );
+                return;
+            }
+
+            const recipientHasAccess = await hasRoomAccess(roomId, recipientId);
+            if (!recipientHasAccess) {
+                ws.send(
+                    JSON.stringify({
+                        type: "sync_error",
+                        reason: "Recipient is not allowed in this canvas",
+                    } as ServerMessage)
+                );
+                return;
+            }
+        }
+
+        if (kind === "comment") {
+            shapeId = typeof parsed.shapeId === "string" ? parsed.shapeId : null;
+
+            if (!shapeId) {
+                ws.send(
+                    JSON.stringify({
+                        type: "sync_error",
+                        reason: "Comments must target a shape",
+                    } as ServerMessage)
+                );
+                return;
+            }
+
+            const currentRoomState = roomSyncState.get(roomId) ?? (await initializeRoomSync(roomId));
+            const shape = currentRoomState.shapes.find((candidate) => candidate.id === shapeId);
+
+            if (!shape) {
+                ws.send(
+                    JSON.stringify({
+                        type: "sync_error",
+                        reason: "Shape not found for comment",
+                    } as ServerMessage)
+                );
+                return;
+            }
+        }
+
+        let createdChat;
+        try {
+            createdChat = await prismaClient.chat.create({
+                data: {
+                    roomId,
+                    message: body,
+                    messageType: kind === "direct" ? "DIRECT" : kind === "comment" ? "COMMENT" : "GROUP",
+                    userId: ws.userId,
+                    recipientId,
+                    shapeId,
+                },
+                include: {
+                    user: {
+                        select: {
+                            id: true,
+                            name: true,
+                            handle: true,
+                            photo: true,
+                        },
+                    },
+                    recipient: {
+                        select: {
+                            id: true,
+                            name: true,
+                            handle: true,
+                            photo: true,
+                        },
+                    },
+                },
+            });
+        } catch (error: any) {
+            if (error?.code === "P2021" || error?.code === "P2022") {
+                ws.send(
+                    JSON.stringify({
+                        type: "sync_error",
+                        reason: "Chat storage is not ready yet. Apply the latest database schema update.",
+                    } as ServerMessage)
+                );
+                return;
+            }
+
+            throw error;
+        }
+
+        const chatMessage: ServerMessage = {
+            type: "chat_message_created",
+            message: mapPersistedChatMessage(createdChat),
+        };
+
+        if (kind === "direct" && recipientId) {
+            broadcastToRoomUsers(roomId, chatMessage, [ws.userId, recipientId]);
+            return;
+        }
+
+        broadcastToRoomAll(roomId, chatMessage);
+        return;
     }
 }

@@ -148,6 +148,27 @@ export function broadcastToRoomAll(roomId: number, message: ServerMessage) {
 }
 
 /**
+ * Broadcasts a message to a subset of users currently connected to the room.
+ */
+export function broadcastToRoomUsers(roomId: number, message: ServerMessage, userIds: string[]) {
+    const roomSockets = activeRooms.get(roomId);
+    if (!roomSockets) return;
+
+    const allowedUserIds = new Set(userIds);
+    const serializedMessage = JSON.stringify(message);
+
+    for (const socket of roomSockets) {
+        if (!socket.userId || !allowedUserIds.has(socket.userId)) {
+            continue;
+        }
+
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(serializedMessage);
+        }
+    }
+}
+
+/**
  * Stores the latest cursor and selection snapshot for one room participant.
  */
 export function setRoomPresence(roomId: number, userId: string, presence: RoomPresence) {

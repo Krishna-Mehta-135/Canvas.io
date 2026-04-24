@@ -64,6 +64,26 @@ type SelectionBox = {
     height: number;
 };
 
+function finiteOr(value: number, fallback: number) {
+    return Number.isFinite(value) ? value : fallback;
+}
+
+function rectBounds(x: number, y: number, width: number, height: number) {
+    const safeX = finiteOr(x, 0);
+    const safeY = finiteOr(y, 0);
+    const safeWidth = finiteOr(width, 0);
+    const safeHeight = finiteOr(height, 0);
+    const x2 = safeX + safeWidth;
+    const y2 = safeY + safeHeight;
+
+    return {
+        x: Math.min(safeX, x2),
+        y: Math.min(safeY, y2),
+        width: Math.abs(x2 - safeX),
+        height: Math.abs(y2 - safeY),
+    };
+}
+
 function getShapeOpacity(shape: Shape) {
     const raw = shape.opacity ?? 100;
     return Math.max(0.05, Math.min(1, raw / 100));
@@ -620,30 +640,24 @@ function drawInfiniteGrid(
  */
 function getBoundingBox(shape: Shape, ctx?: CanvasRenderingContext2D) {
     if (shape.type === "rect") {
-        return {
-            x: shape.x,
-            y: shape.y,
-            width: shape.width,
-            height: shape.height,
-        };
+        return rectBounds(shape.x, shape.y, shape.width, shape.height);
     }
 
     if (shape.type === "circle") {
+        const centerX = finiteOr(shape.centerX, 0);
+        const centerY = finiteOr(shape.centerY, 0);
+        const radiusX = Math.abs(finiteOr(shape.radiusX, 0));
+        const radiusY = Math.abs(finiteOr(shape.radiusY, 0));
         return {
-            x: shape.centerX - shape.radiusX,
-            y: shape.centerY - shape.radiusY,
-            width: shape.radiusX * 2,
-            height: shape.radiusY * 2,
+            x: centerX - radiusX,
+            y: centerY - radiusY,
+            width: radiusX * 2,
+            height: radiusY * 2,
         };
     }
 
     if (shape.type === "rhombus") {
-        return {
-            x: shape.x,
-            y: shape.y,
-            width: shape.width,
-            height: shape.height,
-        };
+        return rectBounds(shape.x, shape.y, shape.width, shape.height);
     }
 
     if (shape.type === "line" || shape.type === "arrow") {
@@ -658,20 +672,10 @@ function getBoundingBox(shape: Shape, ctx?: CanvasRenderingContext2D) {
     if (shape.type === "text") {
         if (ctx) {
             const {textWidth, textHeight} = getTextRenderMetrics(ctx, shape);
-            return {
-                x: shape.x,
-                y: shape.y,
-                width: textWidth,
-                height: textHeight,
-            };
+            return rectBounds(shape.x, shape.y, textWidth, textHeight);
         }
 
-        return {
-            x: shape.x,
-            y: shape.y,
-            width: shape.width,
-            height: shape.height,
-        };
+        return rectBounds(shape.x, shape.y, shape.width, shape.height);
     }
 
     if (shape.type === "freehand") {

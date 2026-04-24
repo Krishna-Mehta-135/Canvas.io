@@ -24,6 +24,11 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const INTERNAL_SECRET = process.env.INTERNAL_SECRET ?? "canvas-internal-dev-secret-2024";
 const HTTP_BACKEND_INTERNAL_URL = process.env.HTTP_BACKEND_INTERNAL_URL ?? "http://127.0.0.1:3001";
 const MAX_GENERATION_ATTEMPTS = 3;
+const MAX_AUTOMATIC_RATE_LIMIT_WAIT_MS = 90_000;
+const MODEL_CANDIDATES = (process.env.GEMINI_MODEL_CANDIDATES ?? "gemini-2.5-flash,gemini-2.5-flash-lite")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
 
 if (!GEMINI_API_KEY || GEMINI_API_KEY === "your_gemini_api_key_here") {
     console.error("[AI Worker] GEMINI_API_KEY is not set. Get one at https://aistudio.google.com");
@@ -47,10 +52,13 @@ Allowed shape schemas:
 Layout + quality rules:
 - Coordinates: x 100-900, y 80-680.
 - First shape MUST be heading text (title) near y 100-120.
-- Generate 1 heading + 5-12 content shapes.
+- Generate 1 heading + 9-24 content shapes.
 - Place labels inside/adjacent to nodes; text width must be > 0 (roughly chars*8), height >= 24.
 - Arrows/lines must connect shape edges, not through shape centers.
 - When existing shapes are provided in prompt, place all new shapes in empty space (avoid overlap).
+- Favor rich structure over minimal outputs: include multiple sections/layers, branching where relevant, and enough supporting nodes to make the diagram actionable.
+- Use available canvas tools intentionally: combine rect/circle/rhombus with arrow/line connectors and text labels, instead of only one node style.
+- For architecture/workflow/system prompts, aim for at least 3 tiers (clients, services, data/infra) or equivalent logical groupings.
 
 Color palette:
 - Blue: fill "#3B82F6", stroke "#1E40AF"
@@ -70,15 +78,61 @@ JSON rules:
 // ---------------------------------------------------------------------------
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash-lite",
-    systemInstruction: SYSTEM_INSTRUCTION,
-    generationConfig: {
-        temperature: 0.3,
-        maxOutputTokens: 4096,
-        responseMimeType: "application/json",
-    },
-});
+const modelCache = new Map<string, ReturnType<typeof genAI.getGenerativeModel>>();
+
+function getModel(modelName: string) {
+    const cached = modelCache.get(modelName);
+    if (cached) {
+        return cached;
+    }
+
+    const model = genAI.getGenerativeModel({
+        model: modelName,
+        systemInstruction: SYSTEM_INSTRUCTION,
+        generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 4096,
+            responseMimeType: "application/json",
+        },
+    });
+
+    modelCache.set(modelName, model);
+    return model;
+}
+
+function sleep(ms: number) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfterMs(message: string): number | null {
+    const retrySecondsMatch = message.match(/retry in\s+([0-9]+(?:\.[0-9]+)?)s/i);
+    if (!retrySecondsMatch) {
+        return null;
+    }
+
+    const seconds = Number(retrySecondsMatch[1]);
+    if (!Number.isFinite(seconds) || seconds <= 0) {
+        return null;
+    }
+
+    return Math.ceil(seconds * 1000);
+}
+
+function summarizeQuotaError(rawMessage: string) {
+    const retryAfterMs = parseRetryAfterMs(rawMessage);
+    const retryText = retryAfterMs
+        ? ` Please retry in about ${Math.max(1, Math.ceil(retryAfterMs / 1000))}s.`
+        : " Please retry later or switch to a paid Gemini plan.";
+
+    return {
+        retryAfterMs,
+        userMessage: `AI provider quota is currently exceeded.${retryText}`,
+    };
+}
+
+function isRateLimitError(message: string) {
+    return /429\s+Too\s+Many\s+Requests|quota exceeded|rate limit/i.test(message);
+}
 
 // ---------------------------------------------------------------------------
 // UUID generator (RFC 4122 v4)
@@ -355,20 +409,34 @@ function getQualityIssue(shapes: unknown[], prompt: string): string | null {
     const textShapes = shapeRecords.filter((s) => s.type === "text");
     const nodeShapes = shapeRecords.filter((s) => s.type === "rect" || s.type === "circle" || s.type === "rhombus");
     const edgeShapes = shapeRecords.filter((s) => s.type === "arrow" || s.type === "line");
+    const nodeTypeCount = new Set(nodeShapes.map((s) => s.type)).size;
+    const architectureLikePrompt = /(architecture|system|platform|microservice|infra|pipeline|workflow|process|sequence|journey)/i.test(prompt);
+    const branchingPrompt = /(decision|branch|if\/else|approval|gateway|conditional)/i.test(prompt);
 
-    if (shapeRecords.length < 6) {
+    const minimumShapes = architectureLikePrompt ? 10 : 7;
+    if (shapeRecords.length < minimumShapes) {
         return "too_few_shapes";
     }
     if (textShapes.length === 0 || textShapes[0]?.type !== "text") {
         return "missing_heading";
     }
-    if (nodeShapes.length < 2) {
+    if (nodeShapes.length < (architectureLikePrompt ? 4 : 2)) {
         return "too_few_nodes";
+    }
+    if (architectureLikePrompt && nodeTypeCount < 2) {
+        return "low_tool_diversity";
     }
 
     const needsConnectors = /(flow|pipeline|process|workflow|architecture|erd|sequence|journey|system)/i.test(prompt);
-    if (needsConnectors && edgeShapes.length < 1) {
+    if (needsConnectors && edgeShapes.length < (architectureLikePrompt ? 3 : 1)) {
         return "missing_connectors";
+    }
+
+    if (branchingPrompt) {
+        const rhombusCount = shapeRecords.filter((s) => s.type === "rhombus").length;
+        if (rhombusCount < 1) {
+            return "missing_decision_nodes";
+        }
     }
 
     return null;
@@ -380,7 +448,7 @@ function buildAttemptPrompt(basePrompt: string, attempt: number, previousIssue?:
     }
 
     const issueHint = previousIssue ? `Previous attempt issue: ${previousIssue}.` : "";
-    return `${basePrompt}\n\nRetry constraints:\n${issueHint}\n- Return compact valid JSON array only (no prose).\n- Keep output concise but complete (6-12 shapes).\n- Ensure first shape is heading text and include connectors for flow/pipeline/architecture prompts.\n- Ensure JSON is complete with closing brackets.`;
+    return `${basePrompt}\n\nRetry constraints:\n${issueHint}\n- Return compact valid JSON array only (no prose).\n- Keep output complete and reasonably detailed (10-24 shapes when prompt implies architecture/workflow; at least 7 otherwise).\n- Ensure first shape is heading text and include connectors for flow/pipeline/architecture prompts.\n- Use multiple node tools (rect/circle/rhombus) when they improve clarity.\n- For decision/branch prompts, include at least one rhombus gateway.\n- Ensure JSON is complete with closing brackets.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -390,36 +458,66 @@ async function generateShapesFromPrompt(prompt: string): Promise<unknown[]> {
     let lastError = "Unknown generation failure";
     let previousIssue: string | undefined;
     const existingShapes = extractCurrentCanvasShapes(prompt);
+    const models = MODEL_CANDIDATES.length > 0 ? MODEL_CANDIDATES : ["gemini-2.5-flash-lite"];
 
     for (let attempt = 0; attempt < MAX_GENERATION_ATTEMPTS; attempt += 1) {
         const attemptPrompt = buildAttemptPrompt(prompt, attempt, previousIssue);
-        try {
-            const result = await model.generateContent(attemptPrompt);
-            const rawText = result.response.text();
-            const jsonStr = extractJsonArrayString(rawText);
-
-            let parsed: unknown;
+        for (const modelName of models) {
             try {
-                parsed = JSON.parse(jsonStr);
+                const result = await getModel(modelName).generateContent(attemptPrompt);
+                const rawText = result.response.text();
+                const jsonStr = extractJsonArrayString(rawText);
+
+                let parsed: unknown;
+                try {
+                    parsed = JSON.parse(jsonStr);
+                } catch (err) {
+                    throw new Error(`Gemini returned invalid JSON on attempt ${attempt + 1}: ${(err as Error).message}. Snippet: ${jsonStr.slice(0, 300)}`);
+                }
+
+                const normalizedShapes = validateAndNormalizeShapes(parsed);
+                const shapes = placeGeneratedShapesInEmptyRegion(normalizedShapes, existingShapes);
+                const qualityIssue = getQualityIssue(shapes, prompt);
+                if (qualityIssue) {
+                    previousIssue = qualityIssue;
+                    lastError = `Diagram quality check failed (${qualityIssue}) on attempt ${attempt + 1}`;
+                    continue;
+                }
+
+                if (attempt > 0) {
+                    console.warn(`[AI Worker] Recovered generation after retry ${attempt + 1}`);
+                }
+                return shapes;
             } catch (err) {
-                throw new Error(`Gemini returned invalid JSON on attempt ${attempt + 1}: ${(err as Error).message}. Snippet: ${jsonStr.slice(0, 300)}`);
-            }
+                const rawMessage = err instanceof Error ? err.message : String(err);
 
-            const normalizedShapes = validateAndNormalizeShapes(parsed);
-            const shapes = placeGeneratedShapesInEmptyRegion(normalizedShapes, existingShapes);
-            const qualityIssue = getQualityIssue(shapes, prompt);
-            if (qualityIssue) {
-                previousIssue = qualityIssue;
-                lastError = `Diagram quality check failed (${qualityIssue}) on attempt ${attempt + 1}`;
-                continue;
-            }
+                if (isRateLimitError(rawMessage)) {
+                    const {retryAfterMs, userMessage} = summarizeQuotaError(rawMessage);
+                    lastError = userMessage;
 
-            if (attempt > 0) {
-                console.warn(`[AI Worker] Recovered generation after retry ${attempt + 1}`);
+                    // If this model is rate-limited, immediately try next candidate model.
+                    if (modelName !== models[models.length - 1]) {
+                        console.warn(`[AI Worker] Rate limit on ${modelName}; trying fallback model`);
+                        continue;
+                    }
+
+                    // Only auto-wait for short retry windows to avoid hanging long-running jobs.
+                    if (
+                        retryAfterMs &&
+                        retryAfterMs <= MAX_AUTOMATIC_RATE_LIMIT_WAIT_MS &&
+                        attempt < MAX_GENERATION_ATTEMPTS - 1
+                    ) {
+                        const waitMs = retryAfterMs + 500;
+                        console.warn(`[AI Worker] Rate limited; waiting ${waitMs}ms before retry`);
+                        await sleep(waitMs);
+                        break;
+                    }
+
+                    throw new Error(userMessage);
+                }
+
+                lastError = rawMessage;
             }
-            return shapes;
-        } catch (err) {
-            lastError = err instanceof Error ? err.message : String(err);
         }
     }
 

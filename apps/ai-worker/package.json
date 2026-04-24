@@ -5,8 +5,8 @@
   "description": "Gemini-powered AI canvas generation worker for Canvas.io",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "ts-node --esm src/index.ts",
-    "start": "ts-node --esm src/index.ts"
+    "dev": "ts-node --esm --experimentalSpecifierResolution=node src/index.ts",
+    "start": "ts-node --esm --experimentalSpecifierResolution=node src/index.ts"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.0",

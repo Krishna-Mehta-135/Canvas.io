@@ -26,7 +26,8 @@ model User {
   rooms           Room[]
   roomMembers     RoomMember[]
   roomAccessRequests RoomAccessRequest[]
-  chats           Chat[]
+  sentChats       Chat[]  @relation("ChatSender")
+  receivedChats   Chat[]  @relation("ChatRecipient")
 }
 
 model Room {
@@ -41,6 +42,12 @@ model Room {
   accessRequests RoomAccessRequest[]
 
   @@unique([adminId, slug])
+}
+
+enum ChatMessageType {
+  GROUP
+  DIRECT
+  COMMENT
 }
 
 model RoomMember {
@@ -70,12 +77,22 @@ model RoomAccessRequest {
 }
 
 model Chat {
-  id      Int    @id @default(autoincrement())
-  roomId  Int
-  message String
-  userId  String
-  room    Room   @relation(fields: [roomId], references: [id])
-  user    User   @relation(fields: [userId], references: [id])
+  id          Int             @id @default(autoincrement())
+  roomId      Int
+  message     String
+  messageType ChatMessageType @default(GROUP)
+  userId      String
+  recipientId String?
+  shapeId     String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  room        Room            @relation(fields: [roomId], references: [id])
+  user        User            @relation("ChatSender", fields: [userId], references: [id])
+  recipient   User?           @relation("ChatRecipient", fields: [recipientId], references: [id])
+
+  @@index([roomId, messageType, createdAt])
+  @@index([roomId, shapeId, createdAt])
+  @@index([roomId, recipientId, createdAt])
 }
 
 model Shape {

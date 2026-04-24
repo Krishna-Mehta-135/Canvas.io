@@ -1,2 +1,2 @@
-export * from "./types";
-export * from "./ws-protocol";
+export * from "./types.js";
+export * from "./ws-protocol.js";

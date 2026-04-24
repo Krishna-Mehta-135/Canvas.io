@@ -15,6 +15,26 @@ const CanvasShapeSchema = z
   })
   .passthrough();
 
+const ChatParticipantSchema = z.object({
+  id: z.string().min(1).max(200),
+  name: z.string().min(1).max(200),
+  handle: z.string().min(1).max(200).nullable(),
+  photo: z.string().min(1).max(2048).nullable().optional(),
+});
+
+const ChatMessageKindSchema = z.enum(["group", "direct", "comment"]);
+
+const PersistedChatMessageSchema = z.object({
+  id: z.number().int().positive(),
+  roomId: z.number().int().positive(),
+  kind: ChatMessageKindSchema,
+  body: z.string().min(1).max(4000),
+  shapeId: z.string().min(1).max(200).nullable(),
+  createdAt: z.string().min(1).max(64),
+  sender: ChatParticipantSchema,
+  recipient: ChatParticipantSchema.nullable(),
+});
+
 const ActionIdSchema = z.string().min(8).max(128);
 
 /**
@@ -89,6 +109,37 @@ export type WsMessage =
       selectedIds: string[];
       tool: string | null;
     }
+  | {
+      type: "send_chat_message";
+      roomId: number;
+      kind: "group" | "direct" | "comment";
+      body: string;
+      recipientUserId?: string;
+      shapeId?: string;
+    }
+  | {
+      type: "chat_message_created";
+      message: {
+        id: number;
+        roomId: number;
+        kind: "group" | "direct" | "comment";
+        body: string;
+        shapeId: string | null;
+        createdAt: string;
+        sender: {
+          id: string;
+          name: string;
+          handle: string | null;
+          photo?: string | null;
+        };
+        recipient: {
+          id: string;
+          name: string;
+          handle: string | null;
+          photo?: string | null;
+        } | null;
+      };
+    }
   | RoomPresenceMessage
   | { type: "sync_error"; reason: string }
   | { type: "pong" };
@@ -117,6 +168,29 @@ export type ServerMessage =
       roomId: number;
       version: number;
     }
+  | {
+      type: "chat_message_created";
+      message: {
+        id: number;
+        roomId: number;
+        kind: "group" | "direct" | "comment";
+        body: string;
+        shapeId: string | null;
+        createdAt: string;
+        sender: {
+          id: string;
+          name: string;
+          handle: string | null;
+          photo?: string | null;
+        };
+        recipient: {
+          id: string;
+          name: string;
+          handle: string | null;
+          photo?: string | null;
+        } | null;
+      };
+    }
   | RoomPresenceMessage
   | { type: "sync_error"; reason: string }
   | { type: "pong" };
@@ -124,7 +198,7 @@ export type ServerMessage =
 // Client -> Server commands
 export type ClientMessage = Extract<
   WsMessage,
-  { type: "join_room" | "canvas_snapshot" | "update_presence" }
+  { type: "join_room" | "canvas_snapshot" | "update_presence" | "send_chat_message" }
 >;
 
 export const PresenceCursorSchema = z.object({
@@ -152,13 +226,46 @@ export const UpdatePresenceMessageSchema = z.object({
   tool: z.string().min(1).max(64).nullable(),
 });
 
+export const SendChatMessageSchema = z
+  .object({
+    type: z.literal("send_chat_message"),
+    roomId: z.number().int().positive(),
+    kind: ChatMessageKindSchema,
+    body: z.string().trim().min(1).max(2000),
+    recipientUserId: z.string().min(1).max(200).optional(),
+    shapeId: z.string().min(1).max(200).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.kind === "direct" && !value.recipientUserId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["recipientUserId"],
+        message: "recipientUserId is required for direct messages",
+      });
+    }
+
+    if (value.kind === "comment" && !value.shapeId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["shapeId"],
+        message: "shapeId is required for comments",
+      });
+    }
+  });
+
 export const ClientWsMessageSchema = z.discriminatedUnion("type", [
   JoinRoomMessageSchema,
   CanvasSnapshotMessageSchema,
   UpdatePresenceMessageSchema,
+  SendChatMessageSchema,
 ]);
 
 export type ClientWsMessage = z.infer<typeof ClientWsMessageSchema>;
+
+export const ChatMessageCreatedSchema = z.object({
+  type: z.literal("chat_message_created"),
+  message: PersistedChatMessageSchema,
+});
 
 /**
  * Per-room sync state tracked by server.

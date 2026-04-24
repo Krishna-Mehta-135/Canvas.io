@@ -4,16 +4,18 @@ import {ReactNode, useCallback, useEffect, useRef, useState} from "react";
 import {useParams, useSearchParams} from "next/navigation";
 import {AxiosError} from "axios";
 import {jsPDF} from "jspdf";
-import {attachEvents} from "@repo/canvas-engine";
+import {attachEvents, convertToPoints} from "@repo/canvas-engine";
 import {CanvasState} from "@repo/canvas-engine";
 import type {Shape, Tool} from "@repo/canvas-engine";
 import {HTTP_BACKEND} from "../../../config";
 import {apiClient} from "../../lib/apiClient";
 import {ensureAuthenticated, logoutUser} from "../../lib/auth";
 import {useTheme} from "../../components/ThemeToggle";
+import {useCanvasChat} from "../../../hooks/useCanvasChat";
 import {useCanvasSync} from "../../../hooks/useCanvasSync";
 import {RemotePresenceLayer} from "../../components/RemotePresenceLayer";
 import {AiChatModal, AiTriggerButton} from "../../components/AiPromptBar";
+import {CanvasMessenger} from "../../components/CanvasMessenger";
 
 const STYLE_SWATCHES = ["#1e1e1e", "#e03131", "#2f9e44", "#1971c2", "#f08c00", "#ffffff"];
 const FILL_STYLE_OPTIONS: Array<{value: NonNullable<Shape["fillStyle"]>; label: string}> = [
@@ -168,6 +170,15 @@ type Toast = {
     id: number;
     tone: "success" | "error" | "info";
     message: string;
+};
+
+type FloatingShapeComment = {
+    id: string;
+    shapeId: string;
+    body: string;
+    authorLabel: string;
+    x: number;
+    y: number;
 };
 
 type ExportFormat = "png" | "svg" | "pdf" | "json";
@@ -716,11 +727,15 @@ export default function CanvasPage() {
     const [requestDecisionInFlightId, setRequestDecisionInFlightId] = useState<number | null>(null);
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [isClearCanvasModalOpen, setIsClearCanvasModalOpen] = useState(false);
+    const [styleCommentDraft, setStyleCommentDraft] = useState("");
+    const [floatingShapeComments, setFloatingShapeComments] = useState<FloatingShapeComment[]>([]);
     const menuButtonRef = useRef<HTMLButtonElement | null>(null);
     const menuPanelRef = useRef<HTMLDivElement | null>(null);
     const menuFocusIndexRef = useRef(0);
     const toastIdRef = useRef(0);
     const skipNextViewportPersistRef = useRef(false);
+    const seenRealtimeCommentIdsRef = useRef<Set<number>>(new Set());
+    const recentFloatingCommentKeysRef = useRef<Map<string, number>>(new Map());
     const {theme, toggleTheme} = useTheme();
     const isDark = theme === "dark";
 
@@ -1227,6 +1242,16 @@ export default function CanvasPage() {
         localTool: activeTool,
     });
 
+    const chat = useCanvasChat({
+        roomId: resolvedRoomId,
+        enabled: resolvedRoomId !== null,
+        currentUserId: syncResult.currentUserId,
+        presenceState: syncResult.presenceState,
+        realtimeChatMessages: syncResult.realtimeChatMessages,
+        sendWsMessage: syncResult.sendWsMessage,
+        lastSyncError: syncResult.lastSyncError,
+    });
+
     useEffect(() => {
         if (syncStatusTimerRef.current) {
             clearTimeout(syncStatusTimerRef.current);
@@ -1323,6 +1348,86 @@ export default function CanvasPage() {
 
     const primarySelectedShape = selectedShapes[selectedShapes.length - 1] ?? null;
     const isTextShapeSelection = primarySelectedShape?.type === "text";
+    const selectedShapeComments = primarySelectedShape
+        ? chat.commentsByShapeId.get(primarySelectedShape.id) ?? []
+        : [];
+
+    const spawnFloatingComment = useCallback(
+        (shapeId: string, body: string, authorLabel: string, dedupeKey: string) => {
+            if (!canvasState) return;
+
+            const now = Date.now();
+            const lastShownAt = recentFloatingCommentKeysRef.current.get(dedupeKey) ?? 0;
+            if (now - lastShownAt < 2200) {
+                return;
+            }
+            recentFloatingCommentKeysRef.current.set(dedupeKey, now);
+
+            const targetShape = canvasState.getShapes().find((shape) => shape.id === shapeId);
+            if (!targetShape) {
+                return;
+            }
+
+            const bounds = convertToPoints(targetShape);
+            const nextComment: FloatingShapeComment = {
+                id: `${now}-${Math.random().toString(16).slice(2, 8)}`,
+                shapeId,
+                body,
+                authorLabel,
+                x: (bounds.x1 + bounds.x2) / 2,
+                y: bounds.y1 - 26,
+            };
+
+            setFloatingShapeComments((current) => [...current.slice(-5), nextComment]);
+            window.setTimeout(() => {
+                setFloatingShapeComments((current) => current.filter((comment) => comment.id !== nextComment.id));
+            }, 4200);
+        },
+        [canvasState]
+    );
+
+    useEffect(() => {
+        setStyleCommentDraft("");
+    }, [primarySelectedShape?.id]);
+
+    useEffect(() => {
+        for (const message of syncResult.realtimeChatMessages) {
+            if (message.kind !== "comment" || !message.shapeId) {
+                continue;
+            }
+
+            if (seenRealtimeCommentIdsRef.current.has(message.id)) {
+                continue;
+            }
+
+            seenRealtimeCommentIdsRef.current.add(message.id);
+            spawnFloatingComment(
+                message.shapeId,
+                message.body,
+                message.sender.id === syncResult.currentUserId ? "You" : message.sender.name,
+                `realtime:${message.id}`
+            );
+        }
+    }, [spawnFloatingComment, syncResult.currentUserId, syncResult.realtimeChatMessages]);
+
+    const handleAddStyleComment = () => {
+        const nextComment = styleCommentDraft.trim();
+        if (!primarySelectedShape || !nextComment) return;
+
+        const sent = chat.sendComment(primarySelectedShape.id, nextComment);
+        if (!sent) {
+            pushToast("error", "Comment could not be sent right now.");
+            return;
+        }
+
+        spawnFloatingComment(
+            primarySelectedShape.id,
+            nextComment,
+            "You",
+            `local:${syncResult.currentUserId ?? "self"}:${primarySelectedShape.id}:${nextComment.toLowerCase()}`
+        );
+        setStyleCommentDraft("");
+    };
 
     const applyToSelectedShapes = (updates: Partial<Shape>) => {
         if (!canvasState || selectedIds.length === 0) return;
@@ -2334,6 +2439,55 @@ export default function CanvasPage() {
                         </div>
                     )}
 
+                    <div className="mb-3">
+                        <div className="mb-1 flex items-center justify-between">
+                            <label className="block text-xs font-medium opacity-80">Shape Comment</label>
+                            <span className="text-[11px] opacity-60">
+                                {selectedShapeComments.length} {selectedShapeComments.length === 1 ? "comment" : "comments"}
+                            </span>
+                        </div>
+                        <div
+                            className={`rounded-xl border p-2 ${
+                                isDark ? "border-white/10 bg-[#222222]" : "border-slate-200 bg-slate-50/80"
+                            }`}
+                        >
+                            <textarea
+                                value={styleCommentDraft}
+                                onChange={(event) => setStyleCommentDraft(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === "Enter" && !event.shiftKey) {
+                                        event.preventDefault();
+                                        handleAddStyleComment();
+                                    }
+                                }}
+                                rows={2}
+                                placeholder={
+                                    primarySelectedShape
+                                        ? `Add a comment to #${primarySelectedShape.id.slice(0, 8)}`
+                                        : "Select a shape to comment"
+                                }
+                                className={`w-full resize-none bg-transparent text-sm outline-none ${
+                                    isDark ? "text-white placeholder:text-white/35" : "text-slate-800 placeholder:text-slate-400"
+                                }`}
+                            />
+                            <div className="mt-2 flex items-center justify-between gap-2">
+                                <div className="text-[11px] opacity-60">Comments also appear in Messenger.</div>
+                                <button
+                                    type="button"
+                                    onClick={handleAddStyleComment}
+                                    disabled={!primarySelectedShape || styleCommentDraft.trim().length === 0}
+                                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
+                                        isDark
+                                            ? "bg-white text-black hover:bg-white/90 disabled:bg-white/20 disabled:text-white/40"
+                                            : "bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400"
+                                    }`}
+                                >
+                                    Add comment
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
                     {!isTextShapeSelection && (
                         <div className="mb-3">
                             <label className="mb-1 block text-xs font-medium opacity-80">Drawing Persona</label>
@@ -2458,7 +2612,7 @@ export default function CanvasPage() {
                 }`}
                 style={{maxWidth: "calc(100vw - 2rem)"}}
             >
-                <div className="flex flex-nowrap items-center gap-1 overflow-x-auto scrollbar-none px-1">
+                <div className="flex flex-nowrap items-center gap-1 overflow-x-auto scrollbar-none canvas-hide-scrollbar px-1">
                     {TOOLS.map((tool, idx) => {
                         const isActive = activeTool === tool.id;
                         return (
@@ -2539,36 +2693,40 @@ export default function CanvasPage() {
                 </div>
             </div>
 
+            <CanvasMessenger
+                currentUserId={syncResult.currentUserId}
+                connectedUsersCount={connectedUsersCount}
+                presenceState={remotePresenceState}
+                selectedShapeIds={selectedIds}
+                isDark={isDark}
+                syncStatus={syncStatus}
+                chat={chat}
+            />
 
-            {/* Sync Status */}
-            <div className="absolute bottom-4 right-4 z-20">
-                <div
-                    className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium backdrop-blur ${
-                        syncStatus === "connected"
-                            ? isDark
-                                ? "bg-green-500/15 text-green-300"
-                                : "bg-green-100 text-green-700"
-                            : syncStatus === "error"
-                                ? isDark
-                                    ? "bg-red-500/15 text-red-300"
-                                    : "bg-red-100 text-red-700"
-                            : isDark
-                                ? "bg-yellow-500/15 text-yellow-300"
-                                : "bg-yellow-100 text-yellow-700"
-                    }`}
-                >
-                    <span
-                        className={`h-2 w-2 rounded-full ${
-                            syncStatus === "connected"
-                                ? "bg-green-500"
-                                : syncStatus === "error"
-                                    ? "bg-red-500"
-                                    : "bg-yellow-500"
-                        }`}
-                    />
-                    {connectedUsersCount} {connectedUsersCount === 1 ? "user connected" : "users connected"}
+            {viewport && floatingShapeComments.length > 0 && (
+                <div className="pointer-events-none absolute inset-0 z-25">
+                    {floatingShapeComments.map((comment) => (
+                        <div
+                            key={comment.id}
+                            className={`absolute -translate-x-1/2 rounded-2xl border px-3 py-2 text-xs shadow-lg ${
+                                isDark
+                                    ? "border-white/15 bg-[#141414]/95 text-white"
+                                    : "border-slate-200 bg-white/96 text-slate-800"
+                            }`}
+                            style={{
+                                left: comment.x * viewport.scale + viewport.x,
+                                top: comment.y * viewport.scale + viewport.y,
+                                maxWidth: 220,
+                            }}
+                        >
+                            <div className={`mb-1 font-semibold ${isDark ? "text-blue-200" : "text-blue-700"}`}>
+                                {comment.authorLabel} commented
+                            </div>
+                            <div className="wrap-break-word">{comment.body}</div>
+                        </div>
+                    ))}
                 </div>
-            </div>
+            )}
 
             <RemotePresenceLayer
                 presenceState={remotePresenceState}

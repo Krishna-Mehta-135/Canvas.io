@@ -726,6 +726,16 @@ export function useCanvasSync({
     eventTimeline,
     realtimeChatMessages,
     sendWsMessage,
+    manualHydrate: (shapes: Shape[]) => {
+      if (!state) return;
+      isApplyingRemoteRef.current = true;
+      try {
+        state.hydrateShapes(shapes);
+        latestShapesRef.current = shapes;
+      } finally {
+        isApplyingRemoteRef.current = false;
+      }
+    },
     /**
      * Live shapes ref — always current, updated synchronously before any
      * React re-render.  Pass this to RemotePresenceLayer so selection boxes

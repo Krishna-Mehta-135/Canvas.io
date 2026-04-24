@@ -35,14 +35,14 @@
   --radius: 0.625rem;
 
   /* Legacy (old pages) */
-  --home-background: radial-gradient(circle at 18% 10%, rgba(59, 130, 246, 0.12) 0%, transparent 30%), radial-gradient(circle at 82% 10%, rgba(16, 185, 129, 0.08) 0%, transparent 24%), linear-gradient(180deg, #f3f8ff 0%, #ffffff 55%, #f8fbff 100%);
+  --home-background: radial-gradient(circle at 20% 15%, rgba(59, 130, 246, 0.22) 0%, transparent 40%), radial-gradient(circle at 80% 12%, rgba(16, 185, 129, 0.18) 0%, transparent 35%), radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.12) 0%, transparent 60%), linear-gradient(180deg, #edf4ff 0%, #ffffff 45%, #f0f7ff 100%);
   --home-foreground: #0f172a;
 }
 
 :root[data-theme="light"] {
   --background: #ffffff;
   --foreground: #171717;
-  --home-background: radial-gradient(circle at 18% 10%, rgba(59, 130, 246, 0.12) 0%, transparent 30%), radial-gradient(circle at 82% 10%, rgba(16, 185, 129, 0.08) 0%, transparent 24%), linear-gradient(180deg, #f3f8ff 0%, #ffffff 55%, #f8fbff 100%);
+  --home-background: radial-gradient(circle at 20% 15%, rgba(59, 130, 246, 0.22) 0%, transparent 40%), radial-gradient(circle at 80% 12%, rgba(16, 185, 129, 0.18) 0%, transparent 35%), radial-gradient(circle at 50% 50%, rgba(99, 102, 241, 0.12) 0%, transparent 60%), linear-gradient(180deg, #edf4ff 0%, #ffffff 45%, #f0f7ff 100%);
   --home-foreground: #0f172a;
 }
 

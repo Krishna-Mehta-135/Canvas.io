@@ -559,7 +559,7 @@ function drawText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "t
     ctx.globalAlpha = getShapeOpacity(shape);
     // File intent: Use white text in dark mode for better contrast, otherwise use the shape's stroke color
     const isDarkMode = document.documentElement.getAttribute("data-theme") === "dark" || 
-                       getThemePalette().background === "#121212";
+                       getThemePalette().background === "#070b14";
     ctx.fillStyle = isDarkMode ? "#ffffff" : (shape.stroke || getThemePalette().stroke);
     const {fittedFontSize, lineHeight, visibleLines} = getTextRenderMetrics(ctx, shape);
     ctx.font = `${fittedFontSize}px Virgil, Caveat, ui-rounded, sans-serif`;
@@ -612,7 +612,16 @@ function drawInfiniteGrid(
     const offsetY = ((viewport.y % targetScreenStep) + targetScreenStep) % targetScreenStep;
 
     ctx.save();
-    ctx.strokeStyle = gridColor;
+    const isLightTheme = typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "light";
+    if (isLightTheme) {
+        const lightGridGradient = ctx.createLinearGradient(0, 0, screenWidth, screenHeight);
+        lightGridGradient.addColorStop(0, "rgba(59, 130, 246, 0.20)");
+        lightGridGradient.addColorStop(0.52, "rgba(255, 255, 255, 0.62)");
+        lightGridGradient.addColorStop(1, "rgba(37, 99, 235, 0.18)");
+        ctx.strokeStyle = lightGridGradient;
+    } else {
+        ctx.strokeStyle = gridColor;
+    }
     ctx.lineWidth = 1 / pixelRatio;
 
     for (let x = offsetX; x <= screenWidth; x += targetScreenStep) {

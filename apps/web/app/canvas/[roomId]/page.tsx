@@ -1,7 +1,7 @@
 "use client";
 
 import {ReactNode, useCallback, useEffect, useRef, useState} from "react";
-import {useParams, useSearchParams} from "next/navigation";
+import {useParams, useSearchParams, useRouter} from "next/navigation";
 import {AxiosError} from "axios";
 import {jsPDF} from "jspdf";
 import {attachEvents, convertToPoints, dispatch} from "@repo/canvas-engine";
@@ -198,6 +198,15 @@ type IncomingAccessRequest = {
     };
 };
 
+type CanvasSwitcherEntry = {
+    target: string;
+    label: string;
+    visitedAt: number;
+};
+
+const RECENT_CANVASES_STORAGE_KEY = "canvas-recent-canvases";
+const MAX_RECENT_CANVASES = 8;
+
 function normalizeJoinTarget(rawValue: string) {
     const trimmed = rawValue.trim();
     if (!trimmed) return "";
@@ -227,6 +236,62 @@ function getUserInitials(name: string) {
     if (!cleaned) return "?";
     const parts = cleaned.split(/\s+/).slice(0, 2);
     return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "?";
+}
+
+function deriveCanvasLabel(target: string) {
+    if (target.startsWith("room/")) {
+        const parts = target.split("/");
+        const owner = parts[1] ?? "";
+        const slug = parts[2] ?? "";
+        if (owner && slug) {
+            return `@${owner} / ${slug}`;
+        }
+    }
+
+    if (target.startsWith("canvas/")) {
+        const slug = target.slice("canvas/".length);
+        if (slug) {
+            return slug;
+        }
+    }
+
+    return target;
+}
+
+function readRecentCanvasesFromStorage() {
+    if (typeof window === "undefined") return [] as CanvasSwitcherEntry[];
+
+    try {
+        const raw = window.localStorage.getItem(RECENT_CANVASES_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+
+        return parsed
+            .filter((entry): entry is CanvasSwitcherEntry => {
+                return (
+                    !!entry &&
+                    typeof entry === "object" &&
+                    typeof entry.target === "string" &&
+                    typeof entry.label === "string" &&
+                    typeof entry.visitedAt === "number" &&
+                    Number.isFinite(entry.visitedAt)
+                );
+            })
+            .slice(0, MAX_RECENT_CANVASES);
+    } catch {
+        return [];
+    }
+}
+
+function writeRecentCanvasesToStorage(entries: CanvasSwitcherEntry[]) {
+    if (typeof window === "undefined") return;
+
+    try {
+        window.localStorage.setItem(RECENT_CANVASES_STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_RECENT_CANVASES)));
+    } catch {
+        // Ignore storage failures so the switcher remains functional.
+    }
 }
 
 function getViewportStorageKey(roomKey: string) {
@@ -934,6 +999,7 @@ function PersonaButtonGlyph({personaId}: {personaId: string}) {
 export default function CanvasPage() {
     const params = useParams<{roomId: string}>();
     const searchParams = useSearchParams();
+    const router = useRouter();
     const roomId = Array.isArray(params?.roomId) ? params.roomId[0] : params?.roomId;
     const ownerHandleFromQuery = searchParams.get("owner")?.trim() ?? "";
 
@@ -966,6 +1032,7 @@ export default function CanvasPage() {
     const [isJoinCanvasModalOpen, setIsJoinCanvasModalOpen] = useState(false);
     const [joinCanvasInput, setJoinCanvasInput] = useState("");
     const [isJoiningCanvas, setIsJoiningCanvas] = useState(false);
+    const [recentCanvases, setRecentCanvases] = useState<CanvasSwitcherEntry[]>([]);
     const [isReloadingCanvas, setIsReloadingCanvas] = useState(false);
     const [isSavingCanvas, setIsSavingCanvas] = useState(false);
     const [showRoomInfo, setShowRoomInfo] = useState(false);
@@ -996,6 +1063,22 @@ export default function CanvasPage() {
     useEffect(() => {
         toolRef.current = activeTool;
     }, [activeTool]);
+
+    useEffect(() => {
+        setRecentCanvases(readRecentCanvasesFromStorage());
+    }, []);
+
+    const rememberCanvasTarget = useCallback((target: string, label?: string) => {
+        const resolvedLabel = (label?.trim() || deriveCanvasLabel(target)).slice(0, 90);
+        const visitedAt = Date.now();
+
+        setRecentCanvases((current) => {
+            const deduped = current.filter((entry) => entry.target !== target);
+            const next = [{target, label: resolvedLabel, visitedAt}, ...deduped].slice(0, MAX_RECENT_CANVASES);
+            writeRecentCanvasesToStorage(next);
+            return next;
+        });
+    }, []);
 
     const getMenuItems = useCallback(() => {
         if (!menuPanelRef.current) return [];
@@ -1572,6 +1655,13 @@ export default function CanvasPage() {
         setInviteLink(`${window.location.origin}/canvas/${roomId}`);
     }, [roomId, ownerHandleFromQuery]);
 
+    useEffect(() => {
+        if (!roomId) return;
+
+        const target = ownerHandleFromQuery ? `room/${ownerHandleFromQuery}/${roomId}` : `canvas/${roomId}`;
+        rememberCanvasTarget(target);
+    }, [ownerHandleFromQuery, rememberCanvasTarget, roomId]);
+
     const handleDeleteSelected = () => {
         controlsRef.current?.deleteSelection();
     };
@@ -1785,13 +1875,25 @@ export default function CanvasPage() {
         try {
             const response = await apiClient.get(`${HTTP_BACKEND}/room/${resolvedRoomId}/shapes`);
             const persistedShapes = response.data?.data;
-            const shapes = Array.isArray(persistedShapes) ? (persistedShapes as Shape[]) : [];
-            canvasState.hydrateShapes(shapes);
+            const candidateShapes = Array.isArray(persistedShapes)
+                ? persistedShapes
+                : persistedShapes && typeof persistedShapes === "object" && Array.isArray((persistedShapes as {shapes?: unknown}).shapes)
+                    ? (persistedShapes as {shapes: unknown[]}).shapes
+                    : null;
+
+            if (!candidateShapes) {
+                throw new Error("Invalid shapes payload from server");
+            }
+
+            const shapes = candidateShapes as Shape[];
+            // Use manualHydrate from useCanvasSync result to prevent the reloaded shapes
+            // from being immediately synced back to the server (sync-back loop).
+            syncResult.manualHydrate(shapes);
             controlsRef.current?.rerender();
             pushToast("success", "Canvas reloaded from server.");
         } catch (error) {
             console.error("Failed to reload canvas", error);
-            pushToast("error", "Unable to reload canvas right now.");
+            pushToast("error", "Reload failed. Current canvas was kept unchanged.");
         } finally {
             setIsReloadingCanvas(false);
         }
@@ -1835,31 +1937,43 @@ export default function CanvasPage() {
     };
 
     const handleJoinCanvasFromMenu = () => {
-        setJoinCanvasInput("");
-        setIsJoinCanvasModalOpen(true);
+        window.location.href = "/rooms";
     };
 
-    const handleSubmitJoinCanvas = async () => {
-        const target = normalizeJoinTarget(joinCanvasInput);
-        if (!target) {
-            pushToast("error", "Enter a valid invite link or room path.");
-            return;
-        }
+    const resolveCanvasDestination = useCallback((rawTarget: string) => {
+        const target = normalizeJoinTarget(rawTarget);
+        if (!target) return null;
 
         const destination = target.startsWith("room/") || target.startsWith("canvas/")
             ? `/${target}`
             : `/canvas/${target}`;
 
+        return {target, destination};
+    }, []);
+
+    const handleSubmitJoinCanvasTarget = useCallback(async (rawTarget: string) => {
+        const resolved = resolveCanvasDestination(rawTarget);
+        if (!resolved) {
+            pushToast("error", "Enter a valid invite link or room path.");
+            return;
+        }
+
+        rememberCanvasTarget(resolved.target);
+
         setIsJoiningCanvas(true);
         try {
             await apiClient.get(`${HTTP_BACKEND}/auth/current-user`);
-            window.location.href = destination;
+            window.location.href = resolved.destination;
         } catch {
-            const redirectTarget = encodeURIComponent(destination);
+            const redirectTarget = encodeURIComponent(resolved.destination);
             window.location.href = `/signin?redirect=${redirectTarget}`;
         } finally {
             setIsJoiningCanvas(false);
         }
+    }, [rememberCanvasTarget, pushToast, resolveCanvasDestination]);
+
+    const handleSubmitJoinCanvas = async () => {
+        await handleSubmitJoinCanvasTarget(joinCanvasInput);
     };
 
     const handleAccessRequestDecision = async (requestId: number, action: "approve" | "reject") => {
@@ -1961,17 +2075,6 @@ export default function CanvasPage() {
         handleExportJson();
     };
 
-    const handleSwitchAccount = async () => {
-        if (isLoggingOut) return;
-
-        setIsLoggingOut(true);
-        try {
-            await logoutUser();
-        } finally {
-            window.location.href = "/signin";
-        }
-    };
-
     const remotePresenceState = syncResult.presenceState;
     const connectedUsersCount = Number.isFinite(syncResult.connectedUsersCount)
         ? syncResult.connectedUsersCount
@@ -1986,23 +2089,24 @@ export default function CanvasPage() {
     const shellBackground = isDark ? "bg-[#070b14] text-white" : "bg-[#f3f7fd] text-slate-900";
     const shellGlow = isDark
         ? "bg-[radial-gradient(circle_at_20%_15%,rgba(59,130,246,0.18),transparent_28%),radial-gradient(circle_at_80%_10%,rgba(139,92,246,0.14),transparent_25%),radial-gradient(circle_at_50%_90%,rgba(16,185,129,0.08),transparent_30%)]"
-        : "bg-[radial-gradient(circle_at_18%_16%,rgba(59,130,246,0.14),transparent_30%),radial-gradient(circle_at_82%_12%,rgba(139,92,246,0.10),transparent_26%),radial-gradient(circle_at_52%_88%,rgba(14,165,233,0.08),transparent_28%)]";
+        : "bg-[radial-gradient(circle_at_20%_15%,rgba(59,130,246,0.22),transparent_40%),radial-gradient(circle_at_80%_12%,rgba(16,185,129,0.18),transparent_35%),radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.12),transparent_60%)]";
     const topToolbarSurface = isDark
-        ? "border border-white/10 bg-[#101724]/70 shadow-[0_20px_70px_rgba(2,6,23,0.45)]"
-        : "border border-white/80 bg-white/72 shadow-[0_20px_60px_rgba(15,23,42,0.10)]";
+        ? "border border-white/10 bg-[#101724]/75 shadow-[0_20px_70px_rgba(2,6,23,0.45)]"
+        : "border border-slate-200/80 bg-white/90 shadow-[0_12px_40px_rgba(15,23,42,0.1)]";
     const inspectorSurface = isDark
-        ? "border border-white/10 bg-[#0e1622]/72 shadow-[0_24px_70px_rgba(2,6,23,0.5)]"
-        : "border border-white/70 bg-white/78 shadow-[0_24px_70px_rgba(15,23,42,0.12)]";
+        ? "border border-white/10 bg-[#0e1622]/75 shadow-[0_24px_70px_rgba(2,6,23,0.5)]"
+        : "border border-slate-200/80 bg-white/95 shadow-[0_15px_50px_rgba(15,23,42,0.06)]";
     const floatingPanelSurface = isDark
-        ? "border border-white/10 bg-[#111827]/78 shadow-[0_18px_50px_rgba(2,6,23,0.35)]"
-        : "border border-white/70 bg-white/75 shadow-[0_18px_50px_rgba(15,23,42,0.12)]";
+        ? "border border-white/10 bg-[#111827]/80 shadow-[0_18px_50px_rgba(2,6,23,0.35)]"
+        : "border border-slate-200/80 bg-white/90 shadow-[0_8px_30px_rgba(15,23,42,0.04)] shadow-sm";
+    const toolbarMaxWidth = "fit-content";
 
     return (
         <div className={`relative h-screen w-screen overflow-hidden ${shellBackground}`}>
             <div className={`pointer-events-none absolute inset-0 ${shellGlow}`} />
-            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.18),rgba(255,255,255,0)_24%,rgba(255,255,255,0)_80%,rgba(255,255,255,0.10))] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0)_24%,rgba(255,255,255,0)_80%,rgba(2,6,23,0.12))]" />
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.22),rgba(255,255,255,0)_28%,rgba(255,255,255,0)_75%,rgba(255,255,255,0.12))] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0)_24%,rgba(255,255,255,0)_80%,rgba(2,6,23,0.12))]" />
             {isAccessDenied && (
-                <div className="pointer-events-none absolute left-1/2 top-4 z-40 w-[min(92vw,560px)] -translate-x-1/2">
+                <div className="pointer-events-none absolute left-1/2 top-24 z-50 w-[min(92vw,560px)] -translate-x-1/2">
                     <div
                         className={`rounded-xl border px-4 py-3 text-sm shadow-lg ${
                             isDark
@@ -2015,45 +2119,27 @@ export default function CanvasPage() {
                 </div>
             )}
 
-            <div className="pointer-events-none absolute left-4 top-4 z-30">
-                <div className={`pointer-events-auto flex items-center gap-3 rounded-2xl border px-3 py-2 backdrop-blur-2xl ${floatingPanelSurface}`}>
-                    <div className="min-w-0">
-                        <div className={`text-[10px] uppercase tracking-[0.14em] ${isDark ? "text-white/55" : "text-slate-500"}`}>Canvas</div>
-                        <div className="max-w-60 truncate text-sm font-semibold">{canvasTitle}</div>
+            {/* Top Left: Workspace Metadata */}
+            <div className="pointer-events-none absolute left-4 top-4 z-40">
+                <div className={`pointer-events-auto flex items-center gap-6 rounded-xl border px-6 py-4 backdrop-blur-xl ${floatingPanelSurface}`}>
+                    <div className="flex flex-col">
+                        <div className={`text-[11px] font-bold uppercase tracking-[0.25em] ${isDark ? "text-blue-200/60" : "text-blue-700/70"}`}>
+                            {ownerHandleFromQuery ? `@${ownerHandleFromQuery.toUpperCase()}` : "CANVAS WORKSPACE"}
+                        </div>
+                        <div className="mt-1 truncate text-[19px] font-black tracking-tight leading-tight">{roomId ?? "Untitled"}</div>
                     </div>
+                    <div className={`h-10 w-px ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
                     <button
                         type="button"
                         onClick={handleCopyInvite}
-                        className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                        className={`rounded-lg border px-5 py-2.5 text-sm font-bold transition-all hover:scale-105 active:scale-95 ${
                             isDark
                                 ? "border-white/20 bg-white/10 text-white hover:bg-white/15"
-                                : "border-slate-300 bg-white/90 text-slate-700 hover:bg-slate-100"
+                                : "border-slate-300 bg-white text-slate-800 hover:border-slate-400 shadow-sm hover:shadow-md"
                         }`}
                     >
                         Share
                     </button>
-                    <div className="flex items-center">
-                        <div className="flex -space-x-2">
-                            {participantPreview.map((name) => (
-                                <span
-                                    key={name}
-                                    title={name}
-                                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-[10px] font-semibold ${
-                                        isDark
-                                            ? "border-[#0b1220] bg-[#1d4ed8]/70 text-white"
-                                            : "border-white bg-[#2563eb]/85 text-white"
-                                    }`}
-                                >
-                                    {getUserInitials(name)}
-                                </span>
-                            ))}
-                        </div>
-                        {extraParticipantCount > 0 ? (
-                            <span className={`ml-2 text-xs font-medium ${isDark ? "text-white/65" : "text-slate-500"}`}>
-                                +{extraParticipantCount}
-                            </span>
-                        ) : null}
-                    </div>
                 </div>
             </div>
 
@@ -2246,14 +2332,29 @@ export default function CanvasPage() {
                                 onClick={() => {
                                     setIsMenuOpen(false);
                                     setShowRoomInfo(false);
-                                    void handleSwitchAccount();
+                                    handleJoinCanvasFromMenu();
                                 }}
-                                disabled={isLoggingOut}
                                 className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
                                     isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
                                 }`}
                             >
-                                <span>Switch account</span>
+                                <span>My canvases</span>
+                                <span className="text-xs opacity-60">/rooms</span>
+                            </button>
+                            <button
+                                type="button"
+                                role="menuitem"
+                                onClick={() => {
+                                    setIsJoinCanvasModalOpen(true);
+                                    setIsMenuOpen(false);
+                                    setShowRoomInfo(false);
+                                }}
+                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
+                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
+                                }`}
+                            >
+                                <span>Switch Workspace</span>
+                                <span className="text-[10px] opacity-60 uppercase tracking-widest font-bold">Quick</span>
                             </button>
 
                             <div className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
@@ -2335,7 +2436,7 @@ export default function CanvasPage() {
                                     isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
                                 }`}
                             >
-                                <span>Join a canvas</span>
+                                <span>Go to my canvases</span>
                             </button>
                             <button
                                 type="button"
@@ -2556,32 +2657,116 @@ export default function CanvasPage() {
             {isJoinCanvasModalOpen && (
                 <div className="absolute inset-0 z-40 grid place-items-center bg-black/40 px-4 backdrop-blur-sm">
                     <div
-                        className={`w-full max-w-md rounded-2xl border p-5 shadow-2xl ${
-                            isDark ? "border-white/10 bg-[#1a1a1a] text-white" : "border-slate-300 bg-white text-slate-900"
+                        className={`w-full max-w-xl rounded-3xl border p-5 shadow-2xl ${
+                            isDark ? "border-white/10 bg-[#111827]/95 text-white" : "border-slate-300 bg-white/95 text-slate-900"
                         }`}
                     >
-                        <h2 className="text-lg font-semibold">Join a canvas</h2>
-                        <p className={`mt-1 text-sm ${isDark ? "text-white/70" : "text-slate-600"}`}>
-                            Paste an invite link, room URL, or slug.
+                        <div className="mb-4 flex items-start justify-between gap-3">
+                            <div>
+                                <h2 className="text-lg font-semibold">Canvas Switcher</h2>
+                                <p className={`mt-1 text-sm ${isDark ? "text-white/70" : "text-slate-600"}`}>
+                                    Jump to another workspace quickly using recent canvases or an invite URL.
+                                </p>
+                            </div>
+                            <div className={`rounded-lg border px-2 py-1 text-xs ${isDark ? "border-white/15 text-white/70" : "border-slate-300 text-slate-600"}`}>
+                                Current: {roomId ?? "-"}
+                            </div>
+                        </div>
+
+                        <div className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
+                            <label className={`mb-2 block text-xs font-semibold uppercase tracking-[0.14em] ${isDark ? "text-white/60" : "text-slate-500"}`}>
+                                Switch by URL or Slug
+                            </label>
+                            <div className="flex gap-2">
+                                <input
+                                    autoFocus
+                                    value={joinCanvasInput}
+                                    onChange={(event) => setJoinCanvasInput(event.target.value)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === "Enter") {
+                                            event.preventDefault();
+                                            void handleSubmitJoinCanvas();
+                                        }
+                                    }}
+                                    placeholder="https://.../room/owner/slug or /canvas/slug"
+                                    className={`w-full rounded-xl border px-3 py-2 text-sm outline-none ${
+                                        isDark
+                                            ? "border-white/15 bg-[#0b1220] text-white placeholder:text-white/40 focus:border-white/30"
+                                            : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-slate-500"
+                                    }`}
+                                />
+                                <button
+                                    type="button"
+                                    disabled={isJoiningCanvas}
+                                    onClick={() => void handleSubmitJoinCanvas()}
+                                    className={`rounded-xl px-3 py-2 text-sm font-semibold ${
+                                        isDark
+                                            ? "bg-white text-black hover:bg-white/90 disabled:opacity-70"
+                                            : "bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-70"
+                                    }`}
+                                >
+                                    {isJoiningCanvas ? "Switching..." : "Switch"}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="mt-4">
+                            <div className={`mb-2 text-xs font-semibold uppercase tracking-[0.14em] ${isDark ? "text-white/60" : "text-slate-500"}`}>
+                                Recent Canvases
+                            </div>
+                            <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
+                                {recentCanvases.length === 0 ? (
+                                    <div className={`rounded-xl border px-3 py-2 text-sm ${isDark ? "border-white/10 bg-white/5 text-white/70" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
+                                        No recent canvases yet. Canvases you open will appear here.
+                                    </div>
+                                ) : (
+                                    recentCanvases.map((entry) => {
+                                        const isCurrent = (ownerHandleFromQuery ? `room/${ownerHandleFromQuery}/${roomId ?? ""}` : `canvas/${roomId ?? ""}`) === entry.target;
+                                        return (
+                                            <button
+                                                key={entry.target}
+                                                type="button"
+                                                onClick={() => {
+                                                    void handleSubmitJoinCanvasTarget(entry.target);
+                                                }}
+                                                disabled={isJoiningCanvas || isCurrent}
+                                                className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left transition ${
+                                                    isCurrent
+                                                        ? isDark
+                                                            ? "cursor-default border-blue-300/40 bg-blue-500/15 text-blue-100"
+                                                            : "cursor-default border-blue-300 bg-blue-50 text-blue-700"
+                                                        : isDark
+                                                            ? "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10"
+                                                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
+                                                }`}
+                                            >
+                                                <div className="min-w-0">
+                                                    <div className="truncate text-sm font-semibold">{entry.label}</div>
+                                                    <div className={`truncate text-xs ${isDark ? "text-white/60" : "text-slate-500"}`}>/{entry.target}</div>
+                                                </div>
+                                                <span className={`ml-3 rounded-lg px-2 py-1 text-xs ${isCurrent ? "opacity-90" : isDark ? "bg-white/10 text-white/75" : "bg-slate-100 text-slate-600"}`}>
+                                                    {isCurrent ? "Current" : "Open"}
+                                                </span>
+                                            </button>
+                                        );
+                                    })
+                                )}
+                            </div>
+                        </div>
+
+                        <p className={`mt-3 text-xs ${isDark ? "text-white/55" : "text-slate-500"}`}>
+                            Tip: You can paste full invite links, room URLs, or just canvas slugs.
                         </p>
-                        <input
-                            autoFocus
-                            value={joinCanvasInput}
-                            onChange={(event) => setJoinCanvasInput(event.target.value)}
-                            onKeyDown={(event) => {
-                                if (event.key === "Enter") {
-                                    event.preventDefault();
-                                    void handleSubmitJoinCanvas();
-                                }
-                            }}
-                            placeholder="https://.../room/owner/slug or /canvas/slug"
-                            className={`mt-4 w-full rounded-xl border px-3 py-2 text-sm outline-none ${
-                                isDark
-                                    ? "border-white/15 bg-[#242424] text-white placeholder:text-white/40 focus:border-white/30"
-                                    : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-slate-500"
-                            }`}
-                        />
-                        <div className="mt-4 flex justify-end gap-2">
+                        <div className="mt-4 flex justify-between items-center gap-2">
+                            <button
+                                type="button"
+                                onClick={() => router.push("/rooms")}
+                                className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                                    isDark ? "border-blue-400/30 bg-blue-500/10 text-blue-100 hover:bg-blue-500/20" : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                }`}
+                            >
+                                View your canvases
+                            </button>
                             <button
                                 type="button"
                                 onClick={() => setIsJoinCanvasModalOpen(false)}
@@ -2589,19 +2774,7 @@ export default function CanvasPage() {
                                     isDark ? "border-white/15 hover:bg-white/10" : "border-slate-300 hover:bg-slate-100"
                                 }`}
                             >
-                                Cancel
-                            </button>
-                            <button
-                                type="button"
-                                disabled={isJoiningCanvas}
-                                onClick={() => void handleSubmitJoinCanvas()}
-                                className={`rounded-lg px-3 py-2 text-sm font-semibold ${
-                                    isDark
-                                        ? "bg-white text-black hover:bg-white/90 disabled:opacity-70"
-                                        : "bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-70"
-                                }`}
-                            >
-                                {isJoiningCanvas ? "Joining..." : "Join"}
+                                Close
                             </button>
                         </div>
                     </div>
@@ -2610,60 +2783,46 @@ export default function CanvasPage() {
 
             {selectedCount > 0 && (
                 <aside
-                    className={`absolute left-4 top-20 z-20 w-72 rounded-[28px] p-4 backdrop-blur-2xl ${inspectorSurface}`}
+                    className={`absolute left-4 top-1/2 z-20 w-72 -translate-y-1/2 rounded-2xl p-5 backdrop-blur-2xl transition-all duration-300 ${inspectorSurface}`}
                 >
-                    <h3 className="mb-3 text-sm font-semibold">Style</h3>
+                    <div className="mb-4 flex items-center justify-between">
+                        <h3 className="text-xs font-bold uppercase tracking-widest opacity-50">Shape Properties</h3>
+                        <span className={`rounded px-2 py-0.5 text-[10px] font-bold ${isDark ? "bg-blue-500/20 text-blue-300" : "bg-blue-50 text-blue-600"}`}>
+                            {selectedCount} Selected
+                        </span>
+                    </div>
 
-                    <div className="mb-3">
-                        <label className="text-xs font-medium opacity-80">{isTextShapeSelection ? "Text Color" : "Stroke"}</label>
-                        <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <div className="mb-5">
+                        <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider opacity-60">
+                            {isTextShapeSelection ? "Text Color" : "Stroke Color"}
+                        </label>
+                        <div className="flex flex-wrap items-center gap-2">
                             {STYLE_SWATCHES.map((color) => {
                                 const isSelected = strokeValue.toLowerCase() === color;
-                                const hasVisibleBorder = color === "#ffffff";
+                                const hasVisibleBorder = color === "#ffffff" || color === "#ffffff";
                                 return (
                                     <button
                                         key={`stroke-${color}`}
                                         type="button"
                                         onClick={() => applyToSelectedShapes({stroke: color})}
-                                        className={`h-6 w-6 rounded border ${
+                                        className={`h-7 w-7 rounded-lg border transition-all hover:scale-110 active:scale-90 shadow-sm ${
                                             hasVisibleBorder
                                                 ? isDark
-                                                    ? "border-white/30"
-                                                    : "border-slate-400"
+                                                    ? "border-white/20"
+                                                    : "border-slate-300"
                                                 : "border-transparent"
-                                        } ${isSelected ? "ring-2 ring-indigo-400" : ""}`}
+                                        } ${isSelected ? "ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-[#0e1622]" : ""}`}
                                         style={{backgroundColor: color}}
-                                        title={`Stroke ${color}`}
                                     />
                                 );
                             })}
-                            <label
-                                className={`relative h-6 w-6 cursor-pointer overflow-hidden rounded border ${
-                                    isDark ? "border-white/25" : "border-slate-400"
-                                }`}
-                                title="Custom stroke color"
-                            >
-                                <span
-                                    className="absolute inset-0"
-                                    style={{
-                                        background:
-                                            "conic-gradient(from 0deg, #ff3b30, #ff9500, #ffcc00, #34c759, #0a84ff, #5e5ce6, #bf5af2, #ff2d55, #ff3b30)",
-                                    }}
-                                />
-                                <input
-                                    type="color"
-                                    value={strokeValue}
-                                    onChange={(e) => applyToSelectedShapes({stroke: e.target.value})}
-                                    className="absolute inset-0 cursor-pointer opacity-0"
-                                />
-                            </label>
                         </div>
                     </div>
 
                     {showsFillControls && (
-                        <div className="mb-3">
-                            <label className="text-xs font-medium opacity-80">Fill</label>
-                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                        <div className="mb-5">
+                            <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider opacity-60">Fill Color</label>
+                            <div className="flex flex-wrap items-center gap-2">
                                 {STYLE_SWATCHES.map((color) => {
                                     const isSelected = fillValue.toLowerCase() === color;
                                     const hasVisibleBorder = color === "#ffffff";
@@ -2672,237 +2831,130 @@ export default function CanvasPage() {
                                             key={`fill-${color}`}
                                             type="button"
                                             onClick={() => applyToSelectedShapes({fill: color})}
-                                            className={`h-6 w-6 rounded border ${
+                                            className={`h-7 w-7 rounded-lg border transition-all hover:scale-110 active:scale-90 shadow-sm ${
                                                 hasVisibleBorder
                                                     ? isDark
-                                                        ? "border-white/30"
-                                                        : "border-slate-400"
+                                                        ? "border-white/20"
+                                                        : "border-slate-300"
                                                     : "border-transparent"
-                                            } ${isSelected ? "ring-2 ring-indigo-400" : ""}`}
+                                            } ${isSelected ? "ring-2 ring-blue-500 ring-offset-2 dark:ring-offset-[#0e1622]" : ""}`}
                                             style={{backgroundColor: color}}
-                                            title={`Fill ${color}`}
                                         />
                                     );
                                 })}
-                                <label
-                                    className={`relative h-6 w-6 cursor-pointer overflow-hidden rounded border ${
-                                        isDark ? "border-white/25" : "border-slate-400"
-                                    }`}
-                                    title="Custom fill color"
-                                >
-                                    <span
-                                        className="absolute inset-0"
-                                        style={{
-                                            background:
-                                                "conic-gradient(from 0deg, #ff3b30, #ff9500, #ffcc00, #34c759, #0a84ff, #5e5ce6, #bf5af2, #ff2d55, #ff3b30)",
-                                        }}
-                                    />
-                                    <input
-                                        type="color"
-                                        value={fillValue}
-                                        onChange={(e) => applyToSelectedShapes({fill: e.target.value})}
-                                        className="absolute inset-0 cursor-pointer opacity-0"
-                                    />
-                                </label>
-                            </div>
-                        </div>
-                    )}
-
-                    {showsStrokeStyleControls && (
-                        <div className="mb-3">
-                            <label className="mb-1 block text-xs font-medium opacity-80">Stroke Style</label>
-                            <div className="flex items-center gap-2">
-                                {STROKE_STYLE_OPTIONS.map((option) => (
-                                    <StrokeStyleTile
-                                        key={option.value}
-                                        value={option.value}
-                                        selected={strokeStyleValue === option.value}
-                                        onClick={() => applyToSelectedShapes({strokeStyle: option.value})}
-                                        isDark={isDark}
-                                    />
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {showsFillStyleControls && (
-                        <div className="mb-3">
-                            <label className="mb-1 block text-xs font-medium opacity-80">Fill Style</label>
-                            <div className="flex items-center gap-2">
-                                {FILL_STYLE_OPTIONS.map((option) => (
-                                    <FillStyleTile
-                                        key={option.value}
-                                        value={option.value}
-                                        selected={fillStyleValue === option.value}
-                                        onClick={() => applyToSelectedShapes({fillStyle: option.value})}
-                                        isDark={isDark}
-                                    />
-                                ))}
                             </div>
                         </div>
                     )}
 
                     {!isTextShapeSelection && (
-                        <div className="mb-3">
-                            <label className="mb-1 block text-xs font-medium opacity-80">Stroke Width: {strokeWidthValue}px</label>
-                            <input
-                                type="range"
-                                min={1}
-                                max={12}
-                                value={strokeWidthValue}
-                                onChange={(e) => applyToSelectedShapes({strokeWidth: Number(e.target.value)})}
-                                className="w-full"
-                            />
+                        <div className="mb-5">
+                            <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider opacity-60">Fill Style</label>
+                            <div className="grid grid-cols-2 gap-1.5">
+                                {FILL_STYLE_OPTIONS.map((opt) => (
+                                    <button
+                                        key={opt.value}
+                                        type="button"
+                                        onClick={() => applyToSelectedShapes({fillStyle: opt.value})}
+                                        className={`rounded-xl border px-2 py-2 text-[11px] font-bold transition-all ${
+                                            fillStyleValue === opt.value
+                                                ? isDark
+                                                    ? "border-blue-500/50 bg-blue-600/20 text-white shadow-[0_0_15px_rgba(37,99,235,0.2)]"
+                                                    : "border-blue-200 bg-blue-50 text-blue-700 shadow-sm"
+                                                : isDark
+                                                    ? "border-white/5 bg-white/5 hover:border-white/15"
+                                                    : "border-slate-100 bg-slate-50/50 hover:border-slate-200"
+                                        }`}
+                                    >
+                                        {opt.label}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     )}
 
-                    <div className="mb-3">
-                        <div className="mb-1 flex items-center justify-between">
-                            <label className="block text-xs font-medium opacity-80">Shape Comment</label>
-                            <span className="text-[11px] opacity-60">
-                                {selectedShapeComments.length} {selectedShapeComments.length === 1 ? "comment" : "comments"}
-                            </span>
-                        </div>
-                        <div
-                            className={`rounded-xl border p-2 ${
-                                isDark ? "border-white/10 bg-[#222222]" : "border-slate-200 bg-slate-50/80"
-                            }`}
-                        >
-                            <textarea
-                                value={styleCommentDraft}
-                                onChange={(event) => setStyleCommentDraft(event.target.value)}
-                                onKeyDown={(event) => {
-                                    if (event.key === "Enter" && !event.shiftKey) {
-                                        event.preventDefault();
-                                        handleAddStyleComment();
-                                    }
-                                }}
-                                rows={2}
-                                placeholder={
-                                    primarySelectedShape
-                                        ? `Add a comment to #${primarySelectedShape.id.slice(0, 8)}`
-                                        : "Select a shape to comment"
-                                }
-                                className={`w-full resize-none bg-transparent text-sm outline-none ${
-                                    isDark ? "text-white placeholder:text-white/35" : "text-slate-800 placeholder:text-slate-400"
-                                }`}
-                            />
-                            <div className="mt-2 flex items-center justify-between gap-2">
-                                <div className="text-[11px] opacity-60">Comments also appear in Messenger.</div>
+                    <div className="mb-5">
+                        <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider opacity-60">Stroke Style</label>
+                        <div className="grid grid-cols-3 gap-1.5">
+                            {STROKE_STYLE_OPTIONS.map((opt) => (
                                 <button
+                                    key={opt.value}
                                     type="button"
-                                    onClick={handleAddStyleComment}
-                                    disabled={!primarySelectedShape || styleCommentDraft.trim().length === 0}
-                                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition ${
-                                        isDark
-                                            ? "bg-white text-black hover:bg-white/90 disabled:bg-white/20 disabled:text-white/40"
-                                            : "bg-slate-900 text-white hover:bg-slate-800 disabled:bg-slate-200 disabled:text-slate-400"
+                                    onClick={() => applyToSelectedShapes({strokeStyle: opt.value})}
+                                    className={`rounded-xl border px-1 py-2 text-[10px] font-bold transition-all ${
+                                        strokeStyleValue === opt.value
+                                            ? isDark
+                                                ? "border-blue-500/50 bg-blue-600/20 text-white"
+                                                : "border-blue-200 bg-blue-50 text-blue-700"
+                                            : isDark
+                                                ? "border-white/5 bg-white/5 hover:border-white/15"
+                                                : "border-slate-100 bg-slate-50/50 hover:border-slate-200"
                                     }`}
                                 >
-                                    Add comment
+                                    {opt.label}
                                 </button>
-                            </div>
+                            ))}
                         </div>
                     </div>
 
-                    {!isTextShapeSelection && (
-                        <div className="mb-3">
-                            <label className="mb-1 block text-xs font-medium opacity-80">Drawing Persona</label>
-                            <div className="grid grid-cols-3 gap-2">
-                                {DRAWING_PERSONAS.map((persona) => {
-                                    const isActive = activePersona?.id === persona.id;
-
-                                    return (
-                                        <button
-                                            key={persona.id}
-                                            type="button"
-                                            onClick={() => {
-                                                setDefaultRoughness(persona.roughness);
-                                                if (selectedCount > 0) {
-                                                    applyToSelectedShapes({roughness: persona.roughness});
-                                                }
-                                            }}
-                                            onMouseEnter={() => setHoveredPersonaId(persona.id)}
-                                            onMouseLeave={() => setHoveredPersonaId((current) => (current === persona.id ? null : current))}
-                                            title={persona.label}
-                                            className={`rounded-lg border px-2 py-2 text-xs font-semibold transition ${
+                    <div className="mb-5">
+                        <label className="mb-3 block text-[10px] font-bold uppercase tracking-wider opacity-60">Drawing Persona</label>
+                        <div className="grid grid-cols-3 gap-1.5">
+                            {DRAWING_PERSONAS.map((persona) => {
+                                const isActive = activePersona?.id === persona.id;
+                                return (
+                                    <button
+                                        key={persona.id}
+                                        type="button"
+                                        onMouseEnter={() => setHoveredPersonaId(persona.id)}
+                                        onMouseLeave={() => setHoveredPersonaId(null)}
+                                        onClick={() => {
+                                            setDefaultRoughness(persona.roughness);
+                                            if (selectedCount > 0) {
+                                                applyToSelectedShapes({roughness: persona.roughness});
+                                            }
+                                        }}
+                                        className={`flex flex-col items-center rounded-xl border py-2.5 text-[10px] font-bold transition-all ${
+                                            isActive
+                                                ? isDark
+                                                    ? "border-blue-500/50 bg-blue-600/30 text-white shadow-[0_0_20px_rgba(37,99,235,0.25)]"
+                                                    : "border-blue-300 bg-blue-50 text-blue-700 shadow-sm shadow-blue-500/5"
+                                                : isDark
+                                                    ? "border-white/5 bg-white/5 text-white/70 hover:border-white/20 hover:text-white"
+                                                    : "border-slate-100 bg-white text-slate-600 hover:border-blue-200 hover:text-slate-900"
+                                        }`}
+                                    >
+                                        <span
+                                            className={`mb-1.5 inline-flex h-4 w-full items-center justify-center ${
                                                 isActive
                                                     ? isDark
-                                                        ? "border-blue-300/70 bg-blue-500/20 text-blue-100"
-                                                        : "border-blue-400 bg-blue-100 text-blue-900"
+                                                        ? "text-blue-300"
+                                                        : "text-blue-600"
                                                     : isDark
-                                                        ? "border-white/15 bg-[#232323] text-white/75 hover:border-blue-300/45 hover:text-white"
-                                                        : "border-slate-300 bg-white text-slate-700 hover:border-blue-300 hover:text-slate-900"
+                                                        ? "text-slate-400"
+                                                        : "text-slate-500"
                                             }`}
                                         >
-                                            <span
-                                                className={`mb-1 inline-flex h-4 w-full items-center justify-center ${
-                                                    isActive
-                                                        ? isDark
-                                                            ? "text-blue-100"
-                                                            : "text-blue-900"
-                                                        : isDark
-                                                            ? "text-slate-200"
-                                                            : "text-slate-600"
-                                                }`}
-                                            >
-                                                <PersonaButtonGlyph personaId={persona.id} />
-                                            </span>
-                                            {persona.label}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-
-                            {hoveredPersona && (
-                                <div
-                                    className={`mt-2 rounded-lg border p-2 ${
-                                        isDark ? "border-blue-300/30 bg-blue-500/10" : "border-blue-200 bg-blue-50/80"
-                                    }`}
-                                >
-                                    <p className={`text-xs font-semibold ${isDark ? "text-blue-200" : "text-blue-800"}`}>
-                                        {hoveredPersona.label}
-                                    </p>
-                                    <p className={`mb-2 text-[11px] ${isDark ? "text-blue-100/80" : "text-blue-700/85"}`}>
-                                        {hoveredPersona.summary}
-                                    </p>
-                                    <div className="grid grid-cols-3 gap-1">
-                                        {hoveredPersona.examples.map((example) => (
-                                            <div
-                                                key={`${hoveredPersona.id}-${example}`}
-                                                className={`group relative rounded-md border px-1 py-1 ${
-                                                    isDark
-                                                        ? "border-blue-200/30 bg-[#1f2a44]"
-                                                        : "border-blue-200 bg-white"
-                                                }`}
-                                            >
-                                                <PersonaExampleGlyph example={example} isDark={isDark} />
-                                                <span
-                                                    className={`pointer-events-none absolute left-1/2 top-full z-10 mt-1 -translate-x-1/2 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium opacity-0 shadow transition-opacity group-hover:opacity-100 ${
-                                                        isDark
-                                                            ? "bg-slate-900/95 text-blue-100"
-                                                            : "bg-slate-800 text-blue-50"
-                                                    }`}
-                                                >
-                                                    {example}
-                                                </span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                                            <PersonaButtonGlyph personaId={persona.id} />
+                                        </span>
+                                        {persona.label}
+                                    </button>
+                                );
+                            })}
                         </div>
-                    )}
+                    </div>
 
-                    <div className="mb-4">
-                        <label className="mb-1 block text-xs font-medium opacity-80">Opacity: {opacityValue}%</label>
+                    <div className="mb-6">
+                        <div className="mb-2 flex items-center justify-between">
+                            <label className="text-[10px] font-bold uppercase tracking-wider opacity-60">Opacity</label>
+                            <span className="text-[11px] font-bold text-blue-500">{opacityValue}%</span>
+                        </div>
                         <input
                             type="range"
                             min={10}
                             max={100}
                             value={opacityValue}
                             onChange={(e) => applyToSelectedShapes({opacity: Number(e.target.value)})}
-                            className="w-full"
+                            className="w-full accent-blue-600"
                         />
                     </div>
 
@@ -2910,102 +2962,92 @@ export default function CanvasPage() {
                         <button
                             type="button"
                             onClick={handleReplaySelected}
-                            className={`w-full rounded-lg border px-3 py-2 text-sm font-medium transition ${
+                            className={`w-full rounded-2xl border px-3 py-3 text-xs font-bold transition-all hover:scale-[1.02] active:scale-[0.98] ${
                                 isDark
-                                    ? "border-emerald-300/30 bg-emerald-500/15 text-emerald-200 hover:bg-emerald-500/25"
-                                    : "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                                    ? "border-emerald-500/30 bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30"
+                                    : "border-emerald-100 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 shadow-sm shadow-emerald-500/5"
                             }`}
                         >
                             Replay Stroke
                         </button>
                     )}
-                </aside>
-            )}
-            <div
-                className={`absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-[28px] p-3 backdrop-blur-2xl ${topToolbarSurface}`}
-                style={{maxWidth: "calc(100vw - 2rem)"}}
-            >
-                <div className="flex flex-nowrap items-center gap-1 overflow-x-auto scrollbar-none canvas-hide-scrollbar px-1">
-                    {TOOLS.map((tool, idx) => {
-                        const isActive = activeTool === tool.id;
-                        return (
-                            <div key={tool.id} className="flex items-center">
+                    </aside>
+                    )}
+
+                    {/* Top Center: Main Toolbar */}
+                    <div
+                        className={`absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-2xl p-3 backdrop-blur-2xl transition-all duration-500 ${topToolbarSurface}`}
+                    >
+                        <div className="flex flex-nowrap items-center gap-1.5 px-1">
+                            {TOOLS.map((tool, idx) => {
+                                const isActive = activeTool === tool.id;
+                                return (
+                                    <div key={tool.id} className="flex items-center">
+                                    <button
+                                        type="button"
+                                        onClick={() => setActiveTool(tool.id)}
+                                        title={`${tool.label} (${tool.shortcut})`}
+                                        className={`group flex shrink-0 min-w-16 flex-col items-center rounded-xl border px-3 py-2.5 transition-all duration-200 ${
+                                            isActive
+                                                ? isDark
+                                                    ? "border-blue-500/50 bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.4)]"
+                                                    : "border-blue-400 bg-blue-50 text-blue-700 shadow-md shadow-blue-500/10"
+                                                : isDark
+                                                    ? "border-transparent bg-white/5 text-white/85 hover:border-white/20 hover:text-white"
+                                                    : "border-transparent bg-slate-100/50 text-slate-500 hover:bg-slate-200 hover:text-slate-900"
+                                        }`}
+                                    >
+                                        <span className={`transition-transform duration-200 ${isActive ? "scale-110" : "group-hover:scale-110"}`}>{tool.icon}</span>
+                                        <span
+                                            className={`mt-1 text-[10px] font-bold ${
+                                                isActive
+                                                    ? isDark
+                                                        ? "text-white/90"
+                                                        : "text-blue-700"
+                                                    : "opacity-40"
+                                            }`}
+                                        >
+                                            {tool.shortcut}
+                                        </span>
+                                    </button>
+                                    {idx < TOOLS.length - 1 && (
+                                        <div className={`mx-1.5 h-8 w-px opacity-10 ${isDark ? "bg-white/20" : "bg-slate-300"}`} />
+                                    )}
+                                    </div>
+                                );
+                            })}
+                            <div className={`mx-1.5 h-8 w-px opacity-10 ${isDark ? "bg-white/20" : "bg-slate-300"}`} />
                             <button
                                 type="button"
-                                onClick={() => setActiveTool(tool.id)}
-                                title={`${tool.label} (${tool.shortcut})`}
-                                className={`group flex shrink-0 min-w-16 flex-col items-center rounded-2xl border px-3 py-2 transition ${
-                                    isActive
+                                onClick={handleDeleteSelected}
+                                disabled={selectedCount === 0}
+                                title="Delete selected shapes (Delete/Backspace)"
+                                className={`group flex shrink-0 min-w-16 flex-col items-center rounded-xl border px-3 py-2.5 transition-all duration-200 ${
+                                    selectedCount > 0
                                         ? isDark
-                                            ? "border-[#8d8ac5] bg-[#8d8ac5]/20 text-white"
-                                            : "border-blue-300 bg-blue-50 text-slate-900"
+                                            ? "border-red-500/30 bg-red-600/20 text-red-300 hover:border-red-500/50 hover:bg-red-600/30"
+                                            : "border-red-300 bg-red-50 text-red-600 hover:bg-red-100 shadow-sm"
                                         : isDark
-                                            ? "border-transparent bg-[#232323] text-white/85 hover:border-white/20 hover:text-white"
-                                            : "border-transparent bg-slate-100 text-slate-700 hover:border-slate-300 hover:text-slate-900"
+                                            ? "cursor-not-allowed opacity-20 border-transparent bg-white/5"
+                                            : "cursor-not-allowed opacity-30 border-transparent bg-slate-100/50"
                                 }`}
                             >
-                                <span className="flex h-5 w-5 items-center justify-center">{tool.icon}</span>
+                                <svg viewBox="0 0 24 24" className={`h-5 w-5 transition-transform duration-200 ${selectedCount > 0 ? "group-hover:scale-110" : ""}`} fill="none" stroke="currentColor" strokeWidth="2.5">
+                                    <path d="M3 6h18" />
+                                    <path d="M8 6V4h8v2" />
+                                    <path d="M19 6l-1 14H6L5 6" />
+                                </svg>
                                 <span
-                                    className={`mt-1 text-[11px] font-medium ${
-                                        isActive
-                                            ? isDark
-                                                ? "text-white/90"
-                                                : "text-slate-700"
-                                            : isDark
-                                                ? "text-white/55"
-                                                : "text-slate-500"
+                                    className={`mt-1 text-[10px] font-bold ${
+                                        selectedCount > 0 ? "opacity-90" : "opacity-40"
                                     }`}
                                 >
-                                    {tool.shortcut}
+                                    Del
                                 </span>
                             </button>
-                            {idx < TOOLS.length - 1 && (
-                                <div className={`mx-2 h-8 w-px flex-none ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
-                            )}
-                            </div>
-                        );
-                    })}
-                    <div className={`mx-2 h-8 w-px flex-none ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
-                    <button
-                        type="button"
-                        onClick={handleDeleteSelected}
-                        disabled={selectedCount === 0}
-                        title="Delete selected shapes (Delete/Backspace)"
-                        className={`group flex shrink-0 min-w-16 flex-col items-center rounded-2xl border px-3 py-2 transition ${
-                            selectedCount > 0
-                                ? isDark
-                                    ? "border-red-300/30 bg-red-500/15 text-white hover:border-red-200/50 hover:bg-red-500/20"
-                                    : "border-red-300 bg-red-50 text-red-700 hover:bg-red-100"
-                                : isDark
-                                    ? "cursor-not-allowed border-transparent bg-[#232323] text-white/40"
-                                    : "cursor-not-allowed border-transparent bg-slate-100 text-slate-400"
-                        }`}
-                    >
-                        <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M3 6h18" />
-                            <path d="M8 6V4h8v2" />
-                            <path d="M19 6l-1 14H6L5 6" />
-                            <path d="M10 11v6" />
-                            <path d="M14 11v6" />
-                        </svg>
-                        <span
-                            className={`mt-1 text-[11px] font-medium ${
-                                selectedCount > 0
-                                    ? isDark
-                                        ? "text-white/80"
-                                        : "text-red-700"
-                                    : isDark
-                                        ? "text-white/35"
-                                        : "text-slate-400"
-                            }`}
-                        >
-                            Del
-                        </span>
-                    </button>
 
-                </div>
-            </div>
-
+                        </div>
+                    </div>
             <CanvasMessenger
                 currentUserId={syncResult.currentUserId}
                 roomKey={roomId ?? null}

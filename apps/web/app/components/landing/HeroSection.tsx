@@ -31,13 +31,13 @@ export function HeroSection() {
           transition={{ duration: 0.8, ease: "easeOut" }}
         >
           <motion.div
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gray-900/10 dark:bg-white/5 border border-gray-300 dark:border-white/10 mb-8"
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-indigo-500/10 dark:bg-white/5 border border-indigo-200/50 dark:border-white/10 mb-8 shadow-sm"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.2 }}
           >
             <Sparkles className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
-            <span className="text-sm text-gray-700 dark:text-white/70">AI-Powered Infinite Canvas</span>
+            <span className="text-sm font-medium text-indigo-800 dark:text-white/70">AI-Powered Infinite Canvas</span>
           </motion.div>
 
           <h1 className="text-6xl md:text-8xl font-bold mb-6 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-600 dark:from-white dark:via-white dark:to-white/60 bg-clip-text text-transparent">
@@ -96,7 +96,7 @@ export function HeroSection() {
             >
               <Link
                 href="/signup"
-                className="inline-flex items-center gap-2 px-8 py-4 bg-white/80 dark:bg-white/5 backdrop-blur-sm border border-gray-200 dark:border-white/10 rounded-full text-gray-900 dark:text-white font-semibold text-lg hover:bg-white dark:hover:bg-white/10 transition-colors"
+                className="inline-flex items-center gap-2 px-8 py-4 bg-white/90 dark:bg-white/5 backdrop-blur-md border border-slate-200/60 dark:border-white/10 rounded-full text-gray-900 dark:text-white font-semibold text-lg hover:bg-white hover:border-slate-300 shadow-sm dark:hover:bg-white/10 transition-all"
               >
                 <Play className="w-5 h-5" />
                 Sign Up Free

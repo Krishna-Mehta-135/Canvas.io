@@ -257,25 +257,26 @@ export default function RoomsPage() {
     };
 
     return (
-        <main className={`min-h-screen px-5 py-8 sm:px-8 sm:py-10 ${isDark ? "bg-[#121212] text-white" : "bg-[#f2f5fa] text-slate-900"}`}>
+        <main className={`min-h-screen px-5 py-8 sm:px-8 sm:py-12 ${isDark ? "bg-[#0a0a0a] text-white" : "bg-[#f8faff] text-slate-900"}`}>
             <section className="mx-auto w-full max-w-5xl">
-                <div className={`rounded-3xl border p-6 sm:p-8 ${isDark ? "border-white/10 bg-[#191919]/95" : "border-slate-300/90 bg-slate-50/95"}`}>
-                    <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+                <div className={`rounded-[32px] border p-6 sm:p-10 shadow-2xl ${isDark ? "border-white/10 bg-[#111111]/95" : "border-slate-200/60 bg-white/90 backdrop-blur-xl shadow-slate-200/40"}`}>
+                    <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
                         <div>
-                            <h1 className="text-2xl font-semibold tracking-tight">Your Canvases</h1>
-                            <p className="mt-1 text-sm opacity-80">Create, rename, and switch between rooms.</p>
+                            <h1 className="text-3xl font-bold tracking-tight">Your Canvases</h1>
+                            <p className="mt-1.5 text-sm opacity-70">Manage your creative workspaces and collaborations.</p>
                             {user && (
-                                <p className="mt-2 text-xs opacity-70">
-                                    Signed in as {user.name} ({user.handle ?? "no-handle"})
+                                <p className="mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-medium opacity-80 shadow-sm transition hover:opacity-100 dark:border-white/10 dark:bg-white/5 dark:text-blue-200 border-slate-200 bg-slate-50 text-blue-700">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                                    {user.name} ({user.handle ?? user.email})
                                 </p>
                             )}
                         </div>
 
-                        <div className="flex gap-2">
+                        <div className="flex gap-3">
                             <button
                                 type="button"
                                 onClick={() => router.push("/profile")}
-                                className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${isDark ? "border-white/20 hover:bg-white/10" : "border-slate-300 bg-white/70 hover:bg-white"}`}
+                                className={`rounded-xl border px-5 py-2.5 text-sm font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] ${isDark ? "border-white/20 bg-white/5 hover:bg-white/10" : "border-slate-200 bg-white shadow-sm hover:border-slate-300 hover:bg-slate-50"}`}
                             >
                                 Profile
                             </button>
@@ -283,51 +284,54 @@ export default function RoomsPage() {
                                 type="button"
                                 onClick={() => void handleLogout()}
                                 disabled={isLoggingOut}
-                                className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${isDark ? "border-red-300/30 bg-red-500/10 text-red-100 hover:bg-red-500/20" : "border-red-300 bg-red-50 text-red-800 hover:bg-red-100"}`}
+                                className={`rounded-xl border px-5 py-2.5 text-sm font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] ${isDark ? "border-red-500/30 bg-red-500/10 text-red-100 hover:bg-red-500/20" : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"}`}
                             >
                                 {isLoggingOut ? "Signing out..." : "Sign out"}
                             </button>
                         </div>
                     </div>
 
-                    <form onSubmit={handleCreateRoom} className="mb-6 grid gap-3 sm:grid-cols-[1fr_auto]">
+                    <form onSubmit={handleCreateRoom} className="mb-10 grid gap-3 sm:grid-cols-[1fr_auto]">
                         <input
                             value={newRoomSlug}
                             onChange={(event) => setNewRoomSlug(event.target.value)}
-                            placeholder="new-canvas-slug"
-                            className={`w-full rounded-xl border px-3 py-2 text-sm outline-none transition ${isDark ? "border-white/15 bg-[#171717] text-white placeholder:text-white/40 focus:border-cyan-300/40" : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-cyan-400"}`}
+                            placeholder="Enter a new canvas slug..."
+                            className={`w-full rounded-2xl border px-5 py-3.5 text-sm outline-none transition-all ${isDark ? "border-white/10 bg-[#171717] text-white placeholder:text-white/30 focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10" : "border-slate-200 bg-white text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-400/10"}`}
                         />
                         <button
                             type="submit"
                             disabled={creatingRoom}
-                            className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${isDark ? "border-cyan-300/30 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/20" : "border-cyan-300 bg-cyan-50 text-cyan-800 hover:bg-cyan-100"}`}
+                            className={`rounded-2xl border px-6 py-3.5 text-sm font-bold transition-all hover:scale-[1.02] active:scale-[0.98] ${isDark ? "border-blue-500/50 bg-blue-600 text-white hover:bg-blue-500" : "border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-200/50 hover:bg-blue-700"}`}
                         >
-                            {creatingRoom ? "Creating..." : "Create canvas"}
+                            {creatingRoom ? "Creating..." : "Create new canvas"}
                         </button>
                     </form>
 
-                    {error && <p className={`mb-4 text-sm ${isDark ? "text-red-300" : "text-red-700"}`}>{error}</p>}
+                    {error && <p className={`mb-6 rounded-xl border px-4 py-3 text-sm font-medium ${isDark ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-red-200 bg-red-50 text-red-700"}`}>{error}</p>}
 
-                    <div className={`mb-6 rounded-xl border p-3 ${isDark ? "border-white/10 bg-black/15" : "border-slate-200 bg-white"}`}>
-                        <div className="mb-2 flex items-center justify-between">
-                            <h2 className="text-sm font-semibold">Incoming access requests</h2>
-                            <span className="text-xs opacity-70">{incomingRequests.length} pending</span>
+                    <div className={`mb-10 rounded-2xl border p-5 ${isDark ? "border-white/10 bg-black/20" : "border-slate-100 bg-slate-50/50"}`}>
+                        <div className="mb-4 flex items-center justify-between">
+                            <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">Incoming access requests</h2>
+                            <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${incomingRequests.length > 0 ? "bg-red-500 text-white" : "bg-slate-200 text-slate-600 dark:bg-white/10 dark:text-white/60"}`}>
+                                {incomingRequests.length}
+                            </span>
                         </div>
                         {incomingRequests.length === 0 ? (
-                            <p className="text-xs opacity-70">No pending requests.</p>
+                            <p className="text-xs italic opacity-60">No pending requests at the moment.</p>
                         ) : (
-                            <div className="space-y-2">
+                            <div className="space-y-3">
                                 {incomingRequests.map((request) => (
-                                    <div key={request.id} className={`rounded-lg border p-2 ${isDark ? "border-white/10" : "border-slate-200"}`}>
-                                        <div className="text-xs opacity-80">
-                                            {request.requester.name} ({request.requester.handle ?? request.requester.email}) requested /{request.room.slug}
+                                    <div key={request.id} className={`flex items-center justify-between rounded-xl border p-4 shadow-sm ${isDark ? "border-white/5 bg-white/5" : "border-white bg-white"}`}>
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-bold truncate">{request.requester.name}</p>
+                                            <p className="text-[11px] opacity-60 truncate">requested access to <span className="font-semibold text-blue-500">/{request.room.slug}</span></p>
                                         </div>
-                                        <div className="mt-2 flex gap-2">
+                                        <div className="flex gap-2 shrink-0">
                                             <button
                                                 type="button"
                                                 disabled={requestActionInFlightId === request.id}
                                                 onClick={() => void handleRequestDecision(request.id, "approve")}
-                                                className={`rounded-md border px-2 py-1 text-xs font-medium ${isDark ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100" : "border-emerald-300 bg-emerald-50 text-emerald-800"}`}
+                                                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition hover:scale-105 active:scale-95 ${isDark ? "bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30" : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"}`}
                                             >
                                                 Approve
                                             </button>
@@ -335,7 +339,7 @@ export default function RoomsPage() {
                                                 type="button"
                                                 disabled={requestActionInFlightId === request.id}
                                                 onClick={() => void handleRequestDecision(request.id, "reject")}
-                                                className={`rounded-md border px-2 py-1 text-xs font-medium ${isDark ? "border-red-300/30 bg-red-500/10 text-red-100" : "border-red-300 bg-red-50 text-red-800"}`}
+                                                className={`rounded-lg px-3 py-1.5 text-xs font-bold transition hover:scale-105 active:scale-95 ${isDark ? "bg-red-500/20 text-red-300 hover:bg-red-500/30" : "bg-red-50 text-red-700 hover:bg-red-100"}`}
                                             >
                                                 Reject
                                             </button>
@@ -346,68 +350,91 @@ export default function RoomsPage() {
                         )}
                     </div>
 
+                    <div className="space-y-1 mb-4">
+                        <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">Your Canvases</h2>
+                    </div>
+
                     {loading ? (
-                        <p className="text-sm opacity-70">Loading rooms...</p>
+                        <div className="flex flex-col items-center justify-center py-20 opacity-40">
+                            <div className="h-8 w-8 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                            <p className="mt-4 text-sm font-medium">Loading your workspaces...</p>
+                        </div>
                     ) : sortedRooms.length === 0 ? (
-                        <p className="text-sm opacity-70">No canvases yet. Create one to get started.</p>
+                        <div className={`rounded-3xl border border-dashed p-16 text-center ${isDark ? "border-white/10" : "border-slate-200"}`}>
+                            <p className="text-sm font-medium opacity-60">No canvases yet. Create your first one above!</p>
+                        </div>
                     ) : (
-                        <div className="space-y-3">
+                        <div className="grid gap-4 sm:grid-cols-2">
                             {sortedRooms.map((room) => {
                                 const isEditing = renamingRoomId === room.id;
 
                                 return (
-                                    <div key={room.id} className={`rounded-xl border p-3 ${isDark ? "border-white/10 bg-black/15" : "border-slate-200 bg-white"}`}>
-                                        <div className="flex flex-wrap items-center justify-between gap-3">
-                                            <div>
-                                                <p className="text-sm font-semibold">/{room.slug}</p>
-                                                <p className="text-xs opacity-70">Created: {formatDate(room.createdAt)}</p>
+                                    <div key={room.id} className={`group flex flex-col rounded-2xl border p-5 transition-all hover:shadow-xl ${isDark ? "border-white/5 bg-white/5 hover:border-white/20" : "border-slate-100 bg-white hover:border-blue-200 hover:shadow-blue-500/5"}`}>
+                                        <div className="mb-4 flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <h3 className="truncate text-lg font-bold">/{room.slug}</h3>
+                                                <p className="text-[11px] font-medium opacity-50 uppercase tracking-tighter">Created {formatDate(room.createdAt).split(",")[0]}</p>
                                             </div>
-                                            <div className="flex flex-wrap gap-2">
-                                                <a
-                                                    href={room.canonicalPath}
-                                                    className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isDark ? "border-cyan-300/30 bg-cyan-400/10 text-cyan-100 hover:bg-cyan-400/20" : "border-cyan-300 bg-cyan-50 text-cyan-800 hover:bg-cyan-100"}`}
-                                                >
-                                                    Open
-                                                </a>
+                                            <div className="flex gap-1.5">
                                                 {!isEditing ? (
                                                     <button
                                                         type="button"
                                                         onClick={() => handleStartRename(room)}
-                                                        className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isDark ? "border-white/15 hover:bg-white/10" : "border-slate-300 hover:bg-slate-100"}`}
+                                                        className={`rounded-lg p-2 transition hover:bg-slate-100 dark:hover:bg-white/10`}
+                                                        title="Rename"
                                                     >
-                                                        Rename
+                                                        <svg viewBox="0 0 24 24" className="h-4 w-4 opacity-60" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                                            <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+                                                            <path d="M18.5 2.5a2.121 2.121 0 113 3L12 15l-4 1 1-4 9.5-9.5z" />
+                                                        </svg>
                                                     </button>
                                                 ) : (
-                                                    <>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => void handleSaveRename(room.id)}
-                                                            disabled={savingRename}
-                                                            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isDark ? "border-emerald-300/30 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/20" : "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"}`}
-                                                        >
-                                                            {savingRename ? "Saving..." : "Save"}
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={handleCancelRename}
-                                                            className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${isDark ? "border-white/15 hover:bg-white/10" : "border-slate-300 hover:bg-slate-100"}`}
-                                                        >
-                                                            Cancel
-                                                        </button>
-                                                    </>
+                                                    <button
+                                                        type="button"
+                                                        onClick={handleCancelRename}
+                                                        className={`rounded-lg p-2 transition hover:bg-slate-100 dark:hover:bg-white/10`}
+                                                        title="Cancel"
+                                                    >
+                                                        <svg viewBox="0 0 24 24" className="h-4 w-4 opacity-60" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                                            <path d="M6 18L18 6M6 6l12 12" />
+                                                        </svg>
+                                                    </button>
                                                 )}
                                             </div>
                                         </div>
 
-                                        {isEditing && (
-                                            <div className="mt-3">
+                                        {isEditing ? (
+                                            <div className="mb-4 flex gap-2">
                                                 <input
                                                     value={renameDraft}
                                                     onChange={(event) => setRenameDraft(event.target.value)}
-                                                    className={`w-full rounded-lg border px-3 py-2 text-sm outline-none transition ${isDark ? "border-white/15 bg-[#171717] text-white placeholder:text-white/40 focus:border-cyan-300/40" : "border-slate-300 bg-white text-slate-900 placeholder:text-slate-400 focus:border-cyan-400"}`}
+                                                    autoFocus
+                                                    className={`w-full rounded-xl border px-3 py-2 text-sm outline-none transition ${isDark ? "border-white/20 bg-black/40" : "border-slate-200 bg-slate-50 focus:border-blue-400"}`}
                                                 />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => void handleSaveRename(room.id)}
+                                                    disabled={savingRename}
+                                                    className="rounded-xl bg-blue-600 px-3 text-xs font-bold text-white hover:bg-blue-500"
+                                                >
+                                                    Save
+                                                </button>
                                             </div>
+                                        ) : (
+                                            <div className="mb-6 h-4" />
                                         )}
+
+                                        <div className="mt-auto flex items-center justify-between">
+                                            <a
+                                                href={room.canonicalPath}
+                                                className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-bold transition-all hover:scale-105 active:scale-95 ${isDark ? "border-blue-500/50 bg-blue-600/10 text-blue-400 hover:bg-blue-600/20" : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"}`}
+                                            >
+                                                Open Workspace
+                                                <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3">
+                                                    <path d="M5 12h14M12 5l7 7-7 7" />
+                                                </svg>
+                                            </a>
+                                        </div>
                                     </div>
                                 );
                             })}

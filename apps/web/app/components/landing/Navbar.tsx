@@ -2,15 +2,22 @@
 
 import { motion, AnimatePresence } from "motion/react";
 import { useState, useEffect } from "react";
-import { Menu, X, Pencil, Sun, Moon } from "lucide-react";
+import { Menu, X, Sun, Moon, LayoutGrid } from "lucide-react";
 import { useTheme } from "../ThemeProvider";
 import Link from "next/link";
+
+export function LogoIcon() {
+  return (
+    <div className="w-8 h-8 bg-indigo-600 rounded-[10px] flex items-center justify-center shadow-sm">
+      <LayoutGrid className="w-5 h-5 text-white" />
+    </div>
+  );
+}
 
 export function Navbar() {
   const { theme, toggleTheme } = useTheme();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const [ripple, setRipple] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -18,165 +25,159 @@ export function Navbar() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  const handleToggle = () => {
-    setRipple(true);
-    toggleTheme();
-    setTimeout(() => setRipple(false), 700);
-  };
-
   return (
-    <>
-      {/* Ripple flash overlay on theme change */}
-      <AnimatePresence>
-        {ripple && (
-          <motion.div
-            key="ripple"
-            className="fixed inset-0 z-[200] pointer-events-none"
-            style={{
-              background: theme === "dark"
-                ? "radial-gradient(circle at top right, rgba(255,255,255,0.15) 0%, transparent 70%)"
-                : "radial-gradient(circle at top right, rgba(0,0,0,0.12) 0%, transparent 70%)",
-            }}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-          />
-        )}
-      </AnimatePresence>
-
-      <motion.header
-        className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-          scrolled
-            ? "bg-white/80 dark:bg-black/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-white/10 shadow-sm"
-            : "bg-transparent"
-        }`}
-        initial={{ y: -80, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5, ease: "easeOut" }}
-      >
-        <nav className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-          {/* Logo */}
-          <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}>
-            <Link href="/" className="flex items-center gap-2.5">
-              <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center shadow-lg">
-                <Pencil className="w-4 h-4 text-white" />
-              </div>
-              <span className="text-lg font-bold text-gray-900 dark:text-white tracking-tight">
-                Canvas<span className="text-indigo-500">.io</span>
+    <motion.header
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+        scrolled
+          ? "bg-white/90 dark:bg-[#0a0f1a]/90 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800/80 shadow-sm"
+          : "bg-transparent"
+      }`}
+      initial={{ y: -80, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      transition={{ duration: 0.5, ease: "easeOut" }}
+    >
+      <nav className="max-w-7xl mx-auto px-6 h-28 flex items-center justify-between gap-4">
+        
+        {/* Left: Logo */}
+        <div className="flex-shrink-0">
+          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="inline-block">
+            <Link href="/" className="flex items-center gap-3">
+              <LogoIcon />
+              <span className="text-[32px] font-black text-slate-900 dark:text-white tracking-tighter">
+                Canvas.
               </span>
             </Link>
           </motion.div>
+        </div>
 
-          {/* Desktop nav */}
-          <div className="hidden md:flex items-center gap-8 text-sm font-medium text-gray-600 dark:text-white/60">
-            {["Features", "Pricing", "Docs", "Blog"].map((item) => (
-              <motion.a
-                key={item}
-                href="#"
-                className="hover:text-gray-900 dark:hover:text-white transition-colors"
-                whileHover={{ y: -1 }}
-              >
-                {item}
-              </motion.a>
-            ))}
-          </div>
-
-          {/* Right side actions */}
-          <div className="flex items-center gap-3">
-            {/* Theme toggle */}
-            <motion.button
-              onClick={handleToggle}
-              className="relative p-2.5 rounded-full bg-gray-100 dark:bg-white/10 border border-gray-200 dark:border-white/10 text-gray-600 dark:text-white/70 hover:text-gray-900 dark:hover:text-white transition-colors overflow-hidden"
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.92 }}
-              aria-label="Toggle theme"
+        {/* Center: Desktop Nav */}
+        <div className="hidden md:flex items-center justify-center gap-2 bg-slate-100/50 dark:bg-slate-800/30 border border-slate-200/60 dark:border-slate-700/50 backdrop-blur-md rounded-full px-3 py-2 shadow-sm">
+          {[
+            { label: "How it works", href: "#how-it-works" },
+            { label: "Features", href: "#features" },
+            { label: "Try it out", href: "#demo" },
+          ].map((item) => (
+            <a
+              key={item.label}
+              href={item.href}
+              onClick={(e) => {
+                e.preventDefault();
+                document.querySelector(item.href)?.scrollIntoView({ behavior: 'smooth' });
+              }}
+              className="px-6 py-2.5 text-[16px] font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700/50 rounded-full transition-all"
             >
-              <AnimatePresence mode="wait">
-                {theme === "dark" ? (
-                  <motion.div
-                    key="moon"
-                    initial={{ opacity: 0, rotate: -90, scale: 0.5 }}
-                    animate={{ opacity: 1, rotate: 0, scale: 1 }}
-                    exit={{ opacity: 0, rotate: 90, scale: 0.5 }}
-                    transition={{ duration: 0.25 }}
-                  >
-                    <Moon className="w-4 h-4" />
-                  </motion.div>
-                ) : (
-                  <motion.div
-                    key="sun"
-                    initial={{ opacity: 0, rotate: 90, scale: 0.5 }}
-                    animate={{ opacity: 1, rotate: 0, scale: 1 }}
-                    exit={{ opacity: 0, rotate: -90, scale: 0.5 }}
-                    transition={{ duration: 0.25 }}
-                  >
-                    <Sun className="w-4 h-4" />
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </motion.button>
+              {item.label}
+            </a>
+          ))}
+        </div>
 
-            {/* Sign In */}
-            <motion.div whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} className="hidden md:block">
-              <Link
-                href="/signin"
-                className="px-4 py-2 text-sm font-semibold text-gray-700 dark:text-white/70 hover:text-gray-900 dark:hover:text-white transition-colors"
-              >
-                Sign in
-              </Link>
-            </motion.div>
+        {/* Right: Actions */}
+        <div className="flex-shrink-0 flex items-center justify-end gap-3 h-full">
+          {/* Theme toggle */}
+          <motion.button
+            onClick={toggleTheme}
+            className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            aria-label="Toggle theme"
+          >
+            <AnimatePresence mode="wait">
+              {theme === "dark" ? (
+                <motion.div
+                  key="moon"
+                  initial={{ opacity: 0, rotate: -90, scale: 0.5 }}
+                  animate={{ opacity: 1, rotate: 0, scale: 1 }}
+                  exit={{ opacity: 0, rotate: 90, scale: 0.5 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <Moon className="w-4 h-4" />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="sun"
+                  initial={{ opacity: 0, rotate: 90, scale: 0.5 }}
+                  animate={{ opacity: 1, rotate: 0, scale: 1 }}
+                  exit={{ opacity: 0, rotate: -90, scale: 0.5 }}
+                  transition={{ duration: 0.2 }}
+                >
+                  <Sun className="w-4 h-4" />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.button>
 
-            {/* Get Started */}
-            <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }} className="hidden md:block">
-              <Link
-                href="/signup"
-                className="px-5 py-2 bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-semibold rounded-full shadow-md hover:shadow-indigo-500/30 transition-shadow"
-              >
-                Get Started
-              </Link>
-            </motion.div>
-
-            {/* Mobile hamburger */}
-            <motion.button
-              className="md:hidden p-2 text-gray-700 dark:text-white/70"
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-              whileTap={{ scale: 0.9 }}
+          {/* Sign In */}
+          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="hidden md:flex items-center">
+            <Link
+              href="/signin"
+              className="px-4 py-2.5 text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors whitespace-nowrap"
             >
-              {isMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </motion.button>
-          </div>
-        </nav>
+              Sign In
+            </Link>
+          </motion.div>
 
-        {/* Mobile menu */}
-        <AnimatePresence>
-          {isMenuOpen && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.25 }}
-              className="md:hidden overflow-hidden bg-white/95 dark:bg-black/95 backdrop-blur-xl border-t border-gray-200 dark:border-white/10"
+          {/* Get Started */}
+          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="hidden md:flex items-center">
+            <Link
+              href="/signup"
+              className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-xl shadow-md shadow-indigo-500/20 transition-colors whitespace-nowrap"
             >
-              <div className="px-6 py-4 flex flex-col gap-4">
-                {["Features", "Pricing", "Docs", "Blog"].map((item) => (
-                  <a key={item} href="#" className="text-gray-700 dark:text-white/70 font-medium py-1">
-                    {item}
-                  </a>
-                ))}
-                <div className="border-t border-gray-200 dark:border-white/10 pt-4 flex flex-col gap-3">
-                  <Link href="/signin" className="text-center py-2.5 border border-gray-300 dark:border-white/20 rounded-xl text-gray-800 dark:text-white font-semibold">
-                    Sign in
-                  </Link>
-                  <Link href="/signup" className="text-center py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-semibold">
-                    Get Started Free
-                  </Link>
-                </div>
+              Sign Up
+            </Link>
+          </motion.div>
+
+          {/* Mobile hamburger */}
+          <motion.button
+            className="md:hidden p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            whileTap={{ scale: 0.9 }}
+          >
+            {isMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </motion.button>
+        </div>
+      </nav>
+
+      {/* Mobile menu */}
+      <AnimatePresence>
+        {isMenuOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="md:hidden overflow-hidden bg-white/95 dark:bg-[#0a0f1a]/95 backdrop-blur-xl border-t border-slate-200 dark:border-slate-800"
+          >
+            <div className="px-6 py-6 flex flex-col gap-6">
+              {[
+                { label: "How it works", href: "#how-it-works" },
+                { label: "Features", href: "#features" },
+                { label: "Try it out", href: "#demo" },
+              ].map((item) => (
+                <a
+                  key={item.label}
+                  href={item.href}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setIsMenuOpen(false);
+                    document.querySelector(item.href)?.scrollIntoView({ behavior: 'smooth' });
+                  }}
+                  className="text-slate-700 dark:text-slate-300 font-bold text-lg"
+                >
+                  {item.label}
+                </a>
+              ))}
+              <div className="border-t border-slate-200 dark:border-slate-800 pt-6 flex flex-col gap-4">
+                <Link href="/signin" className="text-center py-3 border-2 border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-white font-bold">
+                  Sign In
+                </Link>
+                <Link href="/signup" className="text-center py-3 bg-indigo-600 text-white rounded-xl font-bold">
+                  Sign Up Free
+                </Link>
               </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </motion.header>
-    </>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.header>
   );
 }

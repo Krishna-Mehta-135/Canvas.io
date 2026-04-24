@@ -2,66 +2,80 @@
 
 import { motion, useInView } from "motion/react";
 import { useRef } from "react";
-import { Infinity as InfinityIcon, Users, Sparkles, Lock, Share2, Zap } from "lucide-react";
+import { Layers, Users, Zap, Lock, Share2, Cpu } from "lucide-react";
 
 const features = [
   {
-    icon: InfinityIcon,
-    title: "Infinite Canvas",
-    description: "Never run out of space. Zoom, pan, and create without limits.",
-    color: "from-blue-400 to-cyan-400",
+    icon: Layers,
+    title: "Structural Canvas",
+    description: "Built for architecture. Not just drawing, but organizing complex systems logically.",
+    color: "text-blue-600 dark:text-blue-400",
+    bg: "bg-blue-50 dark:bg-blue-900/20",
+    border: "border-blue-200 dark:border-blue-900/50",
   },
   {
     icon: Users,
-    title: "Real-time Collaboration",
-    description: "See cursors, edits, and ideas appear instantly across your team.",
-    color: "from-purple-400 to-pink-400",
+    title: "Multiplayer Engine",
+    description: "Low-latency WebSockets ensure everyone's cursor and edits are synced sub-50ms.",
+    color: "text-indigo-600 dark:text-indigo-400",
+    bg: "bg-indigo-50 dark:bg-indigo-900/20",
+    border: "border-indigo-200 dark:border-indigo-900/50",
   },
   {
-    icon: Sparkles,
-    title: "AI Drawing Assistant",
-    description: "Transform text prompts into diagrams, flows, and visual concepts.",
-    color: "from-indigo-400 to-purple-400",
+    icon: Cpu,
+    title: "AI Co-pilot",
+    description: "Generate entire diagrams from structural prompts. Turn ideas into raw geometry.",
+    color: "text-emerald-600 dark:text-emerald-400",
+    bg: "bg-emerald-50 dark:bg-emerald-900/20",
+    border: "border-emerald-200 dark:border-emerald-900/50",
   },
   {
     icon: Zap,
-    title: "Persistent Workspaces",
-    description: "Auto-save everything. Pick up exactly where you left off.",
-    color: "from-yellow-400 to-orange-400",
+    title: "Instant Persistence",
+    description: "Durable queue-based persistence. Never lose a stroke, even on network drop.",
+    color: "text-amber-600 dark:text-amber-400",
+    bg: "bg-amber-50 dark:bg-amber-900/20",
+    border: "border-amber-200 dark:border-amber-900/50",
   },
   {
     icon: Lock,
-    title: "Secure Sharing",
-    description: "Control who sees what with granular permissions and access links.",
-    color: "from-green-400 to-emerald-400",
+    title: "Enterprise Auth",
+    description: "Strict room permissions. Invite-only access with role-based visibility controls.",
+    color: "text-rose-600 dark:text-rose-400",
+    bg: "bg-rose-50 dark:bg-rose-900/20",
+    border: "border-rose-200 dark:border-rose-900/50",
   },
   {
     icon: Share2,
-    title: "Export Anywhere",
-    description: "Download as PNG, SVG, or share live links with stakeholders.",
-    color: "from-rose-400 to-pink-400",
+    title: "Vector Export",
+    description: "Export perfect SVGs and PDFs for documentation. No pixelated artifacts.",
+    color: "text-purple-600 dark:text-purple-400",
+    bg: "bg-purple-50 dark:bg-purple-900/20",
+    border: "border-purple-200 dark:border-purple-900/50",
   },
 ];
 
 export function FeaturesSection() {
   const ref = useRef(null);
-  const isInView = useInView(ref, { once: true, amount: 0.2 });
+  const isInView = useInView(ref, { once: true, amount: 0.1 });
 
   return (
-    <section ref={ref} className="py-32 px-6 relative">
-      <div className="max-w-7xl mx-auto">
+    <section id="features" ref={ref} className="py-24 px-6 relative bg-slate-50/50 dark:bg-[#0a0f1a]">
+      <div className="max-w-6xl mx-auto">
         <motion.div
-          initial={{ opacity: 0, y: 40 }}
+          initial={{ opacity: 0, y: 20 }}
           animate={isInView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.7 }}
-          className="text-center mb-20"
+          transition={{ duration: 0.6 }}
+          className="mb-16 md:flex md:items-end md:justify-between"
         >
-          <h2 className="text-5xl md:text-6xl font-bold mb-6 bg-gradient-to-br from-gray-900 to-gray-600 dark:from-white dark:to-white/60 bg-clip-text text-transparent">
-            Built for modern teams
-          </h2>
-          <p className="text-xl text-gray-600 dark:text-white/60 max-w-2xl mx-auto">
-            Everything you need to think visually and collaborate seamlessly
-          </p>
+          <div className="max-w-2xl">
+            <h2 className="text-4xl md:text-5xl font-black text-slate-900 dark:text-white mb-6 tracking-tight">
+              Tools that don't get in the way.
+            </h2>
+            <p className="text-lg font-medium text-slate-600 dark:text-slate-400">
+              We stripped away the clutter. What's left is a fast, reliable engine for visual thought.
+            </p>
+          </div>
         </motion.div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -92,45 +106,23 @@ function FeatureCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 30 }}
+      initial={{ opacity: 0, y: 20 }}
       animate={isInView ? { opacity: 1, y: 0 } : {}}
       transition={{ duration: 0.5, delay: index * 0.1 }}
-      whileHover={{ scale: 1.02, y: -4 }}
-      className="group relative"
+      whileHover={{ y: -5 }}
+      className="group"
     >
-      <div className="relative h-full bg-white/80 dark:bg-white/[0.03] backdrop-blur-sm border border-gray-200 dark:border-white/10 rounded-2xl p-8 overflow-hidden transition-all duration-300">
-        {/* Hover glow effect */}
-        <motion.div
-          className={`absolute inset-0 bg-gradient-to-br ${feature.color} opacity-0 group-hover:opacity-10 blur-2xl transition-opacity duration-500`}
-        />
-
-        {/* Border glow on hover */}
-        <motion.div
-          className={`absolute inset-0 border-2 border-transparent bg-gradient-to-br ${feature.color} opacity-0 group-hover:opacity-20 rounded-2xl`}
-          style={{ mask: "linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)" }}
-        />
-
-        <div className="relative z-10">
-          {/* Icon */}
-          <motion.div
-            className={`inline-flex p-3 rounded-xl bg-gradient-to-br ${feature.color} mb-6`}
-            whileHover={{ rotate: [0, -10, 10, -10, 0], scale: 1.1 }}
-            transition={{ duration: 0.5 }}
-          >
-            <Icon className="w-6 h-6 text-white" />
-          </motion.div>
-
-          {/* Content */}
-          <h3 className="text-2xl font-semibold mb-3 text-gray-900 dark:text-white group-hover:text-gray-800 dark:group-hover:text-white/90 transition-colors">
-            {feature.title}
-          </h3>
-          <p className="text-gray-600 dark:text-white/60 leading-relaxed">{feature.description}</p>
+      <div className="h-full bg-white dark:bg-[#101726] border border-slate-200 dark:border-slate-800 rounded-xl p-8 transition-shadow hover:shadow-xl hover:shadow-slate-200/50 dark:hover:shadow-black/50">
+        <div className={`inline-flex p-3 rounded-lg border ${feature.bg} ${feature.border} mb-6 transition-transform group-hover:scale-110`}>
+          <Icon className={`w-6 h-6 ${feature.color}`} />
         </div>
 
-        {/* Decorative corner accent */}
-        <motion.div
-          className={`absolute -bottom-2 -right-2 w-24 h-24 bg-gradient-to-br ${feature.color} opacity-0 group-hover:opacity-10 rounded-full blur-2xl transition-opacity duration-500`}
-        />
+        <h3 className="text-xl font-bold mb-3 text-slate-900 dark:text-white">
+          {feature.title}
+        </h3>
+        <p className="text-slate-600 dark:text-slate-400 font-medium leading-relaxed">
+          {feature.description}
+        </p>
       </div>
     </motion.div>
   );

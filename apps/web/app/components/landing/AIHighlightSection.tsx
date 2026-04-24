@@ -2,7 +2,7 @@
 
 import { motion, useInView } from "motion/react";
 import { useRef, useState, useEffect } from "react";
-import { Sparkles, ArrowRight } from "lucide-react";
+import { Sparkles, ArrowRight, Database, Server, User, Box } from "lucide-react";
 
 export function AIHighlightSection() {
   const ref = useRef(null);
@@ -29,63 +29,65 @@ export function AIHighlightSection() {
   }, [isInView]);
 
   return (
-    <section ref={ref} className="py-32 px-6 relative overflow-hidden">
-      {/* Background accent */}
-      <motion.div
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-to-r from-indigo-400/15 via-purple-400/15 to-pink-400/15 dark:from-indigo-500/20 dark:via-purple-500/20 dark:to-pink-500/20 rounded-full blur-[120px]"
-        animate={{ scale: [1, 1.2, 1], rotate: [0, 90, 0] }}
-        transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-      />
+    <section ref={ref} className="py-24 px-6 relative overflow-hidden bg-white dark:bg-[#070b14]">
+      {/* Structural Background Pattern */}
+      <div className="absolute inset-0 z-0 bg-[linear-gradient(rgba(0,0,0,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.03)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:32px_32px]" />
 
       <div className="max-w-6xl mx-auto relative z-10">
         <motion.div
-          initial={{ opacity: 0, y: 40 }}
+          initial={{ opacity: 0, y: 30 }}
           animate={isInView ? { opacity: 1, y: 0 } : {}}
-          transition={{ duration: 0.7 }}
+          transition={{ duration: 0.6 }}
           className="text-center mb-16"
         >
           <motion.div
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r from-indigo-500/20 to-purple-500/20 border border-indigo-400/30 dark:border-indigo-500/30 mb-6"
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 mb-6 shadow-sm"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={isInView ? { opacity: 1, scale: 1 } : {}}
             transition={{ delay: 0.2 }}
           >
-            <Sparkles className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
-            <span className="text-sm text-indigo-700 dark:text-indigo-300 font-medium">AI-Powered</span>
+            <Sparkles className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            <span className="text-[11px] uppercase tracking-widest font-bold text-indigo-900 dark:text-indigo-300">
+              AI-Powered Generation
+            </span>
           </motion.div>
 
-          <h2 className="text-5xl md:text-6xl font-bold mb-6 bg-gradient-to-br from-gray-900 to-gray-600 dark:from-white dark:to-white/60 bg-clip-text text-transparent">
+          <h2 className="text-4xl md:text-6xl font-black text-slate-900 dark:text-white mb-6 tracking-tight">
             From prompt to visual
             <br />
-            <span className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 dark:from-indigo-400 dark:via-purple-400 dark:to-pink-400 bg-clip-text text-transparent">
-              in seconds
+            <span className="text-indigo-600 dark:text-indigo-400">
+              in seconds.
             </span>
           </h2>
-          <p className="text-xl text-gray-600 dark:text-white/60 max-w-2xl mx-auto">
-            Describe what you need, and watch AI generate professional diagrams instantly
+          <p className="text-lg md:text-xl font-medium text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
+            Describe what you need, and watch our AI co-pilot construct structural, editable geometry instantly.
           </p>
         </motion.div>
 
         {/* Transformation Demo */}
-        <div className="grid md:grid-cols-2 gap-8 items-center">
+        <div className="grid lg:grid-cols-[1fr_auto_1.5fr] gap-8 items-center max-w-5xl mx-auto">
+          
           {/* Input Side */}
           <motion.div
-            initial={{ opacity: 0, x: -40 }}
+            initial={{ opacity: 0, x: -30 }}
             animate={isInView ? { opacity: 1, x: 0 } : {}}
-            transition={{ duration: 0.7, delay: 0.3 }}
-            className="relative"
+            transition={{ duration: 0.6, delay: 0.3 }}
+            className="relative w-full"
           >
-            <div className="bg-white/80 dark:bg-white/[0.03] backdrop-blur-sm border border-gray-200 dark:border-white/10 rounded-2xl p-8 shadow-xl">
-              <div className="flex items-center gap-2 mb-4 text-gray-600 dark:text-white/60 text-sm">
-                <Sparkles className="w-4 h-4" />
-                AI Prompt
+            <div className="bg-white dark:bg-[#0a0f1a] border-2 border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-xl shadow-slate-200/50 dark:shadow-black/50 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-indigo-500" />
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-widest">
+                  <Sparkles className="w-4 h-4" />
+                  Prompt
+                </div>
               </div>
-              <div className="flex items-center gap-3 bg-gray-100 dark:bg-black/40 border border-gray-200 dark:border-white/10 rounded-xl p-4">
-                <Sparkles className="w-5 h-5 text-indigo-500 dark:text-indigo-400 flex-shrink-0" />
-                <div className="flex-1 font-medium text-gray-900 dark:text-white">
+              <div className="flex items-start gap-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+                <span className="text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">{">"}</span>
+                <div className="flex-1 font-mono text-sm text-slate-800 dark:text-slate-300">
                   <span>{typedText}</span>
                   <motion.span
-                    className="inline-block w-0.5 h-5 bg-indigo-500 dark:bg-indigo-400 ml-1"
+                    className="inline-block w-1.5 h-4 bg-indigo-500 dark:bg-indigo-400 ml-1 translate-y-0.5"
                     animate={{ opacity: [1, 0, 1] }}
                     transition={{ duration: 0.8, repeat: Infinity }}
                   />
@@ -96,118 +98,100 @@ export function AIHighlightSection() {
 
           {/* Arrow */}
           <motion.div
-            className="hidden md:flex absolute left-1/2 -translate-x-1/2 z-20"
+            className="hidden lg:flex items-center justify-center"
             initial={{ opacity: 0, scale: 0 }}
             animate={showResult ? { opacity: 1, scale: 1 } : {}}
             transition={{ duration: 0.5 }}
           >
             <motion.div
-              animate={{ x: [0, 10, 0] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
+              animate={{ x: [0, 8, 0] }}
+              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
             >
-              <ArrowRight className="w-12 h-12 text-indigo-400" />
+              <ArrowRight className="w-8 h-8 text-indigo-400 dark:text-indigo-600" />
             </motion.div>
           </motion.div>
 
           {/* Output Side */}
           <motion.div
-            initial={{ opacity: 0, x: 40 }}
-            animate={showResult ? { opacity: 1, x: 0 } : { opacity: 0, x: 40 }}
-            transition={{ duration: 0.7 }}
-            className="relative"
+            initial={{ opacity: 0, x: 30 }}
+            animate={showResult ? { opacity: 1, x: 0 } : { opacity: 0, x: 30 }}
+            transition={{ duration: 0.6 }}
+            className="relative w-full"
           >
-            <div className="bg-white/80 dark:bg-white/[0.03] backdrop-blur-sm border border-gray-200 dark:border-white/10 rounded-2xl p-8 overflow-hidden shadow-xl">
-              <div className="flex items-center gap-2 mb-4 text-gray-600 dark:text-white/60 text-sm">
-                <Sparkles className="w-4 h-4 text-purple-500 dark:text-purple-400" />
-                AI generated
+            <div className="bg-white dark:bg-[#0a0f1a] border-2 border-slate-200 dark:border-slate-800 rounded-xl p-6 shadow-xl shadow-slate-200/50 dark:shadow-black/50 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1.5 bg-emerald-500" />
+              <div className="flex items-center gap-2 mb-6 text-slate-500 dark:text-slate-400 text-xs font-bold uppercase tracking-widest">
+                <Box className="w-4 h-4 text-emerald-500" />
+                Generated Output
               </div>
 
-              {/* Generated Diagram */}
-              <div className="bg-gray-100 dark:bg-black/40 rounded-xl p-6 min-h-[240px] relative overflow-hidden">
-                <svg className="w-full h-full" viewBox="0 0 400 200">
-                  {/* Client Box */}
-                  <motion.g
-                    initial={{ opacity: 0, y: 20 }}
+              {/* Structural Generated Diagram */}
+              <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-lg p-6 min-h-[240px] relative flex flex-col items-center justify-center gap-8 bg-[linear-gradient(rgba(0,0,0,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.05)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:16px_16px]">
+                
+                {/* Flow Layout */}
+                <div className="flex items-center gap-8 relative z-10 w-full justify-center">
+                  
+                  {/* Client */}
+                  <motion.div
+                    className="flex flex-col items-center gap-2"
+                    initial={{ opacity: 0, y: 10 }}
                     animate={showResult ? { opacity: 1, y: 0 } : {}}
-                    transition={{ delay: 0.2 }}
+                    transition={{ delay: 0.1 }}
                   >
-                    <rect x="20" y="80" width="80" height="40" rx="8" fill="url(#grad1)" />
-                    <text x="60" y="105" textAnchor="middle" fill="white" fontSize="12">
-                      Client
-                    </text>
-                  </motion.g>
+                    <div className="w-20 h-16 bg-blue-50/80 dark:bg-slate-800 border-2 border-blue-400 dark:border-blue-500 rounded-lg flex flex-col items-center justify-center shadow-sm">
+                      <User className="w-5 h-5 text-blue-500 mb-1" />
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400">Client</span>
+                  </motion.div>
 
-                  {/* Server Box */}
-                  <motion.g
-                    initial={{ opacity: 0, y: 20 }}
+                  {/* Arrow 1 */}
+                  <motion.div
+                    className="w-16 h-0.5 bg-slate-300 dark:bg-slate-600 relative -mt-6"
+                    initial={{ scaleX: 0 }}
+                    animate={showResult ? { scaleX: 1 } : {}}
+                    transition={{ delay: 0.3 }}
+                    style={{ originX: 0 }}
+                  >
+                    <div className="absolute right-0 -top-1 w-0 h-0 border-t-4 border-b-4 border-l-[6px] border-transparent border-l-slate-300 dark:border-l-slate-600" />
+                  </motion.div>
+
+                  {/* Server */}
+                  <motion.div
+                    className="flex flex-col items-center gap-2"
+                    initial={{ opacity: 0, y: 10 }}
                     animate={showResult ? { opacity: 1, y: 0 } : {}}
-                    transition={{ delay: 0.4 }}
+                    transition={{ delay: 0.5 }}
                   >
-                    <rect x="160" y="80" width="80" height="40" rx="8" fill="url(#grad2)" />
-                    <text x="200" y="105" textAnchor="middle" fill="white" fontSize="12">
-                      Server
-                    </text>
-                  </motion.g>
+                    <div className="w-24 h-16 bg-indigo-50/80 dark:bg-slate-800 border-2 border-indigo-400 dark:border-indigo-500 rounded-lg flex flex-col items-center justify-center shadow-sm">
+                      <Server className="w-5 h-5 text-indigo-500 mb-1" />
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400">Server</span>
+                  </motion.div>
 
-                  {/* Database Box */}
-                  <motion.g
-                    initial={{ opacity: 0, y: 20 }}
+                  {/* Arrow 2 */}
+                  <motion.div
+                    className="w-16 h-0.5 bg-slate-300 dark:bg-slate-600 relative -mt-6"
+                    initial={{ scaleX: 0 }}
+                    animate={showResult ? { scaleX: 1 } : {}}
+                    transition={{ delay: 0.7 }}
+                    style={{ originX: 0 }}
+                  >
+                    <div className="absolute right-0 -top-1 w-0 h-0 border-t-4 border-b-4 border-l-[6px] border-transparent border-l-slate-300 dark:border-l-slate-600" />
+                  </motion.div>
+
+                  {/* Database */}
+                  <motion.div
+                    className="flex flex-col items-center gap-2"
+                    initial={{ opacity: 0, y: 10 }}
                     animate={showResult ? { opacity: 1, y: 0 } : {}}
-                    transition={{ delay: 0.6 }}
+                    transition={{ delay: 0.9 }}
                   >
-                    <rect x="300" y="80" width="80" height="40" rx="8" fill="url(#grad3)" />
-                    <text x="340" y="105" textAnchor="middle" fill="white" fontSize="12">
-                      Database
-                    </text>
-                  </motion.g>
-
-                  {/* Arrows */}
-                  <motion.path
-                    d="M 100 100 L 160 100"
-                    stroke="#6366f1"
-                    strokeWidth="2"
-                    fill="none"
-                    markerEnd="url(#arrowhead)"
-                    initial={{ pathLength: 0 }}
-                    animate={showResult ? { pathLength: 1 } : {}}
-                    transition={{ delay: 0.8, duration: 0.5 }}
-                  />
-                  <motion.path
-                    d="M 240 100 L 300 100"
-                    stroke="#a855f7"
-                    strokeWidth="2"
-                    fill="none"
-                    markerEnd="url(#arrowhead)"
-                    initial={{ pathLength: 0 }}
-                    animate={showResult ? { pathLength: 1 } : {}}
-                    transition={{ delay: 1, duration: 0.5 }}
-                  />
-
-                  <defs>
-                    <linearGradient id="grad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#6366f1" />
-                      <stop offset="100%" stopColor="#8b5cf6" />
-                    </linearGradient>
-                    <linearGradient id="grad2" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#8b5cf6" />
-                      <stop offset="100%" stopColor="#a855f7" />
-                    </linearGradient>
-                    <linearGradient id="grad3" x1="0%" y1="0%" x2="100%" y2="100%">
-                      <stop offset="0%" stopColor="#a855f7" />
-                      <stop offset="100%" stopColor="#ec4899" />
-                    </linearGradient>
-                    <marker
-                      id="arrowhead"
-                      markerWidth="10"
-                      markerHeight="10"
-                      refX="9"
-                      refY="3"
-                      orient="auto"
-                    >
-                      <polygon points="0 0, 10 3, 0 6" fill="#6366f1" />
-                    </marker>
-                  </defs>
-                </svg>
+                    <div className="w-20 h-16 bg-emerald-50/80 dark:bg-slate-800 border-2 border-emerald-400 dark:border-emerald-500 rounded-lg flex flex-col items-center justify-center shadow-sm">
+                      <Database className="w-5 h-5 text-emerald-500 mb-1" />
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400">Database</span>
+                  </motion.div>
+                </div>
               </div>
             </div>
           </motion.div>
@@ -218,7 +202,7 @@ export function AIHighlightSection() {
           initial={{ opacity: 0, y: 20 }}
           animate={isInView ? { opacity: 1, y: 0 } : {}}
           transition={{ delay: 1.5 }}
-          className="grid grid-cols-3 gap-8 mt-20 text-center"
+          className="grid grid-cols-1 md:grid-cols-3 gap-8 mt-20 text-center max-w-4xl mx-auto"
         >
           {[
             { value: "< 3s", label: "Average generation time" },
@@ -227,14 +211,15 @@ export function AIHighlightSection() {
           ].map((stat, i) => (
             <motion.div
               key={stat.label}
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={isInView ? { opacity: 1, scale: 1 } : {}}
+              initial={{ opacity: 0, y: 10 }}
+              animate={isInView ? { opacity: 1, y: 0 } : {}}
               transition={{ delay: 1.7 + i * 0.1 }}
+              className="p-4"
             >
-              <div className="text-4xl font-bold bg-gradient-to-r from-indigo-500 to-purple-500 dark:from-indigo-400 dark:to-purple-400 bg-clip-text text-transparent mb-2">
+              <div className="text-4xl font-black text-slate-900 dark:text-white mb-2">
                 {stat.value}
               </div>
-              <div className="text-gray-600 dark:text-white/60 text-sm">{stat.label}</div>
+              <div className="text-sm font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{stat.label}</div>
             </motion.div>
           ))}
         </motion.div>

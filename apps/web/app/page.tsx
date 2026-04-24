@@ -14,9 +14,9 @@ export default function LandingPage() {
       <Navbar />
       <HeroSection />
       <InteractiveDemoSection />
+      <AIHighlightSection />
       <FeaturesSection />
       <ToolbarShowcase />
-      <AIHighlightSection />
       <HowItWorksSection />
       <FinalCTASection />
       <Footer />

@@ -2,7 +2,7 @@
 
 import { useState, FormEvent, useEffect } from "react";
 import { AxiosError } from "axios";
-import { ArrowRight, Eye, EyeOff, Pencil, Loader2, Sparkles, Sun, Moon } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Loader2, Sparkles, Sun, Moon, LayoutGrid } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
@@ -104,15 +104,14 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                 transition={{ duration: 0.5 }}
                 className="relative z-10 flex items-center justify-between max-w-6xl mx-auto w-full px-6 py-5"
             >
-                <Link href="/" className="flex items-center gap-2.5 group">
-                    <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center shadow-lg">
-                        <Pencil className="w-4 h-4 text-white" />
+                <Link href="/" className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-indigo-600 rounded-[10px] flex items-center justify-center shadow-sm">
+                        <LayoutGrid className="w-5 h-5 text-white" />
                     </div>
-                    <span className="text-lg font-bold text-gray-900 dark:text-white tracking-tight">
-                        Canvas<span className="text-indigo-500 dark:text-indigo-400">.io</span>
+                    <span className="text-[28px] font-black text-slate-900 dark:text-white tracking-tighter">
+                        Canvas.
                     </span>
                 </Link>
-
                 <div className="flex items-center gap-4">
                     {/* Theme toggle */}
                     <motion.button

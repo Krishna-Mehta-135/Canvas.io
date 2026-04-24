@@ -614,11 +614,7 @@ function drawInfiniteGrid(
     ctx.save();
     const isLightTheme = typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "light";
     if (isLightTheme) {
-        const lightGridGradient = ctx.createLinearGradient(0, 0, screenWidth, screenHeight);
-        lightGridGradient.addColorStop(0, "rgba(59, 130, 246, 0.20)");
-        lightGridGradient.addColorStop(0.52, "rgba(255, 255, 255, 0.62)");
-        lightGridGradient.addColorStop(1, "rgba(37, 99, 235, 0.18)");
-        ctx.strokeStyle = lightGridGradient;
+        ctx.strokeStyle = "rgba(59, 130, 246, 0.15)";
     } else {
         ctx.strokeStyle = gridColor;
     }

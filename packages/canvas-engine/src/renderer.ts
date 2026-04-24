@@ -528,7 +528,10 @@ function drawArrow(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "
 function drawText(ctx: CanvasRenderingContext2D, shape: Extract<Shape, {type: "text"}>, _viewportScale: number) {
     ctx.save();
     ctx.globalAlpha = getShapeOpacity(shape);
-    ctx.fillStyle = shape.stroke || getThemePalette().stroke;
+    // File intent: Use white text in dark mode for better contrast, otherwise use the shape's stroke color
+    const isDarkMode = document.documentElement.getAttribute("data-theme") === "dark" || 
+                       getThemePalette().background === "#121212";
+    ctx.fillStyle = isDarkMode ? "#ffffff" : (shape.stroke || getThemePalette().stroke);
     const {fittedFontSize, lineHeight, visibleLines} = getTextRenderMetrics(ctx, shape);
     ctx.font = `${fittedFontSize}px Virgil, Caveat, ui-rounded, sans-serif`;
     ctx.textBaseline = "top";

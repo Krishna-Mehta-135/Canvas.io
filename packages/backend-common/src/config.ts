@@ -30,6 +30,16 @@ const rabbitmqDbPersistExchange = process.env.RABBITMQ_DB_PERSIST_EXCHANGE ?? "c
 const rabbitmqDbPersistQueue = process.env.RABBITMQ_DB_PERSIST_QUEUE ?? "canvas.room.persist.jobs";
 const rabbitmqDbPersistRoutingKey = process.env.RABBITMQ_DB_PERSIST_ROUTING_KEY ?? "room.persist";
 
+// AI generation queue
+const rabbitmqAiGenerateExchange = process.env.RABBITMQ_AI_GENERATE_EXCHANGE ?? "canvas.ai.generate";
+const rabbitmqAiGenerateQueue = process.env.RABBITMQ_AI_GENERATE_QUEUE ?? "canvas.ai.generate.jobs";
+const rabbitmqAiGenerateRoutingKey = process.env.RABBITMQ_AI_GENERATE_ROUTING_KEY ?? "ai.generate";
+
+// Internal worker <-> HTTP backend shared secret
+const internalSecret = process.env.INTERNAL_SECRET ?? "canvas-internal-dev-secret-2024";
+const httpBackendInternalUrl = process.env.HTTP_BACKEND_INTERNAL_URL ?? "http://127.0.0.1:3001";
+
+
 if (!jwtSecret) {
     throw new Error("JWT_SECRET is not defined");
 }
@@ -44,3 +54,12 @@ export const RABBITMQ_PREFETCH: number = rabbitmqPrefetch;
 export const RABBITMQ_DB_PERSIST_EXCHANGE: string = rabbitmqDbPersistExchange;
 export const RABBITMQ_DB_PERSIST_QUEUE: string = rabbitmqDbPersistQueue;
 export const RABBITMQ_DB_PERSIST_ROUTING_KEY: string = rabbitmqDbPersistRoutingKey;
+
+// AI generate queue
+export const RABBITMQ_AI_GENERATE_EXCHANGE: string = rabbitmqAiGenerateExchange;
+export const RABBITMQ_AI_GENERATE_QUEUE: string = rabbitmqAiGenerateQueue;
+export const RABBITMQ_AI_GENERATE_ROUTING_KEY: string = rabbitmqAiGenerateRoutingKey;
+
+// Internal secret & URL
+export const INTERNAL_SECRET: string = internalSecret;
+export const HTTP_BACKEND_INTERNAL_URL: string = httpBackendInternalUrl;

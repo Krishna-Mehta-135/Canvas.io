@@ -989,6 +989,68 @@ export function attachEvents(
             updateCursor();
             renderScene();
         },
+        focusViewportToBounds: (
+            bounds: {minX: number; minY: number; maxX: number; maxY: number},
+            options: {padding?: number; preserveScale?: boolean; smooth?: boolean; durationMs?: number} = {}
+        ) => {
+            stopTransientInteractions();
+            selectionBox = null;
+
+            const padding = options.padding ?? 120;
+            const preserveScale = options.preserveScale ?? true;
+            const smooth = options.smooth ?? true;
+            const durationMs = Math.max(120, options.durationMs ?? 320);
+
+            const canvasWidth = Math.max(1, canvas.clientWidth);
+            const canvasHeight = Math.max(1, canvas.clientHeight);
+            const width = Math.max(1, bounds.maxX - bounds.minX);
+            const height = Math.max(1, bounds.maxY - bounds.minY);
+            const safePadding = Math.max(24, Math.min(padding, Math.floor(Math.min(canvasWidth, canvasHeight) * 0.35)));
+
+            const fitScaleX = (canvasWidth - safePadding * 2) / width;
+            const fitScaleY = (canvasHeight - safePadding * 2) / height;
+            const fitScale = Math.max(0.2, Math.min(4, Math.min(fitScaleX, fitScaleY)));
+            const nextScale = preserveScale ? viewport.scale : fitScale;
+
+            const centerX = (bounds.minX + bounds.maxX) / 2;
+            const centerY = (bounds.minY + bounds.maxY) / 2;
+            const targetViewport: Viewport = {
+                scale: nextScale,
+                x: canvasWidth / 2 - centerX * nextScale,
+                y: canvasHeight / 2 - centerY * nextScale,
+            };
+
+            if (!smooth) {
+                setViewport(targetViewport);
+                updateCursor();
+                renderScene();
+                return;
+            }
+
+            const startViewport = {...viewport};
+            const startedAt = performance.now();
+            const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+
+            const animate = (now: number) => {
+                const rawT = Math.min(1, (now - startedAt) / durationMs);
+                const t = easeOutCubic(rawT);
+
+                setViewport({
+                    scale: startViewport.scale + (targetViewport.scale - startViewport.scale) * t,
+                    x: startViewport.x + (targetViewport.x - startViewport.x) * t,
+                    y: startViewport.y + (targetViewport.y - startViewport.y) * t,
+                });
+                renderScene();
+
+                if (rawT < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    updateCursor();
+                }
+            };
+
+            requestAnimationFrame(animate);
+        },
         setGridVisible: (visible: boolean) => {
             isGridVisible = visible;
             renderScene();

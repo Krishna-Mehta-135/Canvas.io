@@ -279,7 +279,6 @@ export function useCanvasSync({
     };
 
     wsRef.current.send(JSON.stringify(message));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appendTimelineEvent, roomId, syncInFlightCounter]);
 
   const scheduleSnapshotFlush = useCallback(() => {
@@ -342,7 +341,6 @@ export function useCanvasSync({
 
       scheduleSnapshotFlush();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [cancelScheduledSnapshotFlush, flushQueuedSnapshot, scheduleSnapshotFlush, syncInFlightCounter, touchDragBurst]
   );
 

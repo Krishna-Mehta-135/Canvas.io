@@ -72,3 +72,12 @@ export const RoomAccessRequestDecisionSchema = z.object({
     action: z.enum(["approve", "reject"]),
     note: z.string().trim().max(500).optional(),
 });
+
+// AI canvas generation
+export const AiGenerateRequestSchema = z.object({
+    prompt: z.string().trim().min(1).max(12000),  // extended to allow canvas context JSON
+});
+
+export const AiGenerateJobIdParamSchema = z.object({
+    jobId: z.string().min(8).max(128),
+});

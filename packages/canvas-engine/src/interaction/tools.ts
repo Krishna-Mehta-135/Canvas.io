@@ -41,6 +41,8 @@ export type AttachEventsController = {
     deleteSelection: () => void;
     hasSelection: () => boolean;
     getSelectedIds: () => string[];
+    getViewport: () => import("../utils").Viewport;
+    setViewport: (nextViewport: import("../utils").Viewport) => void;
     resetViewport: () => void;
     focusViewportToBounds: (
         bounds: {minX: number; minY: number; maxX: number; maxY: number},

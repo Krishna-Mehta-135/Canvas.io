@@ -982,6 +982,14 @@ export function attachEvents(
         deleteSelection,
         hasSelection: () => selectedShapeIds.length > 0,
         getSelectedIds: () => [...selectedShapeIds],
+        getViewport: () => ({...viewport}),
+        setViewport: (nextViewport: Viewport) => {
+            stopTransientInteractions();
+            selectionBox = null;
+            setViewport(nextViewport);
+            updateCursor();
+            renderScene();
+        },
         resetViewport: () => {
             stopTransientInteractions();
             selectionBox = null;

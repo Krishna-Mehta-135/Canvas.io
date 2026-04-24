@@ -7,6 +7,7 @@ import type {CanvasChatMessage, UseCanvasChatResult} from "../../hooks/useCanvas
 
 type CanvasMessengerProps = {
     currentUserId: string | null;
+    roomKey: string | null;
     connectedUsersCount: number;
     presenceState: RoomPresenceState;
     selectedShapeIds: string[];
@@ -145,6 +146,7 @@ function Composer({
 
 export function CanvasMessenger({
     currentUserId,
+    roomKey,
     connectedUsersCount,
     selectedShapeIds,
     isDark,
@@ -161,14 +163,25 @@ export function CanvasMessenger({
     const [composerError, setComposerError] = useState<string | null>(null);
     const [unreadCount, setUnreadCount] = useState(0);
     const [directUnreadCount, setDirectUnreadCount] = useState(0);
+    const [seenGeneralMessageId, setSeenGeneralMessageId] = useState(0);
+    const [seenDirectMessageId, setSeenDirectMessageId] = useState(0);
     const scrollEndRef = useRef<HTMLDivElement | null>(null);
-    const knownIncomingIdsRef = useRef<Set<number>>(new Set());
-    const knownDirectIncomingIdsRef = useRef<Set<number>>(new Set());
-    const hasInitializedGeneralUnreadRef = useRef(false);
-    const hasInitializedDirectUnreadRef = useRef(false);
+    const hasInitializedGeneralSeenRef = useRef(false);
+    const hasInitializedDirectSeenRef = useRef(false);
 
     const selectedShapeId = selectedShapeIds[0] ?? null;
     const canAttemptSend = true;
+    const seenGeneralStorageKey = roomKey ? `canvas-messenger:seen-general:${roomKey}` : null;
+    const seenDirectStorageKey = roomKey ? `canvas-messenger:seen-direct:${roomKey}` : null;
+
+    useEffect(() => {
+        hasInitializedGeneralSeenRef.current = false;
+        hasInitializedDirectSeenRef.current = false;
+        setSeenGeneralMessageId(0);
+        setSeenDirectMessageId(0);
+        setUnreadCount(0);
+        setDirectUnreadCount(0);
+    }, [roomKey]);
 
     useEffect(() => {
         if (selectedShapeId) {
@@ -209,96 +222,130 @@ export function CanvasMessenger({
         return chat.comments;
     }, [chat.comments, chat.commentsByShapeId, commentView, selectedShapeId]);
 
+    const generalIncomingMessages = useMemo(
+        () => [...chat.groupMessages, ...chat.comments].filter((message) => message.id > 0 && !message.optimistic),
+        [chat.comments, chat.groupMessages]
+    );
+
+    const directIncomingMessages = useMemo(
+        () => chat.directMessages.filter((message) => message.id > 0 && !message.optimistic && message.sender.id !== currentUserId),
+        [chat.directMessages, currentUserId]
+    );
+
+    const maxGeneralMessageId = useMemo(
+        () => generalIncomingMessages.reduce((maxId, message) => Math.max(maxId, message.id), 0),
+        [generalIncomingMessages]
+    );
+
+    const maxDirectMessageId = useMemo(
+        () => directIncomingMessages.reduce((maxId, message) => Math.max(maxId, message.id), 0),
+        [directIncomingMessages]
+    );
+
     useEffect(() => {
         scrollEndRef.current?.scrollIntoView({behavior: "smooth"});
     }, [activeTab, chat.comments.length, chat.directMessages.length, chat.groupMessages.length, selectedPartnerId, commentView]);
 
     useEffect(() => {
-        if (chat.isLoading) {
+        if (chat.isLoading || hasInitializedGeneralSeenRef.current) {
             return;
         }
 
-        const incomingMessages = [...chat.groupMessages, ...chat.comments].filter(
-            (message) => message.id > 0 && !message.optimistic
-        );
-
-        if (!hasInitializedGeneralUnreadRef.current) {
-            hasInitializedGeneralUnreadRef.current = true;
-            knownIncomingIdsRef.current = new Set(incomingMessages.map((message) => message.id));
-            return;
-        }
-
-        const nextIds = new Set(knownIncomingIdsRef.current);
-        let nextUnread = 0;
-
-        for (const message of incomingMessages) {
-            if (nextIds.has(message.id)) {
-                continue;
-            }
-
-            nextIds.add(message.id);
-            if (message.sender.id !== currentUserId && !isOpen) {
-                nextUnread += 1;
+        let baselineId = maxGeneralMessageId;
+        if (seenGeneralStorageKey) {
+            const storedRaw = window.localStorage.getItem(seenGeneralStorageKey);
+            const stored = storedRaw ? Number(storedRaw) : Number.NaN;
+            if (Number.isFinite(stored) && stored >= 0) {
+                baselineId = Math.max(0, stored);
             }
         }
 
-        knownIncomingIdsRef.current = nextIds;
-        if (nextUnread > 0) {
-            setUnreadCount((current) => current + nextUnread);
-        }
-    }, [chat.comments, chat.groupMessages, chat.isLoading, currentUserId, isOpen]);
+        hasInitializedGeneralSeenRef.current = true;
+        setSeenGeneralMessageId(baselineId);
+    }, [chat.isLoading, maxGeneralMessageId, seenGeneralStorageKey]);
 
     useEffect(() => {
-        if (chat.isLoading) {
+        if (chat.isLoading || hasInitializedDirectSeenRef.current) {
             return;
         }
 
-        const incomingDirectMessages = chat.directMessages.filter(
-            (message) => message.id > 0 && !message.optimistic && message.sender.id !== currentUserId
-        );
-
-        if (!hasInitializedDirectUnreadRef.current) {
-            hasInitializedDirectUnreadRef.current = true;
-            knownDirectIncomingIdsRef.current = new Set(incomingDirectMessages.map((message) => message.id));
-            return;
-        }
-
-        const nextIds = new Set(knownDirectIncomingIdsRef.current);
-        let nextUnread = 0;
-        const isViewingDirectThread = isOpen && activeTab === "direct" && selectedPartnerId !== null;
-
-        for (const message of incomingDirectMessages) {
-            if (nextIds.has(message.id)) {
-                continue;
-            }
-
-            nextIds.add(message.id);
-
-            const threadPartnerId = message.sender.id === currentUserId ? message.recipient?.id ?? null : message.sender.id;
-            const isVisibleThread = isViewingDirectThread && threadPartnerId === selectedPartnerId;
-
-            if (!isVisibleThread) {
-                nextUnread += 1;
+        let baselineId = maxDirectMessageId;
+        if (seenDirectStorageKey) {
+            const storedRaw = window.localStorage.getItem(seenDirectStorageKey);
+            const stored = storedRaw ? Number(storedRaw) : Number.NaN;
+            if (Number.isFinite(stored) && stored >= 0) {
+                baselineId = Math.max(0, stored);
             }
         }
 
-        knownDirectIncomingIdsRef.current = nextIds;
-        if (nextUnread > 0) {
-            setDirectUnreadCount((current) => current + nextUnread);
-        }
-    }, [activeTab, chat.directMessages, chat.isLoading, currentUserId, isOpen, selectedPartnerId]);
+        hasInitializedDirectSeenRef.current = true;
+        setSeenDirectMessageId(baselineId);
+    }, [chat.isLoading, maxDirectMessageId, seenDirectStorageKey]);
 
     useEffect(() => {
+        if (!hasInitializedGeneralSeenRef.current || chat.isLoading) {
+            return;
+        }
+
+        const isReadingGeneral = isOpen && (activeTab === "group" || activeTab === "comments");
+        if (!isReadingGeneral || maxGeneralMessageId <= seenGeneralMessageId) {
+            return;
+        }
+
+        setSeenGeneralMessageId(maxGeneralMessageId);
+        if (seenGeneralStorageKey) {
+            window.localStorage.setItem(seenGeneralStorageKey, String(maxGeneralMessageId));
+        }
+    }, [activeTab, chat.isLoading, isOpen, maxGeneralMessageId, seenGeneralMessageId, seenGeneralStorageKey]);
+
+    useEffect(() => {
+        if (!hasInitializedDirectSeenRef.current || chat.isLoading) {
+            return;
+        }
+
+        const isReadingDirect = isOpen && activeTab === "direct";
+        if (!isReadingDirect || maxDirectMessageId <= seenDirectMessageId) {
+            return;
+        }
+
+        setSeenDirectMessageId(maxDirectMessageId);
+        if (seenDirectStorageKey) {
+            window.localStorage.setItem(seenDirectStorageKey, String(maxDirectMessageId));
+        }
+    }, [activeTab, chat.isLoading, isOpen, maxDirectMessageId, seenDirectMessageId, seenDirectStorageKey]);
+
+    useEffect(() => {
+        if (!hasInitializedGeneralSeenRef.current || chat.isLoading) {
+            return;
+        }
+
         if (isOpen && (activeTab === "group" || activeTab === "comments")) {
             setUnreadCount(0);
+            return;
         }
-    }, [activeTab, isOpen]);
+
+        const nextUnread = generalIncomingMessages.reduce((count, message) => {
+            if (message.sender.id === currentUserId) return count;
+            return message.id > seenGeneralMessageId ? count + 1 : count;
+        }, 0);
+        setUnreadCount(nextUnread);
+    }, [activeTab, chat.isLoading, currentUserId, generalIncomingMessages, isOpen, seenGeneralMessageId]);
 
     useEffect(() => {
+        if (!hasInitializedDirectSeenRef.current || chat.isLoading) {
+            return;
+        }
+
         if (isOpen && activeTab === "direct") {
             setDirectUnreadCount(0);
+            return;
         }
-    }, [activeTab, isOpen, selectedPartnerId]);
+
+        const nextUnread = directIncomingMessages.reduce((count, message) => {
+            return message.id > seenDirectMessageId ? count + 1 : count;
+        }, 0);
+        setDirectUnreadCount(nextUnread);
+    }, [activeTab, chat.isLoading, directIncomingMessages, isOpen, seenDirectMessageId]);
 
     const syncToneClass =
         syncStatus === "connected"

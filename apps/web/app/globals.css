@@ -35,14 +35,14 @@
   --radius: 0.625rem;
 
   /* Legacy (old pages) */
-  --home-background: linear-gradient(180deg, #f8fafc 0%, #ffffff 60%, #ffffff 100%);
+  --home-background: radial-gradient(circle at 18% 10%, rgba(59, 130, 246, 0.12) 0%, transparent 30%), radial-gradient(circle at 82% 10%, rgba(16, 185, 129, 0.08) 0%, transparent 24%), linear-gradient(180deg, #f3f8ff 0%, #ffffff 55%, #f8fbff 100%);
   --home-foreground: #0f172a;
 }
 
 :root[data-theme="light"] {
   --background: #ffffff;
   --foreground: #171717;
-  --home-background: linear-gradient(180deg, #f8fafc 0%, #ffffff 60%, #ffffff 100%);
+  --home-background: radial-gradient(circle at 18% 10%, rgba(59, 130, 246, 0.12) 0%, transparent 30%), radial-gradient(circle at 82% 10%, rgba(16, 185, 129, 0.08) 0%, transparent 24%), linear-gradient(180deg, #f3f8ff 0%, #ffffff 55%, #f8fbff 100%);
   --home-foreground: #0f172a;
 }
 

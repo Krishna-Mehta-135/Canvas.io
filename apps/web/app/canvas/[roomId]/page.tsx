@@ -222,6 +222,13 @@ function normalizeJoinTarget(rawValue: string) {
     }
 }
 
+function getUserInitials(name: string) {
+    const cleaned = name.trim();
+    if (!cleaned) return "?";
+    const parts = cleaned.split(/\s+/).slice(0, 2);
+    return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "?";
+}
+
 function getViewportStorageKey(roomKey: string) {
     return `canvas-viewport:${roomKey}`;
 }
@@ -1746,6 +1753,31 @@ export default function CanvasPage() {
         controlsRef.current?.resetViewport();
     };
 
+    const handleZoomByStep = (direction: "in" | "out") => {
+        const controls = controlsRef.current;
+        const canvas = canvasRef.current;
+        if (!controls || !canvas) return;
+
+        const currentViewport = controls.getViewport();
+        const zoomFactor = direction === "in" ? 1.12 : 1 / 1.12;
+        const nextScale = Math.max(0.2, Math.min(4, currentViewport.scale * zoomFactor));
+        if (Math.abs(nextScale - currentViewport.scale) < 0.001) {
+            return;
+        }
+
+        const centerX = canvas.clientWidth / 2;
+        const centerY = canvas.clientHeight / 2;
+        const worldCenterX = (centerX - currentViewport.x) / currentViewport.scale;
+        const worldCenterY = (centerY - currentViewport.y) / currentViewport.scale;
+
+        skipNextViewportPersistRef.current = true;
+        controls.setViewport({
+            scale: nextScale,
+            x: centerX - worldCenterX * nextScale,
+            y: centerY - worldCenterY * nextScale,
+        });
+    };
+
     const handleReloadCanvas = async () => {
         if (!canvasState || resolvedRoomId === null || isReloadingCanvas) return;
 
@@ -1947,9 +1979,28 @@ export default function CanvasPage() {
     const participantNames = remotePresenceState.presences
         .map((presence) => presence.userName)
         .filter((name, index, all) => all.indexOf(name) === index);
+    const canvasTitle = ownerHandleFromQuery ? `${ownerHandleFromQuery}/${roomId ?? "canvas"}` : roomId ?? "Untitled canvas";
+    const participantPreview = participantNames.slice(0, 4);
+    const extraParticipantCount = Math.max(0, participantNames.length - participantPreview.length);
+    const zoomPercent = Math.round((viewport?.scale ?? 1) * 100);
+    const shellBackground = isDark ? "bg-[#070b14] text-white" : "bg-[#f3f7fd] text-slate-900";
+    const shellGlow = isDark
+        ? "bg-[radial-gradient(circle_at_20%_15%,rgba(59,130,246,0.18),transparent_28%),radial-gradient(circle_at_80%_10%,rgba(139,92,246,0.14),transparent_25%),radial-gradient(circle_at_50%_90%,rgba(16,185,129,0.08),transparent_30%)]"
+        : "bg-[radial-gradient(circle_at_18%_16%,rgba(59,130,246,0.14),transparent_30%),radial-gradient(circle_at_82%_12%,rgba(139,92,246,0.10),transparent_26%),radial-gradient(circle_at_52%_88%,rgba(14,165,233,0.08),transparent_28%)]";
+    const topToolbarSurface = isDark
+        ? "border border-white/10 bg-[#101724]/70 shadow-[0_20px_70px_rgba(2,6,23,0.45)]"
+        : "border border-white/80 bg-white/72 shadow-[0_20px_60px_rgba(15,23,42,0.10)]";
+    const inspectorSurface = isDark
+        ? "border border-white/10 bg-[#0e1622]/72 shadow-[0_24px_70px_rgba(2,6,23,0.5)]"
+        : "border border-white/70 bg-white/78 shadow-[0_24px_70px_rgba(15,23,42,0.12)]";
+    const floatingPanelSurface = isDark
+        ? "border border-white/10 bg-[#111827]/78 shadow-[0_18px_50px_rgba(2,6,23,0.35)]"
+        : "border border-white/70 bg-white/75 shadow-[0_18px_50px_rgba(15,23,42,0.12)]";
 
     return (
-        <div className={`relative h-screen w-screen ${isDark ? "bg-[#121212]" : "bg-[#e2e8f0]"}`}>
+        <div className={`relative h-screen w-screen overflow-hidden ${shellBackground}`}>
+            <div className={`pointer-events-none absolute inset-0 ${shellGlow}`} />
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.18),rgba(255,255,255,0)_24%,rgba(255,255,255,0)_80%,rgba(255,255,255,0.10))] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0)_24%,rgba(255,255,255,0)_80%,rgba(2,6,23,0.12))]" />
             {isAccessDenied && (
                 <div className="pointer-events-none absolute left-1/2 top-4 z-40 w-[min(92vw,560px)] -translate-x-1/2">
                     <div
@@ -1963,6 +2014,49 @@ export default function CanvasPage() {
                     </div>
                 </div>
             )}
+
+            <div className="pointer-events-none absolute left-4 top-4 z-30">
+                <div className={`pointer-events-auto flex items-center gap-3 rounded-2xl border px-3 py-2 backdrop-blur-2xl ${floatingPanelSurface}`}>
+                    <div className="min-w-0">
+                        <div className={`text-[10px] uppercase tracking-[0.14em] ${isDark ? "text-white/55" : "text-slate-500"}`}>Canvas</div>
+                        <div className="max-w-60 truncate text-sm font-semibold">{canvasTitle}</div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={handleCopyInvite}
+                        className={`rounded-xl border px-3 py-1.5 text-xs font-semibold transition ${
+                            isDark
+                                ? "border-white/20 bg-white/10 text-white hover:bg-white/15"
+                                : "border-slate-300 bg-white/90 text-slate-700 hover:bg-slate-100"
+                        }`}
+                    >
+                        Share
+                    </button>
+                    <div className="flex items-center">
+                        <div className="flex -space-x-2">
+                            {participantPreview.map((name) => (
+                                <span
+                                    key={name}
+                                    title={name}
+                                    className={`inline-flex h-7 w-7 items-center justify-center rounded-full border text-[10px] font-semibold ${
+                                        isDark
+                                            ? "border-[#0b1220] bg-[#1d4ed8]/70 text-white"
+                                            : "border-white bg-[#2563eb]/85 text-white"
+                                    }`}
+                                >
+                                    {getUserInitials(name)}
+                                </span>
+                            ))}
+                        </div>
+                        {extraParticipantCount > 0 ? (
+                            <span className={`ml-2 text-xs font-medium ${isDark ? "text-white/65" : "text-slate-500"}`}>
+                                +{extraParticipantCount}
+                            </span>
+                        ) : null}
+                    </div>
+                </div>
+            </div>
+
             <div className="pointer-events-none absolute right-4 top-4 z-30">
                 <div className="pointer-events-auto flex items-center gap-2">
                     {/* AI Generate button */}
@@ -2114,11 +2208,7 @@ export default function CanvasPage() {
                             onWheel={(event) => {
                                 event.stopPropagation();
                             }}
-                            className={`absolute right-0 top-14 max-h-[calc(100vh-5.5rem)] w-80 overflow-y-auto overscroll-contain rounded-2xl border p-2 shadow-2xl ${
-                                isDark
-                                    ? "border-white/10 bg-[#191919]/97 text-white"
-                                    : "border-slate-300/80 bg-white/98 text-slate-900"
-                            }`}
+                            className={`absolute right-0 top-14 max-h-[calc(100vh-5.5rem)] w-80 overflow-y-auto overscroll-contain rounded-3xl border p-2 backdrop-blur-2xl ${floatingPanelSurface}`}
                         >
                             <div className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">Profile & Account</div>
                             <button
@@ -2520,11 +2610,7 @@ export default function CanvasPage() {
 
             {selectedCount > 0 && (
                 <aside
-                    className={`absolute left-4 top-20 z-20 w-72 rounded-2xl p-4 backdrop-blur ${
-                        isDark
-                            ? "border border-white/10 bg-[#191919]/95 text-white shadow-[0_16px_30px_rgba(0,0,0,0.45)]"
-                            : "border border-slate-300/70 bg-white/95 text-slate-900 shadow-[0_16px_28px_rgba(15,23,42,0.14)]"
-                    }`}
+                    className={`absolute left-4 top-20 z-20 w-72 rounded-[28px] p-4 backdrop-blur-2xl ${inspectorSurface}`}
                 >
                     <h3 className="mb-3 text-sm font-semibold">Style</h3>
 
@@ -2836,11 +2922,7 @@ export default function CanvasPage() {
                 </aside>
             )}
             <div
-                className={`absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-3xl p-3 backdrop-blur ${
-                    isDark
-                        ? "border border-white/10 bg-[#191919]/95 shadow-[0_12px_30px_rgba(0,0,0,0.45)]"
-                        : "border border-slate-300/70 bg-white/90 shadow-[0_12px_24px_rgba(15,23,42,0.12)]"
-                }`}
+                className={`absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-[28px] p-3 backdrop-blur-2xl ${topToolbarSurface}`}
                 style={{maxWidth: "calc(100vw - 2rem)"}}
             >
                 <div className="flex flex-nowrap items-center gap-1 overflow-x-auto scrollbar-none canvas-hide-scrollbar px-1">
@@ -2926,6 +3008,7 @@ export default function CanvasPage() {
 
             <CanvasMessenger
                 currentUserId={syncResult.currentUserId}
+                roomKey={roomId ?? null}
                 connectedUsersCount={connectedUsersCount}
                 presenceState={remotePresenceState}
                 selectedShapeIds={selectedIds}
@@ -2933,6 +3016,40 @@ export default function CanvasPage() {
                 syncStatus={syncStatus}
                 chat={chat}
             />
+
+            <div className="pointer-events-none absolute bottom-4 left-4 z-30">
+                <div className={`pointer-events-auto flex items-center gap-2 rounded-2xl border px-2 py-1.5 backdrop-blur-2xl ${floatingPanelSurface}`}>
+                    <button
+                        type="button"
+                        onClick={() => handleZoomByStep("out")}
+                        className={`grid h-8 w-8 place-items-center rounded-lg border text-base font-semibold transition ${
+                            isDark
+                                ? "border-white/20 bg-white/10 text-white hover:bg-white/15"
+                                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                        }`}
+                        aria-label="Zoom out"
+                        title="Zoom out"
+                    >
+                        -
+                    </button>
+                    <div className={`min-w-16 text-center text-sm font-semibold ${isDark ? "text-white/90" : "text-slate-700"}`}>
+                        {zoomPercent}%
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => handleZoomByStep("in")}
+                        className={`grid h-8 w-8 place-items-center rounded-lg border text-base font-semibold transition ${
+                            isDark
+                                ? "border-white/20 bg-white/10 text-white hover:bg-white/15"
+                                : "border-slate-300 bg-white text-slate-700 hover:bg-slate-100"
+                        }`}
+                        aria-label="Zoom in"
+                        title="Zoom in"
+                    >
+                        +
+                    </button>
+                </div>
+            </div>
 
             {viewport && floatingShapeComments.length > 0 && (
                 <div className="pointer-events-none absolute inset-0 z-25">
@@ -2973,7 +3090,7 @@ export default function CanvasPage() {
                         event.preventDefault();
                         event.stopPropagation();
                     }}
-                    className={`pointer-events-auto absolute bottom-4 left-4 z-20 max-h-[min(60vh,28rem)] w-80 overflow-y-auto overscroll-contain rounded-2xl border px-3 py-2 text-xs backdrop-blur ${
+                    className={`pointer-events-auto absolute bottom-4 left-4 z-20 max-h-[min(60vh,28rem)] w-80 overflow-y-auto overscroll-contain rounded-3xl border px-3 py-2 text-xs backdrop-blur-2xl ${
                         isDark
                             ? "border-white/15 bg-[#171717]/92 text-white/90"
                             : "border-slate-300/80 bg-white/92 text-slate-700"
@@ -3023,7 +3140,7 @@ export default function CanvasPage() {
                 {toasts.map((toast) => (
                     <div
                         key={toast.id}
-                        className={`pointer-events-auto rounded-xl border px-3 py-2 text-sm shadow-lg ${
+                        className={`pointer-events-auto rounded-2xl border px-3 py-2 text-sm backdrop-blur-xl ${
                             toast.tone === "success"
                                 ? isDark
                                     ? "border-emerald-300/35 bg-emerald-500/15 text-emerald-100"
@@ -3048,7 +3165,7 @@ export default function CanvasPage() {
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="clear-canvas-title"
-                        className={`w-full max-w-md rounded-2xl border p-5 shadow-2xl ${
+                        className={`w-full max-w-md rounded-[28px] border p-5 shadow-2xl backdrop-blur-2xl ${
                             isDark ? "border-white/15 bg-[#1a1a1a] text-white" : "border-slate-300 bg-white text-slate-900"
                         }`}
                     >
@@ -3081,7 +3198,7 @@ export default function CanvasPage() {
                 </div>
             )}
 
-            <canvas ref={canvasRef} className="block h-full w-full touch-none" />
+            <canvas ref={canvasRef} className="relative z-0 block h-full w-full touch-none" style={{background: "transparent"}} />
         </div>
     );
 }

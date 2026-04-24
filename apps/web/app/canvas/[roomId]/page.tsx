@@ -13,6 +13,7 @@ import {ensureAuthenticated, logoutUser} from "../../lib/auth";
 import {useTheme} from "../../components/ThemeToggle";
 import {useCanvasSync} from "../../../hooks/useCanvasSync";
 import {RemotePresenceLayer} from "../../components/RemotePresenceLayer";
+import {AiChatModal, AiTriggerButton} from "../../components/AiPromptBar";
 
 const STYLE_SWATCHES = ["#1e1e1e", "#e03131", "#2f9e44", "#1971c2", "#f08c00", "#ffffff"];
 const FILL_STYLE_OPTIONS: Array<{value: NonNullable<Shape["fillStyle"]>; label: string}> = [
@@ -317,6 +318,23 @@ function getShapeBounds(shape: Shape) {
     }
 
     return {minX: 0, minY: 0, maxX: 0, maxY: 0};
+}
+
+function getBoundsForShapes(shapes: Shape[]) {
+    if (shapes.length === 0) return null;
+
+    let bounds = getShapeBounds(shapes[0]!);
+    for (let i = 1; i < shapes.length; i += 1) {
+        const b = getShapeBounds(shapes[i]!);
+        bounds = {
+            minX: Math.min(bounds.minX, b.minX),
+            minY: Math.min(bounds.minY, b.minY),
+            maxX: Math.max(bounds.maxX, b.maxX),
+            maxY: Math.max(bounds.maxY, b.maxY),
+        };
+    }
+
+    return bounds;
 }
 
 function buildSvgMarkup(shapes: Shape[]) {
@@ -672,6 +690,7 @@ export default function CanvasPage() {
     const stateRef = useRef<CanvasState | null>(null);
     const [canvasState, setCanvasState] = useState<CanvasState | null>(null);
     const [resolvedRoomId, setResolvedRoomId] = useState<number | null>(null);
+    const [isAiOpen, setIsAiOpen] = useState(false);
     const canonicalRedirectIssuedRef = useRef(false);
     const canonicalUrlNormalizedRef = useRef(false);
     const [hoveredPersonaId, setHoveredPersonaId] = useState<string | null>(null);
@@ -1609,7 +1628,52 @@ export default function CanvasPage() {
                 </div>
             )}
             <div className="pointer-events-none absolute right-4 top-4 z-30">
-                <div className="pointer-events-auto relative">
+                <div className="pointer-events-auto flex items-center gap-2">
+                    {/* AI Generate button */}
+                    <div className="relative">
+                        <AiTriggerButton
+                            onClick={() => setIsAiOpen((o) => !o)}
+                            isActive={isAiOpen}
+                            isDark={isDark}
+                        />
+                        {isAiOpen && (
+                            <AiChatModal
+                                roomId={resolvedRoomId}
+                                isOpen={isAiOpen}
+                                onClose={() => setIsAiOpen(false)}
+                                isDark={isDark}
+                                httpBackend={HTTP_BACKEND}
+                                apiClient={apiClient}
+                                getCurrentShapes={() => canvasState?.getShapes() ?? []}
+                                onShapesGenerated={(shapes) => {
+                                    if (!canvasState) return;
+                                    // AI now uses high-contrast colors that work in both light and dark modes
+                                    // No remapping needed - new palette: Blue #3B82F6, Green #10B981, Amber #F59E0B, 
+                                    // Violet #8B5CF6, Red #EF4444, Sky #06B6D4, Slate strokes
+                                    const themed = shapes as Shape[];
+                                    const existing = canvasState.getShapes();
+                                    canvasState.setShapes([...existing, ...themed]);
+                                    controlsRef.current?.rerender();
+                                    const generatedBounds = getBoundsForShapes(themed);
+                                    if (generatedBounds) {
+                                        controlsRef.current?.focusViewportToBounds(generatedBounds, {
+                                            padding: 140,
+                                            preserveScale: true,
+                                            smooth: true,
+                                            durationMs: 340,
+                                        });
+                                    }
+                                    pushToast("success", `✦ AI added ${shapes.length} shapes to your canvas`);
+                                }}
+                                onError={(message) => {
+                                    pushToast("error", message);
+                                }}
+                            />
+                        )}
+                    </div>
+
+                    {/* ⋯ menu button */}
+                    <div className="relative">
                     <button
                         ref={menuButtonRef}
                         type="button"
@@ -2045,6 +2109,7 @@ export default function CanvasPage() {
                             </div>
                         </div>
                     )}
+                    </div>
                 </div>
             </div>
 
@@ -2391,18 +2456,18 @@ export default function CanvasPage() {
                         ? "border border-white/10 bg-[#191919]/95 shadow-[0_12px_30px_rgba(0,0,0,0.45)]"
                         : "border border-slate-300/70 bg-white/90 shadow-[0_12px_24px_rgba(15,23,42,0.12)]"
                 }`}
+                style={{maxWidth: "calc(100vw - 2rem)"}}
             >
-                <div className="flex flex-nowrap items-center gap-2 overflow-x-auto">
-                    {TOOLS.map((tool) => {
+                <div className="flex flex-nowrap items-center gap-1 overflow-x-auto scrollbar-none px-1">
+                    {TOOLS.map((tool, idx) => {
                         const isActive = activeTool === tool.id;
-
                         return (
+                            <div key={tool.id} className="flex items-center">
                             <button
-                                key={tool.id}
                                 type="button"
                                 onClick={() => setActiveTool(tool.id)}
                                 title={`${tool.label} (${tool.shortcut})`}
-                                className={`group flex shrink-0 min-w-18 flex-col items-center rounded-2xl border px-3 py-2 transition ${
+                                className={`group flex shrink-0 min-w-16 flex-col items-center rounded-2xl border px-3 py-2 transition ${
                                     isActive
                                         ? isDark
                                             ? "border-[#8d8ac5] bg-[#8d8ac5]/20 text-white"
@@ -2427,15 +2492,19 @@ export default function CanvasPage() {
                                     {tool.shortcut}
                                 </span>
                             </button>
+                            {idx < TOOLS.length - 1 && (
+                                <div className={`mx-2 h-8 w-px flex-none ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                            )}
+                            </div>
                         );
                     })}
-                    <div className={`mx-1 hidden h-10 w-px flex-none sm:block ${isDark ? "bg-white/10" : "bg-slate-300"}`} />
+                    <div className={`mx-2 h-8 w-px flex-none ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
                     <button
                         type="button"
                         onClick={handleDeleteSelected}
                         disabled={selectedCount === 0}
                         title="Delete selected shapes (Delete/Backspace)"
-                        className={`group flex shrink-0 min-w-18 flex-col items-center rounded-2xl border px-3 py-2 transition ${
+                        className={`group flex shrink-0 min-w-16 flex-col items-center rounded-2xl border px-3 py-2 transition ${
                             selectedCount > 0
                                 ? isDark
                                     ? "border-red-300/30 bg-red-500/15 text-white hover:border-red-200/50 hover:bg-red-500/20"
@@ -2466,8 +2535,10 @@ export default function CanvasPage() {
                             Del
                         </span>
                     </button>
+
                 </div>
             </div>
+
 
             {/* Sync Status */}
             <div className="absolute bottom-4 right-4 z-20">

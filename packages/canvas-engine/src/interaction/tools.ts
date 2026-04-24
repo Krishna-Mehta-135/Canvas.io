@@ -42,6 +42,10 @@ export type AttachEventsController = {
     hasSelection: () => boolean;
     getSelectedIds: () => string[];
     resetViewport: () => void;
+    focusViewportToBounds: (
+        bounds: {minX: number; minY: number; maxX: number; maxY: number},
+        options?: {padding?: number; preserveScale?: boolean; smooth?: boolean; durationMs?: number}
+    ) => void;
     setGridVisible: (visible: boolean) => void;
     isGridVisible: () => boolean;
     setSnapEnabled: (enabled: boolean) => void;

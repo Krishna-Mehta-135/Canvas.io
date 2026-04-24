@@ -5,6 +5,8 @@ import {authRouter} from "./routes/auth.routes";
 import {errorHandler} from "./middlewares/error.middleware";
 import { roomRouter } from "./routes/room.routes";
 import {rateLimitMiddleware} from "./middlewares/rate-limit.middleware";
+import {receiveAiResult} from "./controllers/room.controller";
+import {INTERNAL_SECRET} from "@repo/backend-common/config";
 
 const app: Express = express();
 
@@ -29,6 +31,10 @@ app.use(cors({
 app.use(rateLimitMiddleware);
 app.use(express.json());
 app.use(cookieParser());
+
+// Internal endpoint for AI worker → HTTP backend callbacks.
+// Not rate-limited; guarded by INTERNAL_SECRET header inside the controller.
+app.post("/internal/ai/result", receiveAiResult);
 
 //Routes
 app.use("/api/v1/auth", authRouter);

@@ -13,6 +13,8 @@ import {
 	requestRoomAccess,
 	listIncomingRoomAccessRequests,
 	decideRoomAccessRequest,
+	generateAiCanvas,
+	getAiGenerateStatus,
 } from "../controllers/room.controller";
 
 const roomRouter: Router = Router()
@@ -28,5 +30,9 @@ roomRouter.get("/:roomId/invite", authenticate, getInviteLink)
 roomRouter.post("/access/request", authenticate, idempotencyMiddleware, requestRoomAccess)
 roomRouter.get("/access/requests/incoming", authenticate, listIncomingRoomAccessRequests)
 roomRouter.post("/access/requests/decision", authenticate, idempotencyMiddleware, decideRoomAccessRequest)
+
+// AI canvas generation
+roomRouter.post("/:roomId/ai/generate", authenticate, generateAiCanvas);
+roomRouter.get("/:roomId/ai/generate/:jobId", authenticate, getAiGenerateStatus);
 
 export {roomRouter}

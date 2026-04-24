@@ -10,8 +10,15 @@ import {
     ReplaceShapesBodySchema,
     RoomAccessRequestCreateSchema,
     RoomAccessRequestDecisionSchema,
+    AiGenerateRequestSchema,
+    AiGenerateJobIdParamSchema,
 } from "@repo/common/types";
 import {asyncHandler} from "../utils/asyncHandler";
+import {publishAiGenerateJob} from "@repo/queue-sync";
+import {INTERNAL_SECRET} from "@repo/backend-common/config";
+import type {Shape} from "@repo/canvas-engine";
+import {randomUUID} from "node:crypto";
+
 
 function requireUserId(userId?: string) {
     if (!userId) {
@@ -805,6 +812,157 @@ const decideRoomAccessRequest = asyncHandler(async (req, res) => {
     );
 });
 
+
+// ---------------------------------------------------------------------------
+// In-memory AI job store (single-node dev; upgrade to Redis later if needed)
+// ---------------------------------------------------------------------------
+type AiJobStatus = "pending" | "done" | "error";
+
+interface AiJobEntry {
+    status: AiJobStatus;
+    roomId: number;
+    shapes?: unknown[];
+    errorMessage?: string;
+    createdAt: number;
+}
+
+const aiJobStore = new Map<string, AiJobEntry>();
+
+// Purge stale jobs older than 10 minutes to prevent unbounded memory growth.
+setInterval(() => {
+    const cutoff = Date.now() - 10 * 60 * 1000;
+    for (const [id, entry] of aiJobStore) {
+        if (entry.createdAt < cutoff) aiJobStore.delete(id);
+    }
+}, 5 * 60 * 1000).unref();
+
+// ---------------------------------------------------------------------------
+// AI controller functions
+// ---------------------------------------------------------------------------
+
+// POST /room/:roomId/ai/generate
+const generateAiCanvas = asyncHandler(async (req, res) => {
+    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+    if (!paramsValidation.success) {
+        throw new ApiError(400, "Invalid roomId");
+    }
+
+    const {roomId} = paramsValidation.data;
+    const userId = requireUserId(req.userId);
+
+    const canAccess = await hasRoomAccess(roomId, userId);
+    if (!canAccess) {
+        throw new ApiError(403, "Forbidden");
+    }
+
+    const bodyValidation = AiGenerateRequestSchema.safeParse(req.body);
+    if (!bodyValidation.success) {
+        throw new ApiError(400, "Invalid prompt — must be 1–12000 characters");
+    }
+
+    const {prompt} = bodyValidation.data;
+    const jobId = randomUUID();
+
+    aiJobStore.set(jobId, {
+        status: "pending",
+        roomId,
+        createdAt: Date.now(),
+    });
+
+    try {
+        await publishAiGenerateJob({
+            jobId,
+            roomId,
+            prompt,
+            requestedBy: userId,
+            enqueuedAtMs: Date.now(),
+        });
+    } catch {
+        aiJobStore.set(jobId, {
+            status: "error",
+            roomId,
+            errorMessage: "Failed to enqueue AI job",
+            createdAt: Date.now(),
+        });
+        throw new ApiError(503, "AI generation queue is unavailable. Please try again.");
+    }
+
+    return res.status(202).json(
+        new ApiResponse(202, {jobId}, "AI generation started")
+    );
+});
+
+// GET /room/:roomId/ai/generate/:jobId
+const getAiGenerateStatus = asyncHandler(async (req, res) => {
+    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+    if (!paramsValidation.success) {
+        throw new ApiError(400, "Invalid roomId");
+    }
+
+    const jobParamsValidation = AiGenerateJobIdParamSchema.safeParse(req.params);
+    if (!jobParamsValidation.success) {
+        throw new ApiError(400, "Invalid jobId");
+    }
+
+    const {jobId} = jobParamsValidation.data;
+    const {roomId} = paramsValidation.data;
+    const userId = requireUserId(req.userId);
+
+    const canAccess = await hasRoomAccess(roomId, userId);
+    if (!canAccess) {
+        throw new ApiError(403, "Forbidden");
+    }
+
+    const entry = aiJobStore.get(jobId);
+    if (!entry) {
+        throw new ApiError(404, "Job not found or expired");
+    }
+
+    if (entry.roomId !== roomId) {
+        throw new ApiError(403, "Forbidden");
+    }
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            jobId,
+            status: entry.status,
+            shapes: entry.shapes ?? null,
+            errorMessage: entry.errorMessage ?? null,
+        }, "Job status fetched")
+    );
+});
+
+// POST /internal/ai/result  — called by AI worker only, guarded by shared secret
+const receiveAiResult = asyncHandler(async (req, res) => {
+    const secret = req.headers["x-internal-secret"];
+    if (secret !== INTERNAL_SECRET) {
+        throw new ApiError(403, "Forbidden");
+    }
+
+    const {jobId, shapes, errorMessage} = req.body as {
+        jobId?: string;
+        shapes?: unknown[];
+        errorMessage?: string;
+    };
+
+    if (!jobId || typeof jobId !== "string") {
+        throw new ApiError(400, "Missing jobId");
+    }
+
+    const entry = aiJobStore.get(jobId);
+    if (!entry) {
+        return res.status(200).json(new ApiResponse(200, null, "Job not found (may have expired)"));
+    }
+
+    if (errorMessage) {
+        aiJobStore.set(jobId, {...entry, status: "error", errorMessage});
+    } else {
+        aiJobStore.set(jobId, {...entry, status: "done", shapes: shapes ?? []});
+    }
+
+    return res.status(200).json(new ApiResponse(200, null, "AI result received"));
+});
+
 export {
     createRoom,
     listMyRooms,
@@ -817,4 +975,8 @@ export {
     requestRoomAccess,
     listIncomingRoomAccessRequests,
     decideRoomAccessRequest,
+    generateAiCanvas,
+    getAiGenerateStatus,
+    receiveAiResult,
 };
+

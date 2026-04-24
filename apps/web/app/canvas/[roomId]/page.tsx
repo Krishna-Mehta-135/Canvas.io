@@ -4,7 +4,7 @@ import {ReactNode, useCallback, useEffect, useRef, useState} from "react";
 import {useParams, useSearchParams} from "next/navigation";
 import {AxiosError} from "axios";
 import {jsPDF} from "jspdf";
-import {attachEvents, convertToPoints} from "@repo/canvas-engine";
+import {attachEvents, convertToPoints, dispatch} from "@repo/canvas-engine";
 import {CanvasState} from "@repo/canvas-engine";
 import type {Shape, Tool} from "@repo/canvas-engine";
 import {HTTP_BACKEND} from "../../../config";
@@ -283,6 +283,253 @@ function escapeXml(value: string) {
         .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
         .replace(/'/g, "&apos;");
+}
+
+// File intent: keep AI-generated geometry safe/normalized so selection and dragging remain stable.
+function asFiniteNumber(value: unknown): number | null {
+    if (typeof value !== "number" || !Number.isFinite(value)) return null;
+    return value;
+}
+
+function ensurePositiveSpan(origin: number, span: number, minSpan: number) {
+    if (span >= 0) {
+        return {origin, span: Math.max(minSpan, span)};
+    }
+
+    return {
+        origin: origin + span,
+        span: Math.max(minSpan, Math.abs(span)),
+    };
+}
+
+type NodeShape = Extract<Shape, {type: "rect" | "rhombus" | "circle"}>;
+
+function getNodeArea(node: NodeShape) {
+    if (node.type === "circle") {
+        return Math.PI * node.radiusX * node.radiusY;
+    }
+
+    return node.width * node.height;
+}
+
+function textAnchorPoint(text: Extract<Shape, {type: "text"}>) {
+    return {
+        x: text.x + text.width / 2,
+        y: text.y + text.height / 2,
+    };
+}
+
+function containsPoint(node: NodeShape, point: {x: number; y: number}) {
+    if (node.type === "rect") {
+        return point.x >= node.x && point.x <= node.x + node.width && point.y >= node.y && point.y <= node.y + node.height;
+    }
+
+    if (node.type === "rhombus") {
+        const halfW = node.width / 2;
+        const halfH = node.height / 2;
+        if (halfW <= 0 || halfH <= 0) return false;
+        const centerX = node.x + halfW;
+        const centerY = node.y + halfH;
+        const nx = Math.abs(point.x - centerX) / halfW;
+        const ny = Math.abs(point.y - centerY) / halfH;
+        return nx + ny <= 1;
+    }
+
+    const rx = Math.max(1, node.radiusX);
+    const ry = Math.max(1, node.radiusY);
+    const dx = point.x - node.centerX;
+    const dy = point.y - node.centerY;
+    return (dx * dx) / (rx * rx) + (dy * dy) / (ry * ry) <= 1;
+}
+
+function linkAiTextToContainingNodes(shapes: Shape[]) {
+    const nodes = shapes.filter(
+        (shape): shape is NodeShape => shape.type === "rect" || shape.type === "rhombus" || shape.type === "circle"
+    );
+
+    if (nodes.length === 0) return shapes;
+
+    return shapes.map((shape) => {
+        if (shape.type !== "text") {
+            return shape;
+        }
+
+        const anchor = textAnchorPoint(shape);
+        const containing = nodes.filter((node) => containsPoint(node, anchor));
+        if (containing.length === 0) {
+            return {
+                ...shape,
+                parentId: undefined,
+            };
+        }
+
+        const parent = containing.sort((a, b) => getNodeArea(a) - getNodeArea(b))[0];
+        return {
+            ...shape,
+            parentId: parent?.id,
+        };
+    });
+}
+
+function sanitizeAiGeneratedShapes(rawShapes: unknown[]): Shape[] {
+    const normalized: Shape[] = [];
+    const usedIds = new Set<string>();
+
+    rawShapes.forEach((candidate, index) => {
+        if (!candidate || typeof candidate !== "object") return;
+
+        const shape = candidate as Record<string, unknown>;
+        const type = shape.type;
+        if (typeof type !== "string") return;
+
+        const rawId = typeof shape.id === "string" ? shape.id.trim() : "";
+        const id = rawId && !usedIds.has(rawId) ? rawId : `ai-${crypto.randomUUID()}`;
+        usedIds.add(id);
+
+        const baseStyle = {
+            stroke: typeof shape.stroke === "string" ? shape.stroke : undefined,
+            fill: typeof shape.fill === "string" ? shape.fill : undefined,
+            strokeStyle:
+                shape.strokeStyle === "solid" || shape.strokeStyle === "dashed" || shape.strokeStyle === "dotted"
+                    ? shape.strokeStyle
+                    : undefined,
+            fillStyle:
+                shape.fillStyle === "solid" ||
+                shape.fillStyle === "hachure" ||
+                shape.fillStyle === "cross-hatch" ||
+                shape.fillStyle === "dots"
+                    ? shape.fillStyle
+                    : undefined,
+            strokeWidth: Math.max(1, asFiniteNumber(shape.strokeWidth) ?? 2),
+            roughness: asFiniteNumber(shape.roughness) ?? (DRAWING_PERSONAS[1]?.roughness ?? 1),
+            opacity: Math.max(1, Math.min(100, asFiniteNumber(shape.opacity) ?? 100)),
+        } as const;
+
+        if (type === "rect" || type === "rhombus") {
+            const x = asFiniteNumber(shape.x);
+            const y = asFiniteNumber(shape.y);
+            const width = asFiniteNumber(shape.width);
+            const height = asFiniteNumber(shape.height);
+            if (x === null || y === null || width === null || height === null) return;
+
+            const normalizedX = ensurePositiveSpan(x, width, 8);
+            const normalizedY = ensurePositiveSpan(y, height, 8);
+
+            normalized.push({
+                id,
+                type,
+                x: normalizedX.origin,
+                y: normalizedY.origin,
+                width: normalizedX.span,
+                height: normalizedY.span,
+                ...baseStyle,
+            } as Shape);
+            return;
+        }
+
+        if (type === "circle") {
+            const centerX = asFiniteNumber(shape.centerX);
+            const centerY = asFiniteNumber(shape.centerY);
+            const radiusX = asFiniteNumber(shape.radiusX);
+            const radiusY = asFiniteNumber(shape.radiusY);
+            if (centerX === null || centerY === null || radiusX === null || radiusY === null) return;
+
+            normalized.push({
+                id,
+                type: "circle",
+                centerX,
+                centerY,
+                radiusX: Math.max(4, Math.abs(radiusX)),
+                radiusY: Math.max(4, Math.abs(radiusY)),
+                ...baseStyle,
+            });
+            return;
+        }
+
+        if (type === "line" || type === "arrow") {
+            const x1 = asFiniteNumber(shape.x1);
+            const y1 = asFiniteNumber(shape.y1);
+            const x2 = asFiniteNumber(shape.x2);
+            const y2 = asFiniteNumber(shape.y2);
+            if (x1 === null || y1 === null || x2 === null || y2 === null) return;
+
+            const endX = x1 === x2 && y1 === y2 ? x2 + 1 : x2;
+            normalized.push({
+                id,
+                type,
+                x1,
+                y1,
+                x2: endX,
+                y2,
+                startBinding: undefined,
+                endBinding: undefined,
+                ...baseStyle,
+            } as Shape);
+            return;
+        }
+
+        if (type === "text") {
+            const x = asFiniteNumber(shape.x);
+            const y = asFiniteNumber(shape.y);
+            if (x === null || y === null) return;
+
+            const text = typeof shape.text === "string" ? shape.text : "";
+            const trimmedText = text.trim();
+            if (!trimmedText) return;
+
+            const requestedWidth = asFiniteNumber(shape.width);
+            const requestedHeight = asFiniteNumber(shape.height);
+            const fallbackWidth = Math.max(24, Math.min(420, trimmedText.length * 9));
+
+            const normalizedWidth = ensurePositiveSpan(x, requestedWidth ?? fallbackWidth, 12);
+            const normalizedHeight = ensurePositiveSpan(y, requestedHeight ?? 24, 12);
+
+            normalized.push({
+                id,
+                type: "text",
+                x: normalizedWidth.origin,
+                y: normalizedHeight.origin,
+                width: normalizedWidth.span,
+                height: normalizedHeight.span,
+                text: trimmedText,
+                fontSize: Math.max(10, asFiniteNumber(shape.fontSize) ?? 18),
+                // AI inserts must not inherit parent linkage from stale prompts.
+                parentId: undefined,
+                ...baseStyle,
+            });
+            return;
+        }
+
+        if (type === "freehand") {
+            const rawPoints = Array.isArray(shape.points) ? shape.points : [];
+            const points = rawPoints
+                .map((point) => {
+                    if (!point || typeof point !== "object") return null;
+                    const p = point as Record<string, unknown>;
+                    const x = asFiniteNumber(p.x);
+                    const y = asFiniteNumber(p.y);
+                    if (x === null || y === null) return null;
+                    const t = asFiniteNumber(p.t);
+                    return t === null ? {x, y} : {x, y, t};
+                })
+                .filter((point): point is {x: number; y: number; t?: number} => point !== null);
+
+            if (points.length < 2) return;
+
+            normalized.push({
+                id,
+                type: "freehand",
+                points,
+                ...baseStyle,
+            });
+            return;
+        }
+
+        // Ignore unknown shape types to avoid corrupting canvas state.
+        console.warn("[Canvas] Ignoring unsupported AI shape", {index, type});
+    });
+
+    return linkAiTextToContainingNodes(normalized);
 }
 
 function getShapeBounds(shape: Shape) {
@@ -1445,36 +1692,20 @@ export default function CanvasPage() {
         controlsRef.current?.rerender();
     };
 
-    const applyToSelectedTextShapes = (updates: Partial<Extract<Shape, {type: "text"}>>) => {
-        if (!canvasState || selectedIds.length === 0) return;
-
-        const selectedSet = new Set(selectedIds);
-        const nextShapes = canvasState.getShapes().map((shape) => {
-            if (!selectedSet.has(shape.id) || shape.type !== "text") {
-                return shape;
-            }
-
-            return {
-                ...shape,
-                ...updates,
-            } as Shape;
-        });
-
-        canvasState.setShapes(nextShapes);
-        controlsRef.current?.rerender();
-    };
-
     const strokeValue = primarySelectedShape?.stroke ?? "#f8fafc";
     const fillValue = primarySelectedShape?.fill ?? "#60a5fa";
     const strokeStyleValue = primarySelectedShape?.strokeStyle ?? "solid";
     const fillStyleValue = primarySelectedShape?.fillStyle ?? "solid";
     const strokeWidthValue = primarySelectedShape?.strokeWidth ?? 2;
-    const textFontSizeValue = primarySelectedShape?.type === "text" ? primarySelectedShape.fontSize : 24;
     const roughnessValue = primarySelectedShape?.roughness ?? defaultRoughness;
     const opacityValue = primarySelectedShape?.opacity ?? 100;
     const showReplay = primarySelectedShape?.type === "freehand";
     const activePersona = DRAWING_PERSONAS.find((persona) => Math.abs(persona.roughness - roughnessValue) < 0.25) ?? null;
     const hoveredPersona = DRAWING_PERSONAS.find((persona) => persona.id === hoveredPersonaId) ?? null;
+    const shapeType = primarySelectedShape?.type ?? null;
+    const showsFillControls = shapeType === "rect" || shapeType === "circle" || shapeType === "rhombus" || shapeType === "text";
+    const showsStrokeStyleControls = shapeType === "rect" || shapeType === "circle" || shapeType === "rhombus" || shapeType === "text";
+    const showsFillStyleControls = shapeType === "rect" || shapeType === "circle" || shapeType === "rhombus" || shapeType === "text";
 
     const handleReplaySelected = () => {
         if (!primarySelectedShape) return;
@@ -1755,9 +1986,17 @@ export default function CanvasPage() {
                                     // AI now uses high-contrast colors that work in both light and dark modes
                                     // No remapping needed - new palette: Blue #3B82F6, Green #10B981, Amber #F59E0B, 
                                     // Violet #8B5CF6, Red #EF4444, Sky #06B6D4, Slate strokes
-                                    const themed = shapes as Shape[];
-                                    const existing = canvasState.getShapes();
-                                    canvasState.setShapes([...existing, ...themed]);
+                                    const themed = sanitizeAiGeneratedShapes(shapes);
+                                    if (themed.length === 0) {
+                                        pushToast("error", "AI generated invalid geometry. Please try a more specific prompt.");
+                                        return;
+                                    }
+                                    themed.forEach((shape) => {
+                                        dispatch(canvasState, {
+                                            type: "ADD_SHAPE",
+                                            payload: shape,
+                                        });
+                                    });
                                     controlsRef.current?.rerender();
                                     const generatedBounds = getBoundsForShapes(themed);
                                     if (generatedBounds) {
@@ -1768,7 +2007,13 @@ export default function CanvasPage() {
                                             durationMs: 340,
                                         });
                                     }
-                                    pushToast("success", `✦ AI added ${shapes.length} shapes to your canvas`);
+                                    const droppedCount = shapes.length - themed.length;
+                                    pushToast(
+                                        "success",
+                                        droppedCount > 0
+                                            ? `✦ AI added ${themed.length} shapes (${droppedCount} invalid skipped)`
+                                            : `✦ AI added ${themed.length} shapes to your canvas`
+                                    );
                                 }}
                                 onError={(message) => {
                                     pushToast("error", message);
@@ -2329,7 +2574,7 @@ export default function CanvasPage() {
                         </div>
                     </div>
 
-                    {!isTextShapeSelection && (
+                    {showsFillControls && (
                         <div className="mb-3">
                             <label className="text-xs font-medium opacity-80">Fill</label>
                             <div className="mt-1 flex flex-wrap items-center gap-1">
@@ -2377,7 +2622,7 @@ export default function CanvasPage() {
                         </div>
                     )}
 
-                    {!isTextShapeSelection && (
+                    {showsStrokeStyleControls && (
                         <div className="mb-3">
                             <label className="mb-1 block text-xs font-medium opacity-80">Stroke Style</label>
                             <div className="flex items-center gap-2">
@@ -2394,7 +2639,7 @@ export default function CanvasPage() {
                         </div>
                     )}
 
-                    {!isTextShapeSelection && (
+                    {showsFillStyleControls && (
                         <div className="mb-3">
                             <label className="mb-1 block text-xs font-medium opacity-80">Fill Style</label>
                             <div className="flex items-center gap-2">
@@ -2420,20 +2665,6 @@ export default function CanvasPage() {
                                 max={12}
                                 value={strokeWidthValue}
                                 onChange={(e) => applyToSelectedShapes({strokeWidth: Number(e.target.value)})}
-                                className="w-full"
-                            />
-                        </div>
-                    )}
-
-                    {isTextShapeSelection && (
-                        <div className="mb-3">
-                            <label className="mb-1 block text-xs font-medium opacity-80">Font Size: {textFontSizeValue}px</label>
-                            <input
-                                type="range"
-                                min={12}
-                                max={96}
-                                value={textFontSizeValue}
-                                onChange={(e) => applyToSelectedTextShapes({fontSize: Number(e.target.value)})}
                                 className="w-full"
                             />
                         </div>

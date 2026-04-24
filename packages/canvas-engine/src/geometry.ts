@@ -19,52 +19,61 @@ type ResizeOptions = {
     preserveAspect?: boolean;
 };
 
+function finiteOr(value: number, fallback: number) {
+    return Number.isFinite(value) ? value : fallback;
+}
+
+function normalizedRectBounds(x: number, y: number, width: number, height: number) {
+    const safeX = finiteOr(x, 0);
+    const safeY = finiteOr(y, 0);
+    const safeWidth = finiteOr(width, 0);
+    const safeHeight = finiteOr(height, 0);
+    const x2 = safeX + safeWidth;
+    const y2 = safeY + safeHeight;
+
+    return {
+        x1: Math.min(safeX, x2),
+        y1: Math.min(safeY, y2),
+        x2: Math.max(safeX, x2),
+        y2: Math.max(safeY, y2),
+    };
+}
+
 /* ---------------- CONVERT ---------------- */
 
 export function convertToPoints(shape: Shape) {
     if (shape.type === "rect") {
-        return {
-            x1: shape.x,
-            y1: shape.y,
-            x2: shape.x + shape.width,
-            y2: shape.y + shape.height,
-        };
+        return normalizedRectBounds(shape.x, shape.y, shape.width, shape.height);
     }
 
     if (shape.type === "rhombus") {
-        return {
-            x1: shape.x,
-            y1: shape.y,
-            x2: shape.x + shape.width,
-            y2: shape.y + shape.height,
-        };
+        return normalizedRectBounds(shape.x, shape.y, shape.width, shape.height);
     }
 
     if (shape.type === "circle") {
+        const centerX = finiteOr(shape.centerX, 0);
+        const centerY = finiteOr(shape.centerY, 0);
+        const radiusX = Math.abs(finiteOr(shape.radiusX, 0));
+        const radiusY = Math.abs(finiteOr(shape.radiusY, 0));
         return {
-            x1: shape.centerX - shape.radiusX,
-            y1: shape.centerY - shape.radiusY,
-            x2: shape.centerX + shape.radiusX,
-            y2: shape.centerY + shape.radiusY,
+            x1: centerX - radiusX,
+            y1: centerY - radiusY,
+            x2: centerX + radiusX,
+            y2: centerY + radiusY,
         };
     }
 
     if (shape.type === "line" || shape.type === "arrow") {
         return {
-            x1: shape.x1,
-            y1: shape.y1,
-            x2: shape.x2,
-            y2: shape.y2,
+            x1: finiteOr(shape.x1, 0),
+            y1: finiteOr(shape.y1, 0),
+            x2: finiteOr(shape.x2, 0),
+            y2: finiteOr(shape.y2, 0),
         };
     }
 
     if (shape.type === "text") {
-        return {
-            x1: shape.x,
-            y1: shape.y,
-            x2: shape.x + shape.width,
-            y2: shape.y + shape.height,
-        };
+        return normalizedRectBounds(shape.x, shape.y, shape.width, shape.height);
     }
 
     if (shape.type === "freehand") {

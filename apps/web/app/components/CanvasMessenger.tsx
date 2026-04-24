@@ -164,7 +164,8 @@ export function CanvasMessenger({
     const scrollEndRef = useRef<HTMLDivElement | null>(null);
     const knownIncomingIdsRef = useRef<Set<number>>(new Set());
     const knownDirectIncomingIdsRef = useRef<Set<number>>(new Set());
-    const hasInitializedUnreadRef = useRef(false);
+    const hasInitializedGeneralUnreadRef = useRef(false);
+    const hasInitializedDirectUnreadRef = useRef(false);
 
     const selectedShapeId = selectedShapeIds[0] ?? null;
     const canAttemptSend = true;
@@ -213,12 +214,16 @@ export function CanvasMessenger({
     }, [activeTab, chat.comments.length, chat.directMessages.length, chat.groupMessages.length, selectedPartnerId, commentView]);
 
     useEffect(() => {
+        if (chat.isLoading) {
+            return;
+        }
+
         const incomingMessages = [...chat.groupMessages, ...chat.comments].filter(
             (message) => message.id > 0 && !message.optimistic
         );
 
-        if (!hasInitializedUnreadRef.current) {
-            hasInitializedUnreadRef.current = true;
+        if (!hasInitializedGeneralUnreadRef.current) {
+            hasInitializedGeneralUnreadRef.current = true;
             knownIncomingIdsRef.current = new Set(incomingMessages.map((message) => message.id));
             return;
         }
@@ -241,14 +246,19 @@ export function CanvasMessenger({
         if (nextUnread > 0) {
             setUnreadCount((current) => current + nextUnread);
         }
-    }, [chat.comments, chat.directMessages, chat.groupMessages, currentUserId, isOpen]);
+    }, [chat.comments, chat.groupMessages, chat.isLoading, currentUserId, isOpen]);
 
     useEffect(() => {
+        if (chat.isLoading) {
+            return;
+        }
+
         const incomingDirectMessages = chat.directMessages.filter(
             (message) => message.id > 0 && !message.optimistic && message.sender.id !== currentUserId
         );
 
-        if (!hasInitializedUnreadRef.current) {
+        if (!hasInitializedDirectUnreadRef.current) {
+            hasInitializedDirectUnreadRef.current = true;
             knownDirectIncomingIdsRef.current = new Set(incomingDirectMessages.map((message) => message.id));
             return;
         }
@@ -276,10 +286,16 @@ export function CanvasMessenger({
         if (nextUnread > 0) {
             setDirectUnreadCount((current) => current + nextUnread);
         }
-    }, [activeTab, chat.directMessages, currentUserId, isOpen, selectedPartnerId]);
+    }, [activeTab, chat.directMessages, chat.isLoading, currentUserId, isOpen, selectedPartnerId]);
 
     useEffect(() => {
-        if (isOpen && activeTab === "direct" && selectedPartnerId) {
+        if (isOpen && (activeTab === "group" || activeTab === "comments")) {
+            setUnreadCount(0);
+        }
+    }, [activeTab, isOpen]);
+
+    useEffect(() => {
+        if (isOpen && activeTab === "direct") {
             setDirectUnreadCount(0);
         }
     }, [activeTab, isOpen, selectedPartnerId]);

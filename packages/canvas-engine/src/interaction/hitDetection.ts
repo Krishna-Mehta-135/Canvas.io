@@ -13,6 +13,7 @@ Used by:
 */
 
 import {Handle, Shape} from "../types";
+import {convertToPoints} from "../geometry";
 import {getTextRenderMetrics} from "../textMetrics";
 
 /**
@@ -25,7 +26,8 @@ const CONNECTOR_HANDLE_SIZE = 6;
 /* ---------------- SHAPE HIT ---------------- */
 
 function hitRect(shape: Extract<Shape, {type: "rect"}>, x: number, y: number) {
-    return x >= shape.x && x <= shape.x + shape.width && y >= shape.y && y <= shape.y + shape.height;
+    const bounds = convertToPoints(shape);
+    return x >= bounds.x1 && x <= bounds.x2 && y >= bounds.y1 && y <= bounds.y2;
 }
 
 function hitEllipse(shape: Extract<Shape, {type: "circle"}>, x: number, y: number) {
@@ -43,14 +45,17 @@ function hitEllipse(shape: Extract<Shape, {type: "circle"}>, x: number, y: numbe
 }
 
 function hitRhombus(shape: Extract<Shape, {type: "rhombus"}>, x: number, y: number) {
-    if (shape.width <= 0 || shape.height <= 0) return false;
+    const bounds = convertToPoints(shape);
+    const width = bounds.x2 - bounds.x1;
+    const height = bounds.y2 - bounds.y1;
+    if (width <= 0 || height <= 0) return false;
 
-    const centerX = shape.x + shape.width / 2;
-    const centerY = shape.y + shape.height / 2;
+    const centerX = bounds.x1 + width / 2;
+    const centerY = bounds.y1 + height / 2;
     const dx = Math.abs(x - centerX);
     const dy = Math.abs(y - centerY);
 
-    return dx / (shape.width / 2) + dy / (shape.height / 2) <= 1;
+    return dx / (width / 2) + dy / (height / 2) <= 1;
 }
 
 function hitConnector(shape: Extract<Shape, {type: "line" | "arrow"}>, x: number, y: number) {
@@ -154,22 +159,24 @@ export function getHandleAtPoint(
 ): Handle | null {
     // RECT
     if (shape.type === "rect") {
+        const bounds = convertToPoints(shape);
         return getBoxHandle(
-            shape.x - padding,
-            shape.y - padding,
-            shape.x + shape.width + padding,
-            shape.y + shape.height + padding,
+            bounds.x1 - padding,
+            bounds.y1 - padding,
+            bounds.x2 + padding,
+            bounds.y2 + padding,
             x,
             y
         );
     }
 
     if (shape.type === "rhombus") {
+        const bounds = convertToPoints(shape);
         return getBoxHandle(
-            shape.x - padding,
-            shape.y - padding,
-            shape.x + shape.width + padding,
-            shape.y + shape.height + padding,
+            bounds.x1 - padding,
+            bounds.y1 - padding,
+            bounds.x2 + padding,
+            bounds.y2 + padding,
             x,
             y
         );
@@ -177,33 +184,33 @@ export function getHandleAtPoint(
 
     // CIRCLE (uses bounding box)
     if (shape.type === "circle") {
-        const x1 = shape.centerX - shape.radiusX - padding;
-        const y1 = shape.centerY - shape.radiusY - padding;
-        const x2 = shape.centerX + shape.radiusX + padding;
-        const y2 = shape.centerY + shape.radiusY + padding;
+        const bounds = convertToPoints(shape);
+        const x1 = bounds.x1 - padding;
+        const y1 = bounds.y1 - padding;
+        const x2 = bounds.x2 + padding;
+        const y2 = bounds.y2 + padding;
 
         return getBoxHandle(x1, y1, x2, y2, x, y);
     }
 
     if (shape.type === "text") {
-        const bounds = ctx
+        const metrics = ctx
             ? (() => {
                   const {textWidth, textHeight} = getTextRenderMetrics(ctx, shape);
                   return {
-                      width: textWidth,
-                      height: textHeight,
+                      x1: shape.x,
+                      y1: shape.y,
+                      x2: shape.x + textWidth,
+                      y2: shape.y + textHeight,
                   };
               })()
-            : {
-                  width: shape.width,
-                  height: shape.height,
-              };
+            : convertToPoints(shape);
 
         return getBoxHandle(
-            shape.x - padding,
-            shape.y - padding,
-            shape.x + bounds.width + padding,
-            shape.y + bounds.height + padding,
+            metrics.x1 - padding,
+            metrics.y1 - padding,
+            metrics.x2 + padding,
+            metrics.y2 + padding,
             x,
             y
         );

@@ -1,4 +1,5 @@
 import {Shape} from "../types";
+import {convertToPoints} from "../geometry";
 
 /**
  * Axis-aligned marquee selection bounds in canvas space.
@@ -37,38 +38,9 @@ export function isShapeInsideBox(shape: Shape, box: SelectionBox) {
     const x2 = x + width;
     const y2 = y + height;
 
-    if (shape.type === "rect") {
-        return shape.x >= x && shape.x + shape.width <= x2 && shape.y >= y && shape.y + shape.height <= y2;
-    }
-
-    if (shape.type === "rhombus") {
-        return shape.x >= x && shape.x + shape.width <= x2 && shape.y >= y && shape.y + shape.height <= y2;
-    }
-
-    if (shape.type === "circle") {
-        const sx1 = shape.centerX - shape.radiusX;
-        const sy1 = shape.centerY - shape.radiusY;
-        const sx2 = shape.centerX + shape.radiusX;
-        const sy2 = shape.centerY + shape.radiusY;
-
-        return sx1 >= x && sx2 <= x2 && sy1 >= y && sy2 <= y2;
-    }
-
-    if (shape.type === "line" || shape.type === "arrow") {
-        return (
-            shape.x1 >= x &&
-            shape.x1 <= x2 &&
-            shape.y1 >= y &&
-            shape.y1 <= y2 &&
-            shape.x2 >= x &&
-            shape.x2 <= x2 &&
-            shape.y2 >= y &&
-            shape.y2 <= y2
-        );
-    }
-
-    if (shape.type === "text") {
-        return shape.x >= x && shape.x + shape.width <= x2 && shape.y >= y && shape.y + shape.height <= y2;
+    if (shape.type !== "freehand") {
+        const bounds = convertToPoints(shape);
+        return bounds.x1 >= x && bounds.x2 <= x2 && bounds.y1 >= y && bounds.y2 <= y2;
     }
 
     if (shape.type === "freehand") {
@@ -76,8 +48,6 @@ export function isShapeInsideBox(shape: Shape, box: SelectionBox) {
 
         return shape.points.every((point) => point.x >= x && point.x <= x2 && point.y >= y && point.y <= y2);
     }
-
-    return false;
 }
 
 /**

@@ -512,18 +512,11 @@ export function useCanvasSync({
             console.log("[WS] Received snapshot from", message.senderId, "version:", message.version);
           }
 
-          // Update the overlay ref immediately — the RemotePresenceLayer RAF
-          // loop reads this every frame, so the selection box snaps to the new
-          // position within ≤1 frame (~16ms) of the broadcast arriving, without
-          // waiting for the idle grace period or a second RAF hop.
-          //
-          // The canvas engine hydration is still deferred via scheduleRemoteHydrate
-          // so the grace period correctly protects local drag operations.
-          // Only update if the local user is not actively editing (i.e. the
-          // broadcast isn't going to conflict with an in-progress local drag).
-          if (Date.now() - lastLocalEditAtRef.current > REMOTE_HYDRATE_IDLE_GRACE_MS) {
-            latestShapesRef.current = message.shapes;
-          }
+          // Keep the live overlay ref current as soon as the snapshot arrives.
+          // The actual CanvasState hydrate still goes through the deferred path
+          // below, so local drag churn remains protected, but remote selection
+          // boxes and attached indicators can track the newest geometry every frame.
+          latestShapesRef.current = message.shapes;
 
           pendingRemoteSnapshotRef.current = {
             roomId: message.roomId,

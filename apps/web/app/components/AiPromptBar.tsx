@@ -528,7 +528,7 @@ export function AiTriggerButton({onClick, isActive, isDark}: AiTriggerButtonProp
             type="button"
             onClick={onClick}
             title="Generate with AI"
-            className={`flex h-11 items-center gap-2 rounded-full border pl-3 pr-4 text-[13px] font-medium transition-all ${
+            className={`flex h-11 items-center gap-2 rounded-full border pl-3 pr-4 text-[13px] font-medium my-4 transition-all ${
                 isActive
                     ? isDark
                         ? "border-indigo-400/50 bg-indigo-500/20 text-indigo-200"

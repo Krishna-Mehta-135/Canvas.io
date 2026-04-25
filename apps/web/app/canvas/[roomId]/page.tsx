@@ -1,7 +1,9 @@
 "use client";
 
+/* File intent: Interactive canvas workspace with tools, presence, and room actions. */
+
 import {ReactNode, useCallback, useEffect, useRef, useState} from "react";
-import {useParams, useSearchParams, useRouter} from "next/navigation";
+import {useParams, useSearchParams} from "next/navigation";
 import {AxiosError} from "axios";
 import {jsPDF} from "jspdf";
 import {attachEvents, convertToPoints, dispatch} from "@repo/canvas-engine";
@@ -18,6 +20,13 @@ import {AiChatModal, AiTriggerButton} from "../../components/AiPromptBar";
 import {CanvasMessenger} from "../../components/CanvasMessenger";
 
 const STYLE_SWATCHES = ["#1e1e1e", "#e03131", "#2f9e44", "#1971c2", "#f08c00", "#ffffff"];
+const RAINBOW_PICKER_BACKGROUND = "conic-gradient(from 180deg at 50% 50%, #ef4444, #f97316, #eab308, #22c55e, #06b6d4, #3b82f6, #8b5cf6, #ec4899, #ef4444)";
+
+function normalizePickerColor(value: string | null | undefined, fallback: string) {
+    if (!value) return fallback;
+    return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(value) ? value : fallback;
+}
+
 const FILL_STYLE_OPTIONS: Array<{value: NonNullable<Shape["fillStyle"]>; label: string}> = [
     {value: "solid", label: "Solid"},
     {value: "hachure", label: "Hachure"},
@@ -229,13 +238,6 @@ function normalizeJoinTarget(rawValue: string) {
     } catch {
         return trimmed.replace(/^\/+|\/+$/g, "");
     }
-}
-
-function getUserInitials(name: string) {
-    const cleaned = name.trim();
-    if (!cleaned) return "?";
-    const parts = cleaned.split(/\s+/).slice(0, 2);
-    return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "?";
 }
 
 function deriveCanvasLabel(target: string) {
@@ -860,112 +862,6 @@ function StrokeStyleTile({
     );
 }
 
-function PersonaExampleGlyph({example, isDark}: {example: string; isDark: boolean}) {
-    const strokeClass = isDark ? "stroke-blue-100/90" : "stroke-blue-700";
-    const fillClass = isDark ? "fill-blue-100/80" : "fill-blue-700/80";
-
-    if (example === "Blueprint") {
-        return (
-            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.4" strokeLinecap="round">
-                <path d="M4 4h32M4 8h32M4 12h32M4 16h32M4 20h32" className="opacity-35" />
-                <rect x="8" y="6" width="24" height="12" rx="1.2" />
-            </svg>
-        );
-    }
-
-    if (example === "Flowchart") {
-        return (
-            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="8" width="10" height="7" rx="1" />
-                <path d="M18 7l4 5-4 5-4-5z" />
-                <rect x="27" y="8" width="10" height="7" rx="1" />
-                <path d="M13 11.5h3M22 11.5h5" />
-            </svg>
-        );
-    }
-
-    if (example === "Wireframe") {
-        return (
-            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4" y="3" width="32" height="18" rx="2" />
-                <rect x="7" y="6" width="9" height="4" rx="1" />
-                <path d="M18 7h15M18 10h8" />
-                <rect x="7" y="12" width="26" height="6" rx="1" />
-            </svg>
-        );
-    }
-
-    if (example === "Storyboard") {
-        return (
-            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="4" width="10" height="7" rx="1" />
-                <rect x="15" y="4" width="10" height="7" rx="1" />
-                <rect x="27" y="4" width="10" height="7" rx="1" />
-                <path d="M8 13v6M20 13v6M32 13v6" />
-            </svg>
-        );
-    }
-
-    if (example === "Sketch note") {
-        return (
-            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 16c3-7 7 3 11-2 2-2 4 2 8 1 4-1 8-6 13-2" />
-                <path d="M6 6h11M6 9h8" className="opacity-65" />
-            </svg>
-        );
-    }
-
-    if (example === "Concept map") {
-        return (
-            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="20" cy="12" r="3.2" className={fillClass} />
-                <circle cx="8" cy="7" r="2.4" />
-                <circle cx="31" cy="7" r="2.4" />
-                <circle cx="10" cy="18" r="2.4" />
-                <circle cx="30" cy="18" r="2.4" />
-                <path d="M17 10L10 8M23 10l6-2M17 14l-5 3M23 14l5 3" />
-            </svg>
-        );
-    }
-
-    if (example === "Comic panel") {
-        return (
-            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="34" height="18" rx="2" />
-                <path d="M20 3v18" />
-                <circle cx="11" cy="11" r="3" />
-                <path d="M24 7h10M24 10h8M24 13h11" />
-            </svg>
-        );
-    }
-
-    if (example === "Doodle scene") {
-        return (
-            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 18h32" className="opacity-60" />
-                <path d="M6 18l5-6 4 6" />
-                <circle cx="18" cy="10" r="2.5" />
-                <path d="M24 18c0-4 3-7 6-7s6 3 6 7" />
-            </svg>
-        );
-    }
-
-    if (example === "Character board") {
-        return (
-            <svg viewBox="0 0 40 24" className={`h-7 w-full ${strokeClass}`} fill="none" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="9" cy="8" r="3" />
-                <path d="M6 18c0-3 2-5 3-5s3 2 3 5" />
-                <circle cx="20" cy="8" r="3" />
-                <path d="M17 18c0-3 2-5 3-5s3 2 3 5" />
-                <circle cx="31" cy="8" r="3" />
-                <path d="M28 18c0-3 2-5 3-5s3 2 3 5" />
-            </svg>
-        );
-    }
-
-    return <div className={`h-7 w-full rounded-sm ${isDark ? "bg-blue-100/10" : "bg-blue-100"}`} />;
-}
-
 function PersonaButtonGlyph({personaId}: {personaId: string}) {
     if (personaId === "architect") {
         return (
@@ -999,7 +895,6 @@ function PersonaButtonGlyph({personaId}: {personaId: string}) {
 export default function CanvasPage() {
     const params = useParams<{roomId: string}>();
     const searchParams = useSearchParams();
-    const router = useRouter();
     const roomId = Array.isArray(params?.roomId) ? params.roomId[0] : params?.roomId;
     const ownerHandleFromQuery = searchParams.get("owner")?.trim() ?? "";
 
@@ -1012,6 +907,7 @@ export default function CanvasPage() {
     const [activeTool, setActiveTool] = useState<Tool>("select");
     const [selectedCount, setSelectedCount] = useState(0);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
+    const selectedIdsRef = useRef<string[]>([]);
     const [inspectorRevision, setInspectorRevision] = useState(0);
     const [inviteLink, setInviteLink] = useState<string | null>(null);
     const [syncStatus, setSyncStatus] = useState<"connected" | "disconnected" | "error">("disconnected");
@@ -1024,10 +920,14 @@ export default function CanvasPage() {
     const [isAiOpen, setIsAiOpen] = useState(false);
     const canonicalRedirectIssuedRef = useRef(false);
     const canonicalUrlNormalizedRef = useRef(false);
-    const [hoveredPersonaId, setHoveredPersonaId] = useState<string | null>(null);
     const [defaultRoughness, setDefaultRoughness] = useState<number>(DRAWING_PERSONAS[1]?.roughness ?? 1);
     const defaultRoughnessRef = useRef<number>(DRAWING_PERSONAS[1]?.roughness ?? 1);
     const [viewport, setViewport] = useState<StoredViewport | null>(null);
+    const viewportLiveRef = useRef<StoredViewport | null>(null);
+    const viewportUiSyncTimerRef = useRef<number | null>(null);
+    const pendingViewportForUiRef = useRef<StoredViewport | null>(null);
+    const viewportPersistTimerRef = useRef<number | null>(null);
+    const pendingViewportForPersistRef = useRef<StoredViewport | null>(null);
     const [isMenuOpen, setIsMenuOpen] = useState(false);
     const [isJoinCanvasModalOpen, setIsJoinCanvasModalOpen] = useState(false);
     const [joinCanvasInput, setJoinCanvasInput] = useState("");
@@ -1048,7 +948,6 @@ export default function CanvasPage() {
     const [requestDecisionInFlightId, setRequestDecisionInFlightId] = useState<number | null>(null);
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [isClearCanvasModalOpen, setIsClearCanvasModalOpen] = useState(false);
-    const [styleCommentDraft, setStyleCommentDraft] = useState("");
     const [floatingShapeComments, setFloatingShapeComments] = useState<FloatingShapeComment[]>([]);
     const menuButtonRef = useRef<HTMLButtonElement | null>(null);
     const menuPanelRef = useRef<HTMLDivElement | null>(null);
@@ -1283,6 +1182,7 @@ export default function CanvasPage() {
         canvas.height = Math.round(window.innerHeight * pixelRatio);
 
         const initialViewport = loadStoredViewport(roomId);
+        viewportLiveRef.current = initialViewport ?? {x: window.innerWidth / 2, y: window.innerHeight / 2, scale: 1};
         setViewport(initialViewport ?? {x: window.innerWidth / 2, y: window.innerHeight / 2, scale: 1});
 
         const state = new CanvasState();
@@ -1451,6 +1351,13 @@ export default function CanvasPage() {
         const unsubscribe = state.subscribe(() => {
             // Ensure remote websocket updates repaint immediately without requiring focus.
             controlsRef.current?.rerender();
+            
+            // Only force React re-render if we actually have shapes selected (i.e. inspector is visible)
+            // This prevents massive full-page re-renders at 60fps when remote users are drawing!
+            if (selectedIdsRef.current.length === 0) {
+                return;
+            }
+
             if (inspectorRevisionRafRef.current !== null) {
                 return;
             }
@@ -1516,14 +1423,34 @@ export default function CanvasPage() {
                 onSelectionChange: (selectedIds) => {
                     setSelectedCount(selectedIds.length);
                     setSelectedIds(selectedIds);
+                    selectedIdsRef.current = selectedIds;
                 },
                 onViewportChange: (viewport) => {
-                    setViewport(viewport);
+                    viewportLiveRef.current = viewport;
+                    pendingViewportForUiRef.current = viewport;
+                    if (viewportUiSyncTimerRef.current === null) {
+                        viewportUiSyncTimerRef.current = window.setTimeout(() => {
+                            viewportUiSyncTimerRef.current = null;
+                            if (pendingViewportForUiRef.current) {
+                                setViewport(pendingViewportForUiRef.current);
+                            }
+                        }, 34);
+                    }
+
                     if (skipNextViewportPersistRef.current) {
                         skipNextViewportPersistRef.current = false;
                         return;
                     }
-                    saveStoredViewport(roomId, viewport);
+
+                    pendingViewportForPersistRef.current = viewport;
+                    if (viewportPersistTimerRef.current === null) {
+                        viewportPersistTimerRef.current = window.setTimeout(() => {
+                            viewportPersistTimerRef.current = null;
+                            if (pendingViewportForPersistRef.current) {
+                                saveStoredViewport(roomId, pendingViewportForPersistRef.current);
+                            }
+                        }, 140);
+                    }
                 },
             });
 
@@ -1538,6 +1465,16 @@ export default function CanvasPage() {
 
             controlsRef.current?.destroy();
             controlsRef.current = null;
+
+            if (viewportUiSyncTimerRef.current !== null) {
+                window.clearTimeout(viewportUiSyncTimerRef.current);
+                viewportUiSyncTimerRef.current = null;
+            }
+
+            if (viewportPersistTimerRef.current !== null) {
+                window.clearTimeout(viewportPersistTimerRef.current);
+                viewportPersistTimerRef.current = null;
+            }
 
             // Stop listening to state updates when this page unmounts.
             // Without this, a stale callback could keep firing saves.
@@ -1692,9 +1629,6 @@ export default function CanvasPage() {
 
     const primarySelectedShape = selectedShapes[selectedShapes.length - 1] ?? null;
     const isTextShapeSelection = primarySelectedShape?.type === "text";
-    const selectedShapeComments = primarySelectedShape
-        ? chat.commentsByShapeId.get(primarySelectedShape.id) ?? []
-        : [];
 
     const spawnFloatingComment = useCallback(
         (shapeId: string, body: string, authorLabel: string, dedupeKey: string) => {
@@ -1731,10 +1665,6 @@ export default function CanvasPage() {
     );
 
     useEffect(() => {
-        setStyleCommentDraft("");
-    }, [primarySelectedShape?.id]);
-
-    useEffect(() => {
         for (const message of syncResult.realtimeChatMessages) {
             if (message.kind !== "comment" || !message.shapeId) {
                 continue;
@@ -1753,25 +1683,6 @@ export default function CanvasPage() {
             );
         }
     }, [spawnFloatingComment, syncResult.currentUserId, syncResult.realtimeChatMessages]);
-
-    const handleAddStyleComment = () => {
-        const nextComment = styleCommentDraft.trim();
-        if (!primarySelectedShape || !nextComment) return;
-
-        const sent = chat.sendComment(primarySelectedShape.id, nextComment);
-        if (!sent) {
-            pushToast("error", "Comment could not be sent right now.");
-            return;
-        }
-
-        spawnFloatingComment(
-            primarySelectedShape.id,
-            nextComment,
-            "You",
-            `local:${syncResult.currentUserId ?? "self"}:${primarySelectedShape.id}:${nextComment.toLowerCase()}`
-        );
-        setStyleCommentDraft("");
-    };
 
     const applyToSelectedShapes = (updates: Partial<Shape>) => {
         if (!canvasState || selectedIds.length === 0) return;
@@ -1793,16 +1704,12 @@ export default function CanvasPage() {
     const fillValue = primarySelectedShape?.fill ?? "#60a5fa";
     const strokeStyleValue = primarySelectedShape?.strokeStyle ?? "solid";
     const fillStyleValue = primarySelectedShape?.fillStyle ?? "solid";
-    const strokeWidthValue = primarySelectedShape?.strokeWidth ?? 2;
     const roughnessValue = primarySelectedShape?.roughness ?? defaultRoughness;
     const opacityValue = primarySelectedShape?.opacity ?? 100;
     const showReplay = primarySelectedShape?.type === "freehand";
     const activePersona = DRAWING_PERSONAS.find((persona) => Math.abs(persona.roughness - roughnessValue) < 0.25) ?? null;
-    const hoveredPersona = DRAWING_PERSONAS.find((persona) => persona.id === hoveredPersonaId) ?? null;
     const shapeType = primarySelectedShape?.type ?? null;
     const showsFillControls = shapeType === "rect" || shapeType === "circle" || shapeType === "rhombus" || shapeType === "text";
-    const showsStrokeStyleControls = shapeType === "rect" || shapeType === "circle" || shapeType === "rhombus" || shapeType === "text";
-    const showsFillStyleControls = shapeType === "rect" || shapeType === "circle" || shapeType === "rhombus" || shapeType === "text";
 
     const handleReplaySelected = () => {
         if (!primarySelectedShape) return;
@@ -1937,6 +1844,14 @@ export default function CanvasPage() {
     };
 
     const handleJoinCanvasFromMenu = () => {
+        setIsJoinCanvasModalOpen(true);
+        setIsMenuOpen(false);
+        setShowRoomInfo(false);
+    };
+
+    const handleGoToMyCanvases = () => {
+        setIsMenuOpen(false);
+        setShowRoomInfo(false);
         window.location.href = "/rooms";
     };
 
@@ -2086,7 +2001,7 @@ export default function CanvasPage() {
     const participantPreview = participantNames.slice(0, 4);
     const extraParticipantCount = Math.max(0, participantNames.length - participantPreview.length);
     const zoomPercent = Math.round((viewport?.scale ?? 1) * 100);
-    const shellBackground = isDark ? "bg-[#070b14] text-white" : "bg-[#f3f7fd] text-slate-900";
+    const shellBackground = isDark ? "bg-[#070b14] text-white" : "bg-[#f5f9ff] text-slate-900";
     const shellGlow = isDark
         ? "bg-[radial-gradient(circle_at_20%_15%,rgba(59,130,246,0.18),transparent_28%),radial-gradient(circle_at_80%_10%,rgba(139,92,246,0.14),transparent_25%),radial-gradient(circle_at_50%_90%,rgba(16,185,129,0.08),transparent_30%)]"
         : "bg-[radial-gradient(circle_at_20%_15%,rgba(59,130,246,0.22),transparent_40%),radial-gradient(circle_at_80%_12%,rgba(16,185,129,0.18),transparent_35%),radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.12),transparent_60%)]";
@@ -2119,23 +2034,30 @@ export default function CanvasPage() {
                 </div>
             )}
 
-            {/* Top Left: Workspace Metadata */}
+            {/* Workspace Metadata */}
             <div className="pointer-events-none absolute left-4 top-4 z-40">
-                <div className={`pointer-events-auto flex items-center gap-6 rounded-xl border px-6 py-4 backdrop-blur-xl ${floatingPanelSurface}`}>
+                <div className={`pointer-events-auto flex items-center gap-4 rounded-2xl border px-4 py-3 my-2 backdrop-blur-2xl ${floatingPanelSurface}`}>
                     <div className="flex flex-col">
-                        <div className={`text-[11px] font-bold uppercase tracking-[0.25em] ${isDark ? "text-blue-200/60" : "text-blue-700/70"}`}>
-                            {ownerHandleFromQuery ? `@${ownerHandleFromQuery.toUpperCase()}` : "CANVAS WORKSPACE"}
+                        {/* <div className={`mb-1 inline-flex w-fit rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.22em] ${isDark ? "bg-white/5 text-white/55" : "bg-slate-100 text-slate-500"}`}>
+                            Canvas
+                        </div> */}
+                        <div className="text-[15px] font-semibold leading-none tracking-tight">
+                            {canvasTitle}
                         </div>
-                        <div className="mt-1 truncate text-[19px] font-black tracking-tight leading-tight">{roomId ?? "Untitled"}</div>
+                        <div className={`mt-1 text-[10px] ${isDark ? "text-white/45" : "text-slate-500"}`}>
+                            {participantNames.length > 0
+                                ? `${participantNames.length} collaborator${participantNames.length === 1 ? "" : "s"} active${extraParticipantCount > 0 ? `, +${extraParticipantCount} more` : ""}`
+                                : "Workspace"}
+                        </div>
                     </div>
-                    <div className={`h-10 w-px ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
+                    <div className={`h-7 w-px ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
                     <button
                         type="button"
                         onClick={handleCopyInvite}
-                        className={`rounded-lg border px-5 py-2.5 text-sm font-bold transition-all hover:scale-105 active:scale-95 ${
+                        className={`rounded-full border px-4 py-2 text-[11px] font-semibold transition-all hover:scale-105 active:scale-95 ${
                             isDark
                                 ? "border-white/20 bg-white/10 text-white hover:bg-white/15"
-                                : "border-slate-300 bg-white text-slate-800 hover:border-slate-400 shadow-sm hover:shadow-md"
+                                : "border-slate-200 bg-white text-slate-800 shadow-sm hover:border-slate-300 hover:shadow"
                         }`}
                     >
                         Share
@@ -2329,32 +2251,13 @@ export default function CanvasPage() {
                             <button
                                 type="button"
                                 role="menuitem"
-                                onClick={() => {
-                                    setIsMenuOpen(false);
-                                    setShowRoomInfo(false);
-                                    handleJoinCanvasFromMenu();
-                                }}
-                                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
-                                    isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
-                                }`}
-                            >
-                                <span>My canvases</span>
-                                <span className="text-xs opacity-60">/rooms</span>
-                            </button>
-                            <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                    setIsJoinCanvasModalOpen(true);
-                                    setIsMenuOpen(false);
-                                    setShowRoomInfo(false);
-                                }}
+                                onClick={handleGoToMyCanvases}
                                 className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
                                     isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
                                 }`}
                             >
                                 <span>Switch Workspace</span>
-                                <span className="text-[10px] opacity-60 uppercase tracking-widest font-bold">Quick</span>
+                                <span className="text-xs opacity-60">/rooms</span>
                             </button>
 
                             <div className={`my-2 h-px ${isDark ? "bg-white/10" : "bg-slate-200"}`} />
@@ -2428,15 +2331,13 @@ export default function CanvasPage() {
                                 type="button"
                                 role="menuitem"
                                 onClick={() => {
-                                    setIsMenuOpen(false);
-                                    setShowRoomInfo(false);
                                     handleJoinCanvasFromMenu();
                                 }}
                                 className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition ${
                                     isDark ? "hover:bg-white/10" : "hover:bg-slate-100"
                                 }`}
                             >
-                                <span>Go to my canvases</span>
+                                <span>Join a canvas</span>
                             </button>
                             <button
                                 type="button"
@@ -2663,9 +2564,9 @@ export default function CanvasPage() {
                     >
                         <div className="mb-4 flex items-start justify-between gap-3">
                             <div>
-                                <h2 className="text-lg font-semibold">Canvas Switcher</h2>
+                                <h2 className="text-lg font-semibold">Join Someone&apos;s Canvas</h2>
                                 <p className={`mt-1 text-sm ${isDark ? "text-white/70" : "text-slate-600"}`}>
-                                    Jump to another workspace quickly using recent canvases or an invite URL.
+                                    Paste an invite URL from another user or enter their owner/room route.
                                 </p>
                             </div>
                             <div className={`rounded-lg border px-2 py-1 text-xs ${isDark ? "border-white/15 text-white/70" : "border-slate-300 text-slate-600"}`}>
@@ -2675,7 +2576,7 @@ export default function CanvasPage() {
 
                         <div className={`rounded-2xl border p-3 ${isDark ? "border-white/10 bg-white/5" : "border-slate-200 bg-slate-50"}`}>
                             <label className={`mb-2 block text-xs font-semibold uppercase tracking-[0.14em] ${isDark ? "text-white/60" : "text-slate-500"}`}>
-                                Switch by URL or Slug
+                                Join by invite or owner route
                             </label>
                             <div className="flex gap-2">
                                 <input
@@ -2688,7 +2589,7 @@ export default function CanvasPage() {
                                             void handleSubmitJoinCanvas();
                                         }
                                     }}
-                                    placeholder="https://.../room/owner/slug or /canvas/slug"
+                                    placeholder="https://.../room/owner/slug or /room/owner/slug"
                                     className={`w-full rounded-xl border px-3 py-2 text-sm outline-none ${
                                         isDark
                                             ? "border-white/15 bg-[#0b1220] text-white placeholder:text-white/40 focus:border-white/30"
@@ -2705,68 +2606,17 @@ export default function CanvasPage() {
                                             : "bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-70"
                                     }`}
                                 >
-                                    {isJoiningCanvas ? "Switching..." : "Switch"}
+                                    {isJoiningCanvas ? "Joining..." : "Join"}
                                 </button>
                             </div>
                         </div>
-
-                        <div className="mt-4">
-                            <div className={`mb-2 text-xs font-semibold uppercase tracking-[0.14em] ${isDark ? "text-white/60" : "text-slate-500"}`}>
-                                Recent Canvases
-                            </div>
-                            <div className="max-h-52 space-y-2 overflow-y-auto pr-1">
-                                {recentCanvases.length === 0 ? (
-                                    <div className={`rounded-xl border px-3 py-2 text-sm ${isDark ? "border-white/10 bg-white/5 text-white/70" : "border-slate-200 bg-slate-50 text-slate-600"}`}>
-                                        No recent canvases yet. Canvases you open will appear here.
-                                    </div>
-                                ) : (
-                                    recentCanvases.map((entry) => {
-                                        const isCurrent = (ownerHandleFromQuery ? `room/${ownerHandleFromQuery}/${roomId ?? ""}` : `canvas/${roomId ?? ""}`) === entry.target;
-                                        return (
-                                            <button
-                                                key={entry.target}
-                                                type="button"
-                                                onClick={() => {
-                                                    void handleSubmitJoinCanvasTarget(entry.target);
-                                                }}
-                                                disabled={isJoiningCanvas || isCurrent}
-                                                className={`flex w-full items-center justify-between rounded-xl border px-3 py-2 text-left transition ${
-                                                    isCurrent
-                                                        ? isDark
-                                                            ? "cursor-default border-blue-300/40 bg-blue-500/15 text-blue-100"
-                                                            : "cursor-default border-blue-300 bg-blue-50 text-blue-700"
-                                                        : isDark
-                                                            ? "border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10"
-                                                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
-                                                }`}
-                                            >
-                                                <div className="min-w-0">
-                                                    <div className="truncate text-sm font-semibold">{entry.label}</div>
-                                                    <div className={`truncate text-xs ${isDark ? "text-white/60" : "text-slate-500"}`}>/{entry.target}</div>
-                                                </div>
-                                                <span className={`ml-3 rounded-lg px-2 py-1 text-xs ${isCurrent ? "opacity-90" : isDark ? "bg-white/10 text-white/75" : "bg-slate-100 text-slate-600"}`}>
-                                                    {isCurrent ? "Current" : "Open"}
-                                                </span>
-                                            </button>
-                                        );
-                                    })
-                                )}
-                            </div>
-                        </div>
-
                         <p className={`mt-3 text-xs ${isDark ? "text-white/55" : "text-slate-500"}`}>
-                            Tip: You can paste full invite links, room URLs, or just canvas slugs.
+                            Tip: Ask collaborators to share their room invite link. Public owner routes also work.
                         </p>
-                        <div className="mt-4 flex justify-between items-center gap-2">
-                            <button
-                                type="button"
-                                onClick={() => router.push("/rooms")}
-                                className={`rounded-lg border px-3 py-2 text-sm font-medium transition ${
-                                    isDark ? "border-blue-400/30 bg-blue-500/10 text-blue-100 hover:bg-blue-500/20" : "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
-                                }`}
-                            >
-                                View your canvases
-                            </button>
+                        <p className={`mt-1 text-[11px] ${isDark ? "text-white/45" : "text-slate-500/90"}`}>
+                            Saved recent canvases on this device: {recentCanvases.length}
+                        </p>
+                        <div className="mt-4 flex justify-end items-center gap-2">
                             <button
                                 type="button"
                                 onClick={() => setIsJoinCanvasModalOpen(false)}
@@ -2816,6 +2666,21 @@ export default function CanvasPage() {
                                     />
                                 );
                             })}
+                            <label
+                                className={`relative h-7 w-7 cursor-pointer overflow-hidden rounded-lg border ${
+                                    isDark ? "border-white/20" : "border-slate-300"
+                                }`}
+                                style={{background: RAINBOW_PICKER_BACKGROUND}}
+                                title="Pick custom stroke color"
+                                aria-label="Pick custom stroke color"
+                            >
+                                <input
+                                    type="color"
+                                    value={normalizePickerColor(strokeValue, "#1971c2")}
+                                    onChange={(event) => applyToSelectedShapes({stroke: event.target.value})}
+                                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                                />
+                            </label>
                         </div>
                     </div>
 
@@ -2842,6 +2707,22 @@ export default function CanvasPage() {
                                         />
                                     );
                                 })}
+
+                                <label
+                                    className={`relative h-7 w-7 cursor-pointer overflow-hidden rounded-lg border ${
+                                        isDark ? "border-white/20" : "border-slate-300"
+                                    }`}
+                                    style={{background: RAINBOW_PICKER_BACKGROUND}}
+                                    title="Pick custom fill color"
+                                    aria-label="Pick custom fill color"
+                                >
+                                    <input
+                                        type="color"
+                                        value={normalizePickerColor(fillValue, "#60a5fa")}
+                                        onChange={(event) => applyToSelectedShapes({fill: event.target.value})}
+                                        className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                                    />
+                                </label>
                             </div>
                         </div>
                     )}
@@ -2849,24 +2730,15 @@ export default function CanvasPage() {
                     {!isTextShapeSelection && (
                         <div className="mb-5">
                             <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider opacity-60">Fill Style</label>
-                            <div className="grid grid-cols-2 gap-1.5">
+                            <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
                                 {FILL_STYLE_OPTIONS.map((opt) => (
-                                    <button
+                                    <FillStyleTile
                                         key={opt.value}
-                                        type="button"
+                                        value={opt.value}
+                                        selected={fillStyleValue === opt.value}
                                         onClick={() => applyToSelectedShapes({fillStyle: opt.value})}
-                                        className={`rounded-xl border px-2 py-2 text-[11px] font-bold transition-all ${
-                                            fillStyleValue === opt.value
-                                                ? isDark
-                                                    ? "border-blue-500/50 bg-blue-600/20 text-white shadow-[0_0_15px_rgba(37,99,235,0.2)]"
-                                                    : "border-blue-200 bg-blue-50 text-blue-700 shadow-sm"
-                                                : isDark
-                                                    ? "border-white/5 bg-white/5 hover:border-white/15"
-                                                    : "border-slate-100 bg-slate-50/50 hover:border-slate-200"
-                                        }`}
-                                    >
-                                        {opt.label}
-                                    </button>
+                                        isDark={isDark}
+                                    />
                                 ))}
                             </div>
                         </div>
@@ -2874,24 +2746,15 @@ export default function CanvasPage() {
 
                     <div className="mb-5">
                         <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider opacity-60">Stroke Style</label>
-                        <div className="grid grid-cols-3 gap-1.5">
+                        <div className="flex items-center gap-2">
                             {STROKE_STYLE_OPTIONS.map((opt) => (
-                                <button
+                                <StrokeStyleTile
                                     key={opt.value}
-                                    type="button"
+                                    value={opt.value}
+                                    selected={strokeStyleValue === opt.value}
                                     onClick={() => applyToSelectedShapes({strokeStyle: opt.value})}
-                                    className={`rounded-xl border px-1 py-2 text-[10px] font-bold transition-all ${
-                                        strokeStyleValue === opt.value
-                                            ? isDark
-                                                ? "border-blue-500/50 bg-blue-600/20 text-white"
-                                                : "border-blue-200 bg-blue-50 text-blue-700"
-                                            : isDark
-                                                ? "border-white/5 bg-white/5 hover:border-white/15"
-                                                : "border-slate-100 bg-slate-50/50 hover:border-slate-200"
-                                    }`}
-                                >
-                                    {opt.label}
-                                </button>
+                                    isDark={isDark}
+                                />
                             ))}
                         </div>
                     </div>
@@ -2905,8 +2768,6 @@ export default function CanvasPage() {
                                     <button
                                         key={persona.id}
                                         type="button"
-                                        onMouseEnter={() => setHoveredPersonaId(persona.id)}
-                                        onMouseLeave={() => setHoveredPersonaId(null)}
                                         onClick={() => {
                                             setDefaultRoughness(persona.roughness);
                                             if (selectedCount > 0) {
@@ -2977,6 +2838,7 @@ export default function CanvasPage() {
                     {/* Top Center: Main Toolbar */}
                     <div
                         className={`absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-2xl p-3 backdrop-blur-2xl transition-all duration-500 ${topToolbarSurface}`}
+                        style={{ width: toolbarMaxWidth }}
                     >
                         <div className="flex flex-nowrap items-center gap-1.5 px-1">
                             {TOOLS.map((tool, idx) => {
@@ -3121,7 +2983,7 @@ export default function CanvasPage() {
             <RemotePresenceLayer
                 presenceState={remotePresenceState}
                 currentUserId={syncResult.currentUserId}
-                viewport={viewport}
+                viewportRef={viewportLiveRef}
                 shapesRef={syncResult.latestShapesRef}
                 isDark={isDark}
             />

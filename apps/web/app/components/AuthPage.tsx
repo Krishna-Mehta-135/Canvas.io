@@ -1,8 +1,10 @@
 "use client";
 
+/* File intent: Landing-style sign-in and sign-up surface for Canvas access. */
+
 import { useState, FormEvent, useEffect } from "react";
 import { AxiosError } from "axios";
-import { ArrowRight, Eye, EyeOff, Loader2, Sparkles, Sun, Moon, LayoutGrid } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, LayoutGrid, Layers3, Loader2, Moon, ShieldCheck, Sparkles, Sun, Users } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
@@ -11,6 +13,29 @@ import { apiClient } from "../lib/apiClient";
 import { useTheme } from "./ThemeProvider";
 
 const API_BASE = HTTP_BACKEND;
+
+const AUTH_FEATURES = [
+    {
+        icon: Layers3,
+        title: "Instant setup",
+        description: "Jump into a workspace in seconds.",
+    },
+    {
+        icon: Users,
+        title: "Team ready",
+        description: "Share canvases without extra friction.",
+    },
+    {
+        icon: ShieldCheck,
+        title: "Secure access",
+        description: "Keep rooms private and organized.",
+    },
+    {
+        icon: Sparkles,
+        title: "AI assisted",
+        description: "Turn prompts into structured ideas.",
+    },
+] as const;
 
 interface AuthPageProps {
     isSignIn: boolean;
@@ -81,7 +106,7 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
     }
 
     return (
-        <div className="min-h-screen bg-white dark:bg-[#0a0a0a] flex flex-col relative overflow-hidden transition-colors duration-300">
+        <div className="min-h-screen overflow-hidden bg-[radial-gradient(circle_at_20%_15%,rgba(59,130,246,0.22),transparent_40%),radial-gradient(circle_at_80%_12%,rgba(16,185,129,0.18),transparent_35%),radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.12),transparent_60%),linear-gradient(180deg,#edf4ff_0%,#ffffff_45%,#f0f7ff_100%)] text-gray-900 transition-colors duration-300 dark:bg-[radial-gradient(circle_at_18%_12%,rgba(59,130,246,0.20),transparent_30%),radial-gradient(circle_at_82%_10%,rgba(139,92,246,0.16),transparent_24%),linear-gradient(180deg,#0f172a_0%,#020617_70%,#020617_100%)] dark:text-white">
             {/* Animated background gradients — subtle in light, vivid in dark */}
             <motion.div
                 className="fixed inset-0 pointer-events-none"
@@ -95,14 +120,14 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                 transition={{ duration: 12, repeat: Infinity, ease: "linear" }}
             />
             {/* Subtle grid */}
-            <div className="fixed inset-0 pointer-events-none bg-[linear-gradient(rgba(100,100,100,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(100,100,100,0.06)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)] bg-[size:64px_64px]" />
+            <div className="pointer-events-none fixed inset-0 bg-[linear-gradient(rgba(100,100,100,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(100,100,100,0.06)_1px,transparent_1px)] bg-size-[64px_64px] dark:bg-[linear-gradient(rgba(255,255,255,0.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.025)_1px,transparent_1px)]" />
 
             {/* Header */}
             <motion.header
                 initial={{ y: -40, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ duration: 0.5 }}
-                className="relative z-10 flex items-center justify-between max-w-6xl mx-auto w-full px-6 py-5"
+                className="relative z-10 mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-5"
             >
                 <Link href="/" className="flex items-center gap-3">
                     <div className="w-10 h-10 bg-indigo-600 rounded-[10px] flex items-center justify-center shadow-sm">
@@ -153,7 +178,7 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                     initial={{ opacity: 0, y: 30 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.6, ease: "easeOut" }}
-                    className="w-full max-w-md"
+                    className="w-full max-w-2xl"
                 >
                     {/* Badge */}
                     <motion.div
@@ -183,12 +208,38 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                         </p>
                     </motion.div>
 
+                    <div className="grid gap-3 sm:grid-cols-2 mb-8">
+                        {AUTH_FEATURES.map((feature, index) => {
+                            const FeatureIcon = feature.icon;
+
+                            return (
+                                <motion.div
+                                    key={feature.title}
+                                    initial={{ opacity: 0, y: 12 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ delay: 0.18 + index * 0.06 }}
+                                    className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-[0_12px_40px_rgba(15,23,42,0.06)] backdrop-blur-md dark:border-white/10 dark:bg-white/3"
+                                >
+                                    <div className="flex items-start gap-3">
+                                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-r from-blue-500 to-cyan-500 text-white shadow-lg shadow-blue-500/20">
+                                            <FeatureIcon className="h-4 w-4" />
+                                        </div>
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-semibold text-slate-900 dark:text-white">{feature.title}</p>
+                                            <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-white/55">{feature.description}</p>
+                                        </div>
+                                    </div>
+                                </motion.div>
+                            );
+                        })}
+                    </div>
+
                     {/* Card */}
                     <motion.div
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: 0.2 }}
-                        className="bg-white dark:bg-white/[0.04] border border-gray-200 dark:border-white/10 rounded-3xl p-8 shadow-xl dark:shadow-none"
+                        className="rounded-4xl border border-slate-200/80 bg-white/88 p-8 shadow-[0_28px_100px_rgba(15,23,42,0.14)] backdrop-blur-2xl dark:border-white/10 dark:bg-white/4 dark:shadow-none"
                     >
                         {/* Error */}
                         <AnimatePresence>
@@ -285,12 +336,12 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                             <motion.button
                                 type="submit"
                                 disabled={loading}
-                                className="group relative w-full flex items-center justify-center gap-2 px-6 py-3.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-semibold text-sm overflow-hidden disabled:opacity-60 disabled:cursor-not-allowed mt-2 shadow-lg shadow-indigo-500/25"
+                                className="group relative mt-2 flex w-full items-center justify-center gap-2 overflow-hidden rounded-2xl bg-linear-to-r from-blue-600 via-indigo-600 to-cyan-500 px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60"
                                 whileHover={loading ? {} : { scale: 1.02 }}
                                 whileTap={loading ? {} : { scale: 0.98 }}
                             >
                                 <motion.div
-                                    className="absolute inset-0 bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400"
+                                    className="absolute inset-0 bg-linear-to-r from-blue-500 via-cyan-400 to-emerald-400"
                                     initial={{ x: "100%" }}
                                     whileHover={{ x: "0%" }}
                                     transition={{ duration: 0.3 }}

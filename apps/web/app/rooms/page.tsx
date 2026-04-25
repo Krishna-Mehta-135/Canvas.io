@@ -1,5 +1,7 @@
 "use client";
 
+/* File intent: Workspace hub for browsing, creating, and managing canvases. */
+
 import {FormEvent, useEffect, useMemo, useState} from "react";
 import {useRouter} from "next/navigation";
 import {AxiosError} from "axios";
@@ -257,15 +259,18 @@ export default function RoomsPage() {
     };
 
     return (
-        <main className={`min-h-screen px-5 py-8 sm:px-8 sm:py-12 ${isDark ? "bg-[#0a0a0a] text-white" : "bg-[#f8faff] text-slate-900"}`}>
-            <section className="mx-auto w-full max-w-5xl">
-                <div className={`rounded-[32px] border p-6 sm:p-10 shadow-2xl ${isDark ? "border-white/10 bg-[#111111]/95" : "border-slate-200/60 bg-white/90 backdrop-blur-xl shadow-slate-200/40"}`}>
+        <main className={`min-h-screen overflow-hidden px-5 py-8 text-slate-900 transition-colors duration-300 sm:px-8 sm:py-12 ${isDark ? "bg-[radial-gradient(circle_at_18%_12%,rgba(59,130,246,0.20),transparent_30%),radial-gradient(circle_at_82%_10%,rgba(139,92,246,0.16),transparent_24%),linear-gradient(180deg,#0f172a_0%,#020617_70%,#020617_100%)] text-white" : "bg-[radial-gradient(circle_at_20%_15%,rgba(59,130,246,0.22),transparent_40%),radial-gradient(circle_at_80%_12%,rgba(16,185,129,0.18),transparent_35%),radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.12),transparent_60%),linear-gradient(180deg,#edf4ff_0%,#ffffff_45%,#f0f7ff_100%)]"}`}>
+            <section className="relative mx-auto w-full max-w-6xl">
+                <div className={`rounded-[36px] border p-6 shadow-[0_30px_120px_rgba(15,23,42,0.12)] backdrop-blur-2xl sm:p-10 ${isDark ? "border-white/10 bg-[#111111]/95 shadow-black/30" : "border-slate-200/70 bg-white/88 shadow-slate-200/50"}`}>
                     <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
                         <div>
-                            <h1 className="text-3xl font-bold tracking-tight">Your Canvases</h1>
-                            <p className="mt-1.5 text-sm opacity-70">Manage your creative workspaces and collaborations.</p>
+                            <p className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.25em] ${isDark ? "border-white/10 bg-white/5 text-blue-200" : "border-slate-200 bg-white text-blue-700"}`}>
+                                Workspace hub
+                            </p>
+                            <h1 className="mt-4 text-3xl font-black tracking-tight text-slate-900 dark:text-white sm:text-4xl">Your Canvases</h1>
+                            <p className="mt-2 max-w-2xl text-sm leading-6 opacity-70">Manage your creative workspaces and collaborations from a single polished view.</p>
                             {user && (
-                                <p className="mt-3 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-medium opacity-80 shadow-sm transition hover:opacity-100 dark:border-white/10 dark:bg-white/5 dark:text-blue-200 border-slate-200 bg-slate-50 text-blue-700">
+                                <p className="mt-4 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-medium opacity-80 shadow-sm transition hover:opacity-100 dark:border-white/10 dark:bg-white/5 dark:text-blue-200 border-slate-200 bg-slate-50 text-blue-700">
                                     <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse"></span>
                                     {user.name} ({user.handle ?? user.email})
                                 </p>
@@ -276,7 +281,7 @@ export default function RoomsPage() {
                             <button
                                 type="button"
                                 onClick={() => router.push("/profile")}
-                                className={`rounded-xl border px-5 py-2.5 text-sm font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] ${isDark ? "border-white/20 bg-white/5 hover:bg-white/10" : "border-slate-200 bg-white shadow-sm hover:border-slate-300 hover:bg-slate-50"}`}
+                                className={`rounded-2xl border px-5 py-2.5 text-sm font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] ${isDark ? "border-white/20 bg-white/5 hover:bg-white/10" : "border-slate-200 bg-white shadow-sm hover:border-slate-300 hover:bg-slate-50"}`}
                             >
                                 Profile
                             </button>
@@ -284,7 +289,7 @@ export default function RoomsPage() {
                                 type="button"
                                 onClick={() => void handleLogout()}
                                 disabled={isLoggingOut}
-                                className={`rounded-xl border px-5 py-2.5 text-sm font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] ${isDark ? "border-red-500/30 bg-red-500/10 text-red-100 hover:bg-red-500/20" : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"}`}
+                                className={`rounded-2xl border px-5 py-2.5 text-sm font-semibold transition-all hover:scale-[1.02] active:scale-[0.98] ${isDark ? "border-red-500/30 bg-red-500/10 text-red-100 hover:bg-red-500/20" : "border-red-200 bg-red-50 text-red-700 hover:bg-red-100"}`}
                             >
                                 {isLoggingOut ? "Signing out..." : "Sign out"}
                             </button>
@@ -296,20 +301,20 @@ export default function RoomsPage() {
                             value={newRoomSlug}
                             onChange={(event) => setNewRoomSlug(event.target.value)}
                             placeholder="Enter a new canvas slug..."
-                            className={`w-full rounded-2xl border px-5 py-3.5 text-sm outline-none transition-all ${isDark ? "border-white/10 bg-[#171717] text-white placeholder:text-white/30 focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10" : "border-slate-200 bg-white text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-400/10"}`}
+                            className={`w-full rounded-2xl border px-5 py-3.5 text-sm outline-none transition-all ${isDark ? "border-white/10 bg-[#171717] text-white placeholder:text-white/30 focus:border-blue-500/50 focus:ring-4 focus:ring-blue-500/10" : "border-slate-200 bg-white/90 text-slate-900 shadow-sm placeholder:text-slate-400 focus:border-blue-400 focus:ring-4 focus:ring-blue-400/10"}`}
                         />
                         <button
                             type="submit"
                             disabled={creatingRoom}
-                            className={`rounded-2xl border px-6 py-3.5 text-sm font-bold transition-all hover:scale-[1.02] active:scale-[0.98] ${isDark ? "border-blue-500/50 bg-blue-600 text-white hover:bg-blue-500" : "border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-200/50 hover:bg-blue-700"}`}
+                            className={`rounded-2xl border px-6 py-3.5 text-sm font-bold transition-all hover:scale-[1.02] active:scale-[0.98] ${isDark ? "border-blue-500/50 bg-blue-600 text-white hover:bg-blue-500" : "border-blue-500 bg-linear-to-r from-blue-600 via-indigo-600 to-cyan-500 text-white shadow-lg shadow-blue-200/50 hover:from-blue-700 hover:to-indigo-700"}`}
                         >
                             {creatingRoom ? "Creating..." : "Create new canvas"}
                         </button>
                     </form>
 
-                    {error && <p className={`mb-6 rounded-xl border px-4 py-3 text-sm font-medium ${isDark ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-red-200 bg-red-50 text-red-700"}`}>{error}</p>}
+                    {error && <p className={`mb-6 rounded-2xl border px-4 py-3 text-sm font-medium ${isDark ? "border-red-500/30 bg-red-500/10 text-red-300" : "border-red-200 bg-red-50 text-red-700"}`}>{error}</p>}
 
-                    <div className={`mb-10 rounded-2xl border p-5 ${isDark ? "border-white/10 bg-black/20" : "border-slate-100 bg-slate-50/50"}`}>
+                    <div className={`mb-10 rounded-3xl border p-5 ${isDark ? "border-white/10 bg-black/20" : "border-slate-100 bg-white/70 shadow-[0_12px_40px_rgba(15,23,42,0.04)]"}`}>
                         <div className="mb-4 flex items-center justify-between">
                             <h2 className="text-xs font-bold uppercase tracking-widest text-slate-500">Incoming access requests</h2>
                             <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${incomingRequests.length > 0 ? "bg-red-500 text-white" : "bg-slate-200 text-slate-600 dark:bg-white/10 dark:text-white/60"}`}>
@@ -321,7 +326,7 @@ export default function RoomsPage() {
                         ) : (
                             <div className="space-y-3">
                                 {incomingRequests.map((request) => (
-                                    <div key={request.id} className={`flex items-center justify-between rounded-xl border p-4 shadow-sm ${isDark ? "border-white/5 bg-white/5" : "border-white bg-white"}`}>
+                                    <div key={request.id} className={`flex items-center justify-between rounded-2xl border p-4 shadow-sm ${isDark ? "border-white/5 bg-white/5" : "border-white bg-white"}`}>
                                         <div className="min-w-0">
                                             <p className="text-sm font-bold truncate">{request.requester.name}</p>
                                             <p className="text-[11px] opacity-60 truncate">requested access to <span className="font-semibold text-blue-500">/{request.room.slug}</span></p>
@@ -360,7 +365,7 @@ export default function RoomsPage() {
                             <p className="mt-4 text-sm font-medium">Loading your workspaces...</p>
                         </div>
                     ) : sortedRooms.length === 0 ? (
-                        <div className={`rounded-3xl border border-dashed p-16 text-center ${isDark ? "border-white/10" : "border-slate-200"}`}>
+                        <div className={`rounded-[28px] border border-dashed p-16 text-center ${isDark ? "border-white/10" : "border-slate-200"}`}>
                             <p className="text-sm font-medium opacity-60">No canvases yet. Create your first one above!</p>
                         </div>
                     ) : (
@@ -369,7 +374,7 @@ export default function RoomsPage() {
                                 const isEditing = renamingRoomId === room.id;
 
                                 return (
-                                    <div key={room.id} className={`group flex flex-col rounded-2xl border p-5 transition-all hover:shadow-xl ${isDark ? "border-white/5 bg-white/5 hover:border-white/20" : "border-slate-100 bg-white hover:border-blue-200 hover:shadow-blue-500/5"}`}>
+                                    <div key={room.id} className={`group flex flex-col rounded-[28px] border p-5 transition-all hover:shadow-xl ${isDark ? "border-white/5 bg-white/5 hover:border-white/20" : "border-slate-100 bg-white/95 hover:border-blue-200 hover:shadow-blue-500/5"}`}>
                                         <div className="mb-4 flex items-start justify-between gap-3">
                                             <div className="min-w-0">
                                                 <h3 className="truncate text-lg font-bold">/{room.slug}</h3>

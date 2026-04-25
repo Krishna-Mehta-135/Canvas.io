@@ -9,7 +9,7 @@ type ViewportLike = { x: number; y: number; scale: number };
 type RemotePresenceLayerProps = {
     presenceState: RoomPresenceState;
     currentUserId: string | null;
-    viewport: ViewportLike | null;
+    viewportRef: React.RefObject<ViewportLike | null>;
     shapesRef: React.RefObject<Shape[]>;
     isDark: boolean;
 };
@@ -80,7 +80,7 @@ function boundsChanged(a: SelectionBounds | null, b: SelectionBounds | null): bo
 export function RemotePresenceLayer({
     presenceState,
     currentUserId,
-    viewport,
+    viewportRef,
     shapesRef,
     isDark,
 }: RemotePresenceLayerProps) {
@@ -89,7 +89,6 @@ export function RemotePresenceLayer({
     const [activeUserIds, setActiveUserIds] = useState<string[]>([]);
 
     // ── Refs used by RAF loop (no re-renders on change) ────────────────────
-    const viewportRef = useRef(viewport);
     const lastActiveByUserRef = useRef<Record<string, number>>({});
     const prevTargetBoundsRef = useRef<Record<string, SelectionBounds | null>>({});
     /** userId → rendered overlay div (for direct style writes). */
@@ -109,8 +108,6 @@ export function RemotePresenceLayer({
     // Refs so the RAF loop reads latest values without restarting.
     const remotePresencesRef = useRef(remotePresences);
     useEffect(() => { remotePresencesRef.current = remotePresences; }, [remotePresences]);
-    useEffect(() => { viewportRef.current = viewport; }, [viewport]);
-
     // ── RAF loop: pure DOM mutation, zero setState ──────────────────────
     useEffect(() => {
         const tick = (timestamp: number) => {
@@ -176,7 +173,7 @@ export function RemotePresenceLayer({
                 rafRef.current = null;
             }
         };
-    }, [shapesRef]); // shapesRef is stable — effect runs once
+    }, [shapesRef, viewportRef]);
 
     // ── Slow poll: update the set of shown overlays (~4×/sec) ────────────
     useEffect(() => {
@@ -227,7 +224,7 @@ export function RemotePresenceLayer({
         setActiveUserIds(nextIds);
     }, [remotePresences]);
 
-    const canRender = Boolean(viewport) && (presenceState?.connectedUsersCount ?? 0) > 1;
+    const canRender = Boolean(viewportRef.current) && (presenceState?.connectedUsersCount ?? 0) > 1;
     if (!canRender) return null;
 
     const presenceByUserId = new Map(remotePresences.map((p) => [p.userId, p]));

@@ -896,42 +896,45 @@ export function render(
     viewport: Viewport = DEFAULT_VIEWPORT,
     pixelRatio = 1,
     connectorTargetHighlightIds: string[] = [],
-    showGrid = true
+    showGrid = true,
+    drawBackground = true
 ) {
     const palette = getThemePalette();
     const canvasWidth = canvas.width / pixelRatio;
     const canvasHeight = canvas.height / pixelRatio;
 
-    ctx.save();
-    ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    ctx.fillStyle = palette.background;
+    if (drawBackground) {
+        ctx.save();
+        ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        ctx.fillStyle = palette.background;
 
-    // Base field: keep the grid readable, but add the softer landing-page atmosphere underneath.
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        // Base field: keep the grid readable, but add the softer landing-page atmosphere underneath.
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-    const topLeftGlow = ctx.createRadialGradient(canvasWidth * 0.16, canvasHeight * 0.12, 0, canvasWidth * 0.16, canvasHeight * 0.12, Math.max(canvasWidth, canvasHeight) * 0.62);
-    topLeftGlow.addColorStop(0, palette.backdropGlowA);
-    topLeftGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
-    ctx.fillStyle = topLeftGlow;
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        const topLeftGlow = ctx.createRadialGradient(canvasWidth * 0.16, canvasHeight * 0.12, 0, canvasWidth * 0.16, canvasHeight * 0.12, Math.max(canvasWidth, canvasHeight) * 0.62);
+        topLeftGlow.addColorStop(0, palette.backdropGlowA);
+        topLeftGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
+        ctx.fillStyle = topLeftGlow;
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-    const bottomRightGlow = ctx.createRadialGradient(canvasWidth * 0.84, canvasHeight * 0.86, 0, canvasWidth * 0.84, canvasHeight * 0.86, Math.max(canvasWidth, canvasHeight) * 0.72);
-    bottomRightGlow.addColorStop(0, palette.backdropGlowB);
-    bottomRightGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
-    ctx.fillStyle = bottomRightGlow;
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        const bottomRightGlow = ctx.createRadialGradient(canvasWidth * 0.84, canvasHeight * 0.86, 0, canvasWidth * 0.84, canvasHeight * 0.86, Math.max(canvasWidth, canvasHeight) * 0.72);
+        bottomRightGlow.addColorStop(0, palette.backdropGlowB);
+        bottomRightGlow.addColorStop(1, "rgba(0, 0, 0, 0)");
+        ctx.fillStyle = bottomRightGlow;
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-    const sheen = ctx.createLinearGradient(0, 0, 0, canvasHeight);
-    sheen.addColorStop(0, palette.backdropVeil);
-    sheen.addColorStop(0.58, "rgba(255, 255, 255, 0)");
-    sheen.addColorStop(1, palette.background === "#f4f7fc" ? "rgba(255, 255, 255, 0.30)" : "rgba(2, 6, 23, 0.20)");
-    ctx.fillStyle = sheen;
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+        const sheen = ctx.createLinearGradient(0, 0, 0, canvasHeight);
+        sheen.addColorStop(0, palette.backdropVeil);
+        sheen.addColorStop(0.58, "rgba(255, 255, 255, 0)");
+        sheen.addColorStop(1, palette.background === "#f4f7fc" ? "rgba(255, 255, 255, 0.30)" : "rgba(2, 6, 23, 0.20)");
+        ctx.fillStyle = sheen;
+        ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-    if (showGrid) {
-        drawInfiniteGrid(ctx, canvas, viewport, pixelRatio, palette.grid);
+        if (showGrid) {
+            drawInfiniteGrid(ctx, canvas, viewport, pixelRatio, palette.grid);
+        }
+        ctx.restore();
     }
-    ctx.restore();
 
     ctx.save();
     ctx.setTransform(viewport.scale * pixelRatio, 0, 0, viewport.scale * pixelRatio, viewport.x * pixelRatio, viewport.y * pixelRatio);

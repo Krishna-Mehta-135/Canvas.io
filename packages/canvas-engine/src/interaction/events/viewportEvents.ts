@@ -36,6 +36,15 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
         releaseSpacePan,
     } = params;
 
+    let renderRaf: number | null = null;
+    const requestRender = () => {
+        if (renderRaf !== null) return;
+        renderRaf = requestAnimationFrame(() => {
+            renderRaf = null;
+            renderScene();
+        });
+    };
+
     const handleWindowMouseUp = () => {
         if (!isInteractionActive()) {
             return;
@@ -87,7 +96,45 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
             });
         }
 
-        renderScene();
+        requestRender();
+    };
+
+    let isGesturing = false;
+    let initialPinchZoom = 1;
+    let gesturePointer = { x: 0, y: 0 };
+
+    const handleGestureStart = (e: Event) => {
+        e.preventDefault();
+        isGesturing = true;
+        initialPinchZoom = getViewport().scale;
+        
+        // e.clientX / e.clientY are natively available on Safari GestureEvent
+        const ge = e as any;
+        gesturePointer = getMousePos(canvas, ge as unknown as MouseEvent);
+        setLastPointer(gesturePointer);
+    };
+
+    const handleGestureChange = (e: Event) => {
+        e.preventDefault();
+        const ge = e as any;
+        
+        const viewport = getViewport();
+        const worldPoint = screenToWorldPoint(gesturePointer, viewport);
+        const nextScale = clamp(initialPinchZoom * ge.scale, MIN_ZOOM, MAX_ZOOM);
+
+        setViewport({
+            scale: nextScale,
+            x: gesturePointer.x - worldPoint.x * nextScale,
+            y: gesturePointer.y - worldPoint.y * nextScale,
+        });
+
+        updateCursor();
+        requestRender();
+    };
+
+    const handleGestureEnd = (e: Event) => {
+        e.preventDefault();
+        isGesturing = false;
     };
 
     const handleWheel = (e: WheelEvent) => {
@@ -102,6 +149,7 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
         const viewport = getViewport();
 
         if (e.ctrlKey || e.metaKey) {
+            if (isGesturing) return; // Safari fires both gesture and wheel events, avoid double zoom
             const worldPoint = screenToWorldPoint(pointer, viewport);
             const zoomFactor = Math.exp(-normalizedDeltaY * WHEEL_ZOOM_SENSITIVITY);
             const nextScale = clamp(viewport.scale * zoomFactor, MIN_ZOOM, MAX_ZOOM);
@@ -113,7 +161,7 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
             });
 
             updateCursor();
-            renderScene();
+            requestRender();
             return;
         }
 
@@ -124,7 +172,7 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
         });
 
         updateCursor();
-        renderScene();
+        requestRender();
     };
 
     window.addEventListener("mouseup", handleWindowMouseUp);
@@ -132,11 +180,10 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
     window.addEventListener("keyup", handleWindowKeyUp);
     window.addEventListener("resize", handleWindowResize);
 
-    canvas.addEventListener(
-        "wheel",
-        handleWheel,
-        {passive: false}
-    );
+    canvas.addEventListener("wheel", handleWheel, {passive: false});
+    canvas.addEventListener("gesturestart", handleGestureStart as EventListener, {passive: false});
+    canvas.addEventListener("gesturechange", handleGestureChange as EventListener, {passive: false});
+    canvas.addEventListener("gestureend", handleGestureEnd as EventListener, {passive: false});
 
     return () => {
         window.removeEventListener("mouseup", handleWindowMouseUp);
@@ -144,5 +191,9 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
         window.removeEventListener("keyup", handleWindowKeyUp);
         window.removeEventListener("resize", handleWindowResize);
         canvas.removeEventListener("wheel", handleWheel);
+        canvas.removeEventListener("gesturestart", handleGestureStart as EventListener);
+        canvas.removeEventListener("gesturechange", handleGestureChange as EventListener);
+        canvas.removeEventListener("gestureend", handleGestureEnd as EventListener);
+        if (renderRaf !== null) cancelAnimationFrame(renderRaf);
     };
 }

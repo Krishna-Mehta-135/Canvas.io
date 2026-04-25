@@ -15,6 +15,8 @@
     - Interaction-specific pure helpers live in ./interaction/*
     */
 
+// File intent: route pointer interactions through a cached renderer without freezing linked text children.
+
 import {render} from "./renderer";
 import {Handle, PreviewShape, Shape} from "./types";
 import {Viewport, getMousePos, screenToWorldPoint} from "./utils";
@@ -83,6 +85,75 @@ export function attachEvents(
     let selectionBox: SelectionBox | null = null;
     let selectedShapeIds: string[] = [];
 
+    let staticCacheCanvas: HTMLCanvasElement | null = null;
+    let staticCacheCtx: CanvasRenderingContext2D | null = null;
+    let isStaticCacheValid = false;
+
+    let renderRaf: number | null = null;
+    const requestRender = () => {
+        if (renderRaf !== null) return;
+        renderRaf = requestAnimationFrame(() => {
+            renderRaf = null;
+            renderScene();
+        });
+    };
+
+    const getDependentShapeIds = (shapes: Shape[]) => {
+        const dependentsById = new Map<string, Set<string>>();
+
+        const addDependency = (sourceId: string | undefined, dependentId: string) => {
+            if (!sourceId) return;
+
+            let dependents = dependentsById.get(sourceId);
+            if (!dependents) {
+                dependents = new Set<string>();
+                dependentsById.set(sourceId, dependents);
+            }
+
+            dependents.add(dependentId);
+        };
+
+        for (const shape of shapes) {
+            if (shape.type === "text") {
+                addDependency(shape.parentId, shape.id);
+                continue;
+            }
+
+            if (shape.type === "line" || shape.type === "arrow") {
+                addDependency(shape.startBinding?.shapeId, shape.id);
+                addDependency(shape.endBinding?.shapeId, shape.id);
+            }
+        }
+
+        return dependentsById;
+    };
+
+    const collectLiveDragShapeIds = (shapes: Shape[], selectedIds: string[]) => {
+        if (selectedIds.length === 0) {
+            return new Set<string>();
+        }
+
+        const dependentsById = getDependentShapeIds(shapes);
+        const liveIds = new Set<string>(selectedIds);
+        const pendingIds = [...selectedIds];
+
+        while (pendingIds.length > 0) {
+            const sourceId = pendingIds.pop();
+            if (!sourceId) continue;
+
+            const dependents = dependentsById.get(sourceId);
+            if (!dependents) continue;
+
+            for (const dependentId of dependents) {
+                if (liveIds.has(dependentId)) continue;
+                liveIds.add(dependentId);
+                pendingIds.push(dependentId);
+            }
+        }
+
+        return liveIds;
+    };
+
     const renderScene = () => {
         const pixelRatio = getScenePixelRatio();
         const shapes = state.getShapes();
@@ -98,6 +169,69 @@ export function attachEvents(
                   )
                 : shapes;
 
+        const useCache = (isDragging || isResizing) && selectedShapeIds.length > 0;
+
+        if (useCache) {
+            const liveDragShapeIds = collectLiveDragShapeIds(renderedShapes, selectedShapeIds);
+
+            if (!staticCacheCanvas) {
+                staticCacheCanvas = document.createElement("canvas");
+                staticCacheCtx = staticCacheCanvas.getContext("2d");
+            }
+            if (staticCacheCanvas.width !== canvas.width || staticCacheCanvas.height !== canvas.height) {
+                staticCacheCanvas.width = canvas.width;
+                staticCacheCanvas.height = canvas.height;
+                isStaticCacheValid = false;
+            }
+
+            if (!isStaticCacheValid && staticCacheCtx) {
+                const staticShapes = renderedShapes.filter((s) => !liveDragShapeIds.has(s.id));
+                render(
+                    staticCacheCtx,
+                    staticCacheCanvas,
+                    staticShapes,
+                    null,
+                    null,
+                    [],
+                    viewport,
+                    pixelRatio,
+                    [],
+                    isGridVisible,
+                    true
+                );
+                isStaticCacheValid = true;
+            }
+
+            if (staticCacheCanvas) {
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.drawImage(staticCacheCanvas, 0, 0);
+                ctx.restore();
+            }
+
+            const activeShapes = renderedShapes.filter((shape) => liveDragShapeIds.has(shape.id));
+            render(
+                ctx,
+                canvas,
+                activeShapes,
+                selectedShape,
+                selectionBox,
+                activeShapes,
+                viewport,
+                pixelRatio,
+                connectorTargetHighlightIds,
+                isGridVisible,
+                false
+            );
+
+            if (isErasing && eraserPoints.length > 0) {
+                drawEraserTrail(ctx, eraserPoints, viewport, pixelRatio);
+            }
+            return;
+        }
+
+        isStaticCacheValid = false;
+
         render(
             ctx,
             canvas,
@@ -108,7 +242,8 @@ export function attachEvents(
             viewport,
             pixelRatio,
             connectorTargetHighlightIds,
-            isGridVisible
+            isGridVisible,
+            true
         );
 
         if (isErasing && eraserPoints.length > 0) {
@@ -118,6 +253,7 @@ export function attachEvents(
 
     const setViewport = (nextViewport: Viewport) => {
         viewport = nextViewport;
+        isStaticCacheValid = false;
         options.onViewportChange?.(viewport);
         options.onCursorChange?.(lastPointer ? screenToWorldPoint(lastPointer, viewport) : null);
     };
@@ -260,7 +396,7 @@ export function attachEvents(
         }
     };
 
-    renderScene();
+    requestRender();
 
     const updateCursor = () => {
         if (isPanning) {
@@ -389,7 +525,7 @@ export function attachEvents(
         });
 
         clearSelection();
-        renderScene();
+        requestRender();
     };
 
     const textEditingController = createTextEditingController({
@@ -397,7 +533,7 @@ export function attachEvents(
         ctx,
         state,
         getViewport: () => viewport,
-        renderScene,
+        renderScene: requestRender,
         setSelection: (ids, primaryId) => {
             setSelection(ids, primaryId);
         },
@@ -415,7 +551,7 @@ export function attachEvents(
         getSelectedShapeIds: () => [...selectedShapeIds],
         getViewport: () => viewport,
         getScenePixelRatio,
-        renderScene,
+        renderScene: requestRender,
     });
 
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -451,17 +587,17 @@ export function attachEvents(
                 const updatedShapes = state.getShapes();
                 selectedShape = updatedShapes.find((shape) => shape.id === selectedShape?.id) || selectedShape;
 
-                renderScene();
+                requestRender();
             },
             undo: () => {
                 state.undo();
                 clearSelection();
-                renderScene();
+                requestRender();
             },
             redo: () => {
                 state.redo();
                 clearSelection();
-                renderScene();
+                requestRender();
             },
         });
     };
@@ -490,7 +626,7 @@ export function attachEvents(
             erasedShapeIds = new Set();
             clearSelection();
             touchEraserPoint({x, y});
-            renderScene();
+            requestRender();
             return;
         }
 
@@ -521,7 +657,7 @@ export function attachEvents(
                 prevX = x;
                 prevY = y;
 
-                renderScene();
+                requestRender();
                 return;
             }
         }
@@ -564,9 +700,8 @@ export function attachEvents(
         }
 
         if (shape && getActiveTool() === "select" && e.shiftKey) {
-            const selectedShapes = applyShiftSelectionToggle(shape, selectedShapeIds, setSelection);
-
-            render(ctx, canvas, shapes, selectedShape, null, selectedShapes, viewport, getScenePixelRatio(), [], isGridVisible);
+            applyShiftSelectionToggle(shape, selectedShapeIds, setSelection);
+            requestRender();
             return;
         }
 
@@ -593,7 +728,7 @@ export function attachEvents(
         if (shape && (active === "line" || active === "arrow") && shape.type !== "line" && shape.type !== "arrow") {
             if (!isPointNearShapeEdge(shape, x, y)) {
                 setSelection([shape.id], shape.id);
-                renderScene();
+                requestRender();
                 return;
             }
         }
@@ -608,7 +743,7 @@ export function attachEvents(
                 prevX = x;
                 prevY = y;
 
-                render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio(), [], isGridVisible);
+                requestRender();
                 return;
             }
 
@@ -621,7 +756,7 @@ export function attachEvents(
             prevX = anchors.prevX;
             prevY = anchors.prevY;
 
-            render(ctx, canvas, state.getShapes(), shape, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio(), [], isGridVisible);
+            requestRender();
             return;
         }
 
@@ -633,7 +768,7 @@ export function attachEvents(
 
             clearSelection();
 
-            renderScene();
+            requestRender();
             return;
         }
 
@@ -649,7 +784,7 @@ export function attachEvents(
         pendingShapeId = crypto.randomUUID();
         connectorTargetHighlightIds = [];
         clearSelection();
-        renderScene();
+        requestRender();
     };
 
     const handleMouseMove = (e: MouseEvent) => {
@@ -668,14 +803,14 @@ export function attachEvents(
             });
 
             updateCursor();
-            renderScene();
+            requestRender();
             return;
         }
 
         if (isErasing) {
             eraserPoints = [...eraserPoints, {x, y}];
             touchEraserPoint({x, y});
-            renderScene();
+            requestRender();
             return;
         }
 
@@ -768,10 +903,9 @@ export function attachEvents(
                 prevY = y;
 
                 const updatedShapes = state.getShapes();
-                const updatedSelectedShapes = getSelectedShapesByIds(updatedShapes, selectedShapeIds);
                 selectedShape = updatedShapes.find((shape) => shape.id === selectedShape?.id) || selectedShape;
 
-                render(ctx, canvas, updatedShapes, selectedShape, null, updatedSelectedShapes, viewport, getScenePixelRatio(), [], isGridVisible);
+                requestRender();
                 return;
             }
 
@@ -791,7 +925,7 @@ export function attachEvents(
             prevX = dragResult.prevX;
             prevY = dragResult.prevY;
 
-            render(ctx, canvas, state.getShapes(), selected, null, getSelectedShapesByIds(state.getShapes(), selectedShapeIds), viewport, getScenePixelRatio(), [], isGridVisible);
+            requestRender();
             return;
         }
 
@@ -870,7 +1004,7 @@ export function attachEvents(
             isErasing = false;
             connectorTargetHighlightIds = [];
 
-            const resetEraser = finalizeEraserStroke(state, erasedShapeIds, resetToSelectTool, updateCursor, renderScene);
+            const resetEraser = finalizeEraserStroke(state, erasedShapeIds, resetToSelectTool, updateCursor, requestRender);
             eraserPoints = resetEraser.eraserPoints;
             erasedShapeIds = resetEraser.erasedShapeIds;
             return;
@@ -884,7 +1018,7 @@ export function attachEvents(
                 state,
                 freehandPoints,
                 setSelection,
-                renderScene,
+                requestRender,
                 resetToSelectTool,
                 freehandStrokeStyle
             );
@@ -903,7 +1037,7 @@ export function attachEvents(
                 clearSelection();
             }
 
-            renderScene();
+            requestRender();
             return;
         }
 
@@ -925,7 +1059,7 @@ export function attachEvents(
             pendingShapeId,
             setSelection,
             resetToSelectTool,
-            renderScene,
+            renderScene: requestRender,
             hasDragged,
             defaultShapeStyle: getDefaultShapeStyle(),
         });
@@ -958,7 +1092,7 @@ export function attachEvents(
             lastPointer = point;
         },
         updateCursor,
-        renderScene,
+        renderScene: requestRender,
         isInteractionActive: () => isPanning || isErasing || isFreehandDrawing || isDrawing || isDragging || isSelecting || isResizing,
         shouldRepaintOnReset: () => isErasing || isFreehandDrawing || isDrawing || isDragging || isSelecting || isResizing,
         resetInteractions: stopTransientInteractions,
@@ -988,14 +1122,14 @@ export function attachEvents(
             selectionBox = null;
             setViewport(nextViewport);
             updateCursor();
-            renderScene();
+            requestRender();
         },
         resetViewport: () => {
             stopTransientInteractions();
             selectionBox = null;
             setViewport(getDefaultViewport());
             updateCursor();
-            renderScene();
+            requestRender();
         },
         focusViewportToBounds: (
             bounds: {minX: number; minY: number; maxX: number; maxY: number},
@@ -1031,7 +1165,7 @@ export function attachEvents(
             if (!smooth) {
                 setViewport(targetViewport);
                 updateCursor();
-                renderScene();
+                requestRender();
                 return;
             }
 
@@ -1048,7 +1182,7 @@ export function attachEvents(
                     x: startViewport.x + (targetViewport.x - startViewport.x) * t,
                     y: startViewport.y + (targetViewport.y - startViewport.y) * t,
                 });
-                renderScene();
+                requestRender();
 
                 if (rawT < 1) {
                     requestAnimationFrame(animate);
@@ -1061,7 +1195,7 @@ export function attachEvents(
         },
         setGridVisible: (visible: boolean) => {
             isGridVisible = visible;
-            renderScene();
+            requestRender();
         },
         isGridVisible: () => isGridVisible,
         setSnapEnabled: (enabled: boolean) => {
@@ -1080,7 +1214,7 @@ export function attachEvents(
                 state.setShapes(shapes);
             }
 
-            renderScene();
+            requestRender();
         },
         isSnapEnabled: () => isSnapEnabled,
         rerender: () => {

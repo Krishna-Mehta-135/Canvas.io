@@ -16,6 +16,9 @@ const geistMono = localFont({
 export const metadata: Metadata = {
   title: "Canvas.io — AI-Powered Infinite Canvas",
   description: "A collaborative infinite canvas with AI built in. Think, draw, and build in real time.",
+  icons: {
+    icon: "/logo-canvasio.svg",
+  },
 };
 
 export default function RootLayout({

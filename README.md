@@ -1,138 +1,359 @@
-# Canvas.io
+<div align="center">
+    <img src="./apps/web/public/logo-canvasio.svg" alt="Canvas.io Logo" width="112" />
+    <h1>Canvas.io</h1>
+    <p><strong>Realtime Collaborative Whiteboard Platform</strong></p>
+</div>
 
 ![Node >=18](https://img.shields.io/badge/node-%3E%3D18-339933?logo=nodedotjs&logoColor=white)
 ![pnpm 10](https://img.shields.io/badge/pnpm-10-F69220?logo=pnpm&logoColor=white)
 ![Turborepo](https://img.shields.io/badge/turbo-monorepo-EF4444?logo=turborepo&logoColor=white)
 ![Next.js 16](https://img.shields.io/badge/next.js-16-000000?logo=nextdotjs&logoColor=white)
+![TypeScript](https://img.shields.io/badge/typescript-5.9-3178C6?logo=typescript&logoColor=white)
 ![Prisma](https://img.shields.io/badge/prisma-ORM-2D3748?logo=prisma&logoColor=white)
 
-Canvas.io is a real-time collaborative whiteboard built as a Turborepo monorepo.
-It combines a modern Next.js frontend, an Express API, a WebSocket realtime server, Redis for cross-node sync, plus shared internal packages for types, DB access, UI, and canvas behavior.
+**Canvas.io** is a lightning-fast, real-time collaborative whiteboard engineered for modern teams. Built as a high-performance Turborepo monorepo, it seamlessly combines a stunning Next.js frontend, an Express API, a robust WebSocket synchronization backend, and an intelligent AI generation worker. It leverages shared internal packages for crisp canvas rendering, protocol contracts, and highly durable transport primitives to ensure your ideas are never lost.
+
+## Two Reading Paths
+
+- Product overview: start with [Product Snapshot](#product-snapshot)
+- Engineering reference: continue through [Architecture](#architecture), [Realtime Sync Model](#realtime-sync-model), and setup sections
 
 ## Table of Contents
 
-- [What You Get](#what-you-get)
+- [Product Snapshot](#product-snapshot)
+- [Platform Overview](#platform-overview)
 - [Architecture](#architecture)
+- [Realtime Sync Model](#realtime-sync-model)
+- [AI Generation Pipeline](#ai-generation-pipeline)
 - [Monorepo Structure](#monorepo-structure)
 - [Quick Start](#quick-start)
 - [Environment Variables](#environment-variables)
+- [API Surface](#api-surface)
 - [Scripts](#scripts)
-- [Service Endpoints](#service-endpoints)
-- [Canvas Controls](#canvas-controls)
+- [Observability and Scaling](#observability-and-scaling)
 - [Troubleshooting](#troubleshooting)
 
-## What You Get
+## Product Snapshot
 
-- Infinite canvas UX with room-based collaboration
-- Real-time transport via WebSocket server
-- REST endpoints for auth, room lifecycle, and shape persistence
-- Shared workspace packages for consistency across services
-- Docker-powered local Postgres, Redis, and RabbitMQ setup
+Canvas.io is crafted for visionary teams that demand live, structured visual collaboration without sacrificing technical depth, speed, or aesthetics. Whether you're brainstorming, wireframing, or mapping out complex architectures, Canvas.io provides the infinite space you need.
+
+### What it solves
+
+- Real-time ideation and diagramming in shared rooms
+- Fast collaborative editing with low-latency sync
+- AI-assisted diagram generation from natural-language prompts
+- Persistent room history backed by durable infrastructure
+
+### Core user capabilities
+
+- Multi-user collaborative canvas with room-based access
+- Invite links and owner-managed access requests
+- Group chat, direct messages, and shape-linked comments
+- Export-ready canvas workflows in the web app
+
+### Why this architecture matters
+
+- Reliable under scale: Redis authority plus RabbitMQ durability
+- Safer operations: bounded retries and circuit breaker behavior for DB access
+- Faster iteration: monorepo shared packages for protocol, rendering, and transport
+
+## Platform Overview
+
+Canvas.io is designed around room-based collaboration with low-latency synchronization and durable event delivery:
+
+- Real-time multi-user canvas updates over WebSocket
+- Redis-authoritative room versions and latest snapshots
+- RabbitMQ durable room events for replay and reliability
+- Prisma + PostgreSQL persistence for users, rooms, shapes, and chat
+- AI-assisted diagram generation through async worker jobs
+- Shared monorepo packages for protocol, canvas logic, and infrastructure contracts
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-	U[Browser Client] -->|HTTP| W[apps/web Next.js]
-	W -->|REST calls| H[apps/http-backend Express]
-	W -->|WS events| S[apps/ws-backend WebSocket]
-	S -->|Pub/Sub + version state| R[(Redis)]
-	H -->|Prisma| D[(PostgreSQL)]
-	S -->|Prisma| D
-	H --> C[packages/common]
-	S --> C
-	W --> E[packages/canvas-engine]
+    subgraph Client Layer
+        B[Browser Client]
+    end
+
+    subgraph App Layer
+        WEB[apps/web\nNext.js App Router]
+        HTTP[apps/http-backend\nExpress REST API]
+        WS[apps/ws-backend\nWebSocket Sync Server]
+        AIW[apps/ai-worker\nGemini Worker]
+    end
+
+    subgraph Data and Messaging Layer
+        PG[(PostgreSQL)]
+        REDIS[(Redis)]
+        RMQ[(RabbitMQ)]
+    end
+
+    subgraph Shared Packages
+        CE[packages/canvas-engine]
+        COMMON[packages/common]
+        RS[packages/redis-sync]
+        QS[packages/queue-sync]
+        DBPKG[packages/db]
+        BC[packages/backend-common]
+    end
+
+    B -->|HTTP| WEB
+    WEB -->|REST| HTTP
+    WEB -->|WS Events| WS
+
+    HTTP -->|Prisma via @repo/db| PG
+    WS -->|Prisma via @repo/db| PG
+
+    WS -->|authoritative version and snapshot| REDIS
+    WS -->|durable room events and persist jobs| RMQ
+
+    HTTP -->|publish AI job| RMQ
+    RMQ -->|consume AI job| AIW
+    AIW -->|internal callback /internal/ai/result| HTTP
+
+    WEB --> CE
+    WEB --> COMMON
+    HTTP --> COMMON
+    WS --> COMMON
+    WS --> RS
+    HTTP --> QS
+    WS --> QS
+    AIW --> QS
+    HTTP --> BC
+    WS --> BC
+    AIW --> BC
+    DBPKG --> PG
+```
+
+## Realtime Sync Model
+
+Redis remains the authoritative source for room version and latest snapshot. RabbitMQ provides durable fan-out and replay; Redis Pub/Sub remains a low-latency fallback path.
+
+```mermaid
+sequenceDiagram
+    participant C as Canvas Client
+    participant W as WS Backend Node
+    participant R as Redis
+    participant Q as RabbitMQ
+    participant N as Peer WS Node
+
+    C->>W: canvas_snapshot(roomId, version, shapes, actionId)
+    W->>R: atomic compare-and-commit version+snapshot
+
+    alt version mismatch
+        W-->>C: sync_error + authoritative snapshot
+    else committed
+        W->>Q: publish durable room event
+        W->>R: publish fallback pub/sub event
+        Q-->>N: consume durable room event
+        R-->>N: receive fallback pub/sub event
+        N->>N: actionId dedupe + monotonic version guard
+        N-->>C: canvas_snapshot_broadcast
+    end
+```
+
+## AI Generation Pipeline
+
+AI generation is asynchronous and queue-backed so user requests do not block HTTP request threads.
+
+```mermaid
+sequenceDiagram
+    participant U as User (Web)
+    participant API as HTTP Backend
+    participant MQ as RabbitMQ
+    participant AW as AI Worker
+    participant G as Gemini API
+
+    U->>API: POST /room/:roomId/ai/generate
+    API->>API: validate auth, room access, prompt
+    API->>MQ: publish AI generate job
+    API-->>U: 202 Accepted + jobId
+
+    MQ-->>AW: consume job
+    AW->>G: generate shapes JSON
+    G-->>AW: model output
+    AW->>API: POST /internal/ai/result (x-internal-secret)
+
+    loop polling
+        U->>API: GET /room/:roomId/ai/generate/:jobId
+        API-->>U: pending | done | error
+    end
 ```
 
 ## Monorepo Structure
 
-### Apps
+### Applications
 
 | Path | Purpose |
 | --- | --- |
-| `apps/web` | Next.js frontend (auth, canvas UI, room pages) |
-| `apps/http-backend` | Express REST API |
-| `apps/ws-backend` | WebSocket realtime backend |
+| `apps/web` | Next.js frontend (auth, rooms, canvas UI, AI prompt bar, exports) |
+| `apps/http-backend` | Express API (auth, room lifecycle, access control, AI job orchestration) |
+| `apps/ws-backend` | WebSocket backend (presence, snapshot sync, cross-node fan-out) |
+| `apps/ai-worker` | Queue consumer that calls Gemini and returns generated shapes |
 
-### Packages
+### Core Packages
 
 | Path | Purpose |
 | --- | --- |
-| `packages/db` | Prisma schema, client, migrations |
-| `packages/common` | Shared types/schemas |
-| `packages/redis-sync` | Shared Redis room sync primitives |
-| `packages/canvas-engine` | Reusable canvas interaction/rendering logic |
+| `packages/canvas-engine` | Shared rendering, geometry, text layout, interaction logic |
+| `packages/common` | Shared zod schemas, API payload contracts, ws protocol types |
+| `packages/db` | Prisma schema, generated client, migrations, docker-compose |
+| `packages/redis-sync` | Redis room version/snapshot primitives and pub/sub sync |
+| `packages/queue-sync` | RabbitMQ durable event and job primitives |
+| `packages/backend-common` | Shared backend config and environment loading |
 | `packages/ui` | Shared UI components |
-| `packages/backend-common` | Shared backend env/config loading |
-| `packages/eslint-config` | Shared lint config |
-| `packages/typescript-config` | Shared TS config |
+| `packages/eslint-config` | Shared lint presets |
+| `packages/typescript-config` | Shared TypeScript base configs |
 
 ## Quick Start
 
-### 1. Install dependencies
+### 1. Prerequisites
+
+- Node.js 18+
+- pnpm 10+
+- Docker Desktop (for PostgreSQL, Redis, RabbitMQ)
+
+### 2. Install dependencies
 
 ```bash
 pnpm install
 ```
 
-### 2. Start local infrastructure (PostgreSQL + Redis + RabbitMQ)
+### 3. Start local infrastructure
 
 ```bash
 pnpm db:up
 ```
 
-### 3. Configure environment
+This starts:
 
-Create `.env` (or `.env.local`) in repo root:
+- PostgreSQL: `localhost:5432`
+- Redis: `localhost:6379`
+- RabbitMQ: `localhost:5672`
+- RabbitMQ management UI: `http://localhost:15672`
+
+### 4. Configure environment
+
+Create `.env` at the repository root.
 
 ```env
+# Core
 JWT_SECRET=replace-with-a-long-random-secret
-PORT=3001
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/canvas
+PORT=3001
+REDIS_URL=redis://127.0.0.1:6379
+RABBITMQ_URL=amqp://guest:guest@127.0.0.1:5672
+
+# Internal worker callback security
+INTERNAL_SECRET=replace-with-a-random-internal-secret
+HTTP_BACKEND_INTERNAL_URL=http://127.0.0.1:3001
+
+# AI provider
+GEMINI_API_KEY=your_gemini_api_key_here
+GEMINI_MODEL_CANDIDATES=gemini-2.5-flash,gemini-2.5-flash-lite
+
+# Web app URL for email flows
+WEB_APP_URL=http://localhost:3000
+
+# Password reset email
+GMAIL_USER=your-email@gmail.com
+GMAIL_APP_PASSWORD=your-google-app-password
+GMAIL_FROM_EMAIL=Canvas.io <your-email@gmail.com>
 ```
 
-### 4. Generate Prisma client and apply migrations
+### 5. Generate Prisma client and apply migrations
 
 ```bash
 pnpm --filter @repo/db db:generate
 pnpm --filter @repo/db db:migrate
 ```
 
-### 5. Start the monorepo
+### 6. Run the workspace
 
 ```bash
 pnpm dev
 ```
 
+Default local endpoints:
+
+- Web app: `http://localhost:3000`
+- HTTP API base: `http://localhost:3001/api/v1`
+- WebSocket backend: `ws://localhost:8080`
+
+### Optional: run services individually
+
+```bash
+pnpm --filter web dev
+pnpm --filter http-backend dev
+pnpm --filter ws-backend dev
+pnpm --filter ai-worker dev
+```
+
 ## Environment Variables
 
-| Variable | Required | Used By | Notes |
-| --- | --- | --- | --- |
-| `JWT_SECRET` | Yes | `apps/http-backend`, `apps/ws-backend` | Required for auth token signing/verification |
-| `PORT` | Yes | `apps/http-backend` | Set to `3001` to match frontend API config |
-| `DATABASE_URL` | Yes | `packages/db` and both backends | PostgreSQL connection string |
-| `REDIS_URL` | Yes for multi-node WS sync | `apps/ws-backend` | Redis connection string for room versioning and Pub/Sub |
-| `RABBITMQ_URL` | Yes for durable cross-node sync | `apps/ws-backend` | RabbitMQ connection string for durable room event queue |
-| `RABBITMQ_ROOM_EVENTS_EXCHANGE` | Optional | `apps/ws-backend` | RabbitMQ exchange name for room events, default `canvas.room.events` |
-| `RABBITMQ_ROOM_EVENTS_QUEUE_PREFIX` | Optional | `apps/ws-backend` | Durable queue name prefix per node, default `canvas.room.events.node` |
-| `RABBITMQ_ROOM_EVENTS_PARTITIONS` | Optional | `apps/ws-backend` | Partition count for room routing keys, default `16` |
-| `RABBITMQ_PREFETCH` | Optional | `apps/ws-backend` | RabbitMQ consumer prefetch for backpressure, default `200` |
-| `RABBITMQ_DB_PERSIST_EXCHANGE` | Optional | `apps/ws-backend` | RabbitMQ exchange name for DB persist jobs, default `canvas.room.persist` |
-| `RABBITMQ_DB_PERSIST_QUEUE` | Optional | `apps/ws-backend` | Durable DB persist queue name, default `canvas.room.persist.jobs` |
-| `RABBITMQ_DB_PERSIST_ROUTING_KEY` | Optional | `apps/ws-backend` | Routing key for DB persist jobs, default `room.persist` |
-| `WS_MAX_MESSAGE_BYTES` | Optional | `apps/ws-backend` | Max accepted websocket payload bytes, default `524288` |
-| `WS_SNAPSHOT_RATE_LIMIT_COUNT` | Optional | `apps/ws-backend` | Max `canvas_snapshot` messages per window, default `30` |
-| `WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS` | Optional | `apps/ws-backend` | Snapshot rate limit window in ms, default `1000` |
-| `WS_METRICS_LOG_INTERVAL_MS` | Optional | `apps/ws-backend` | Metrics log interval in ms, default `30000` |
-| `WEB_APP_URL` | Yes for reset email links | `apps/http-backend` | Base URL of the web app, for example `http://localhost:3000` |
-| `GMAIL_USER` | Yes for password reset email | `apps/http-backend` | Gmail address used to authenticate SMTP |
-| `GMAIL_APP_PASSWORD` | Yes for password reset email | `apps/http-backend` | Google app password for the Gmail account |
-| `GMAIL_FROM_EMAIL` | Optional | `apps/http-backend` | Optional display sender, defaults to `GMAIL_USER` |
+### Required
 
-Notes:
+| Variable | Used By | Description |
+| --- | --- | --- |
+| `JWT_SECRET` | http-backend, ws-backend, ai-worker config bootstrap | JWT signing and verification secret |
+| `DATABASE_URL` | db package and both backends | PostgreSQL connection string |
+| `PORT` | http-backend | HTTP server port |
+| `REDIS_URL` | ws-backend | Redis authority for room sync |
+| `RABBITMQ_URL` | http-backend, ws-backend, ai-worker | Durable queue/event transport |
+| `INTERNAL_SECRET` | http-backend, ai-worker | Secret for internal AI callback endpoint |
+| `GEMINI_API_KEY` | ai-worker | Gemini API authentication |
 
-- Backend env loading checks root `.env` / `.env.local` and `packages/db/.env` / `packages/db/.env.local`.
-- Current frontend API config points to `http://localhost:3001/api/v1`.
+### Queue and sync tuning
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `RABBITMQ_ROOM_EVENTS_EXCHANGE` | `canvas.room.events` | Durable room event exchange |
+| `RABBITMQ_ROOM_EVENTS_QUEUE_PREFIX` | `canvas.room.events.node` | Per-node durable queue prefix |
+| `RABBITMQ_ROOM_EVENTS_PARTITIONS` | `16` | Room routing partitions |
+| `RABBITMQ_PREFETCH` | `200` | Consumer backpressure tuning |
+| `RABBITMQ_DB_PERSIST_EXCHANGE` | `canvas.room.persist` | Persist job exchange |
+| `RABBITMQ_DB_PERSIST_QUEUE` | `canvas.room.persist.jobs` | Persist job queue |
+| `RABBITMQ_DB_PERSIST_ROUTING_KEY` | `room.persist` | Persist job routing key |
+| `RABBITMQ_AI_GENERATE_EXCHANGE` | `canvas.ai.generate` | AI generation exchange |
+| `RABBITMQ_AI_GENERATE_QUEUE` | `canvas.ai.generate.jobs` | AI generation queue |
+| `RABBITMQ_AI_GENERATE_ROUTING_KEY` | `ai.generate` | AI generation routing key |
+| `WS_MAX_MESSAGE_BYTES` | `524288` | Max accepted websocket payload |
+| `WS_SNAPSHOT_RATE_LIMIT_COUNT` | `30` | Snapshot rate-limit count |
+| `WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS` | `1000` | Snapshot rate-limit window |
+| `WS_METRICS_LOG_INTERVAL_MS` | `30000` | WS metrics logging interval |
+
+## API Surface
+
+Base URL: `http://localhost:3001/api/v1`
+
+### Auth
+
+- `POST /auth/signup`
+- `POST /auth/signin`
+- `GET /auth/current-user`
+- `POST /auth/refresh-token`
+- `POST /auth/logout`
+- `POST /auth/forgot-password`
+- `POST /auth/reset-password`
+
+### Room and collaboration
+
+- `POST /room` create room
+- `GET /room/mine` list owned rooms
+- `GET /room/:roomId/shapes` paginated shapes (optional viewport filter)
+- `PUT /room/:roomId/shapes` replace full snapshot (owner-only)
+- `GET /room/:roomId/chat/bootstrap` initial chat payload (group, direct, comment)
+- `GET /room/:roomId/invite` generate invite link
+- `POST /room/access/request` request member access
+- `GET /room/access/requests/incoming` list owner inbox
+- `POST /room/access/requests/decision` approve or reject
+
+### AI endpoints
+
+- `POST /room/:roomId/ai/generate` enqueue AI diagram generation
+- `GET /room/:roomId/ai/generate/:jobId` get AI generation status
+- `POST /internal/ai/result` internal worker callback (guarded by `x-internal-secret`)
 
 ## Scripts
 
@@ -140,81 +361,39 @@ Notes:
 
 | Command | Description |
 | --- | --- |
-| `pnpm dev` | Run workspace dev tasks via Turborepo |
-| `pnpm build` | Build all packages/apps |
+| `pnpm dev` | Run workspace dev tasks through Turborepo |
+| `pnpm build` | Build all apps/packages |
 | `pnpm lint` | Run lint tasks |
-| `pnpm check-types` | Run type checks across workspace |
-| `pnpm format` | Format `ts`, `tsx`, and `md` files |
-| `pnpm db:up` | Start Postgres + Redis + RabbitMQ containers |
-| `pnpm db:down` | Stop Postgres + Redis + RabbitMQ containers |
-| `pnpm db:logs` | Follow infrastructure logs |
+| `pnpm check-types` | Run TypeScript checks |
+| `pnpm format` | Format `.ts`, `.tsx`, `.md` files |
+| `pnpm db:up` | Start PostgreSQL, Redis, RabbitMQ |
+| `pnpm db:down` | Stop local infra |
+| `pnpm db:logs` | Tail infra logs |
 
 ### Database package scripts
 
 | Command | Description |
 | --- | --- |
 | `pnpm --filter @repo/db db:generate` | Generate Prisma client |
-| `pnpm --filter @repo/db db:push` | Push schema to DB (no migration files) |
 | `pnpm --filter @repo/db db:migrate` | Create/apply migrations |
+| `pnpm --filter @repo/db db:push` | Push schema without migration files |
 
-## Service Endpoints
+## Observability and Scaling
 
-- Web app: `http://localhost:3000`
-- HTTP API base: `http://localhost:3001/api/v1`
-- WebSocket backend: `ws://localhost:8080`
+Operational documentation:
 
-## Canvas Controls
-
-### Overflow Menu
-
-The top-right 3-dot menu contains grouped actions for:
-
-- Account: profile, logout, switch account
-- Canvas actions: clear canvas, reset view
-- Data: reload and manual save
-- Collaboration: invite copy and room info
-- Settings: theme, grid, snap toggle
-- Debug: overlay on/off and panel mode
-- Export: PNG, SVG, PDF, JSON
-
-Keyboard navigation is supported inside the menu:
-
-- `ArrowDown` / `ArrowUp`: move between actions
-- `Home` / `End`: jump to first/last action
-- `Enter` / `Space`: activate focused action
-- `Escape`: close menu
-
-### Debug Panel Modes
-
-- `Compact`: room id, sync status, version, shape ids
-- `Verbose`: compact details plus websocket latency, in-flight snapshot count, and recent sync event timeline
-
-### Snap Toggle
-
-Snap controls connector endpoint binding for `line` and `arrow` shapes:
-
-- `On`: connector endpoints snap and bind to nearby shapes, then follow those shapes if moved
-- `Off`: connector bindings are removed and new connectors stay free (no endpoint snapping)
-
-### How To Test Snap
-
-1. Draw a rectangle.
-2. Draw an arrow endpoint near the rectangle with snap `On`.
-3. Move the rectangle and confirm the arrow endpoint follows it.
-4. Toggle snap `Off` in the menu.
-5. Draw another arrow near a shape and confirm it does not bind.
-6. Move the shape and confirm the new arrow endpoint stays in place.
+- Realtime scale SLOs and load testing: [docs/scaling-runbook.md](docs/scaling-runbook.md)
+- Redis and RabbitMQ sync architecture: [docs/ws-redis-sync-architecture.md](docs/ws-redis-sync-architecture.md)
+- Database retry and circuit breaker model: [docs/db-resilience.md](docs/db-resilience.md)
 
 ## Troubleshooting
 
-- If auth/canvas requests fail, ensure HTTP backend is running on port `3001`.
-- If Prisma cannot connect, verify `DATABASE_URL` and check DB health with `pnpm db:logs`.
-- If multi-node realtime sync is not behaving as expected, verify `REDIS_URL` and Redis connectivity first.
-- If durable queue fan-out lags or stalls, verify `RABBITMQ_URL` and broker health at `http://localhost:15672`.
-- If either backend crashes on boot, confirm `JWT_SECRET` is set.
-- If code changes are not reflected in backend dev processes, rebuild/restart that app (current backend `dev` script compiles then starts).
+- If API calls fail, verify HTTP backend is running on port `3001`.
+- If realtime updates do not propagate, validate both `REDIS_URL` and `RABBITMQ_URL` connectivity.
+- If AI jobs remain pending, ensure `apps/ai-worker` is running and `GEMINI_API_KEY` is valid.
+- If shapes fail to persist, run Prisma migrations and confirm PostgreSQL is healthy.
+- If password reset emails are not delivered, verify Gmail app-password configuration.
 
-## Scaling
+## License
 
-- Realtime scaling SLOs, alert rules, and load-test workflow are documented in [docs/scaling-runbook.md](docs/scaling-runbook.md).
-- Shared DB retry and circuit-breaker behavior is documented in [docs/db-resilience.md](docs/db-resilience.md).
+No license has been declared yet in this repository. Add one before publishing publicly.

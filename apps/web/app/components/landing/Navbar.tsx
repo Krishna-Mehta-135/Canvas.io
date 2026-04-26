@@ -5,13 +5,10 @@ import { useState, useEffect } from "react";
 import { Menu, X, Sun, Moon, LayoutGrid } from "lucide-react";
 import { useTheme } from "../ThemeProvider";
 import Link from "next/link";
+import { CanvasLogo } from "../CanvasLogo";
 
 export function LogoIcon() {
-  return (
-    <div className="w-8 h-8 bg-indigo-600 rounded-[10px] flex items-center justify-center shadow-sm">
-      <LayoutGrid className="w-5 h-5 text-white" />
-    </div>
-  );
+  return <CanvasLogo className="w-10 h-10" />;
 }
 
 export function Navbar() {

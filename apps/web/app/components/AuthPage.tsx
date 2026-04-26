@@ -4,38 +4,16 @@
 
 import { useState, FormEvent, useEffect } from "react";
 import { AxiosError } from "axios";
-import { ArrowRight, Eye, EyeOff, LayoutGrid, Layers3, Loader2, Moon, ShieldCheck, Sparkles, Sun, Users } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, LayoutGrid, Loader2, Moon, Sparkles, Sun } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import Link from "next/link";
 import { HTTP_BACKEND } from "../../config";
 import { apiClient } from "../lib/apiClient";
 import { useTheme } from "./ThemeProvider";
+import { CanvasLogo } from "./CanvasLogo";
 
 const API_BASE = HTTP_BACKEND;
-
-const AUTH_FEATURES = [
-    {
-        icon: Layers3,
-        title: "Instant setup",
-        description: "Jump into a workspace in seconds.",
-    },
-    {
-        icon: Users,
-        title: "Team ready",
-        description: "Share canvases without extra friction.",
-    },
-    {
-        icon: ShieldCheck,
-        title: "Secure access",
-        description: "Keep rooms private and organized.",
-    },
-    {
-        icon: Sparkles,
-        title: "AI assisted",
-        description: "Turn prompts into structured ideas.",
-    },
-] as const;
 
 interface AuthPageProps {
     isSignIn: boolean;
@@ -130,9 +108,7 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                 className="relative z-10 mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-5"
             >
                 <Link href="/" className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-indigo-600 rounded-[10px] flex items-center justify-center shadow-sm">
-                        <LayoutGrid className="w-5 h-5 text-white" />
-                    </div>
+                    <CanvasLogo className="w-10 h-10" />
                     <span className="text-[28px] font-black text-slate-900 dark:text-white tracking-tighter">
                         Canvas.
                     </span>
@@ -178,7 +154,7 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                     initial={{ opacity: 0, y: 30 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.6, ease: "easeOut" }}
-                    className="w-full max-w-2xl"
+                    className="mx-auto w-full max-w-xl"
                 >
                     {/* Badge */}
                     <motion.div
@@ -207,32 +183,6 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
                                 : "Join thousands of teams sketching together."}
                         </p>
                     </motion.div>
-
-                    <div className="grid gap-3 sm:grid-cols-2 mb-8">
-                        {AUTH_FEATURES.map((feature, index) => {
-                            const FeatureIcon = feature.icon;
-
-                            return (
-                                <motion.div
-                                    key={feature.title}
-                                    initial={{ opacity: 0, y: 12 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ delay: 0.18 + index * 0.06 }}
-                                    className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-[0_12px_40px_rgba(15,23,42,0.06)] backdrop-blur-md dark:border-white/10 dark:bg-white/3"
-                                >
-                                    <div className="flex items-start gap-3">
-                                        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-r from-blue-500 to-cyan-500 text-white shadow-lg shadow-blue-500/20">
-                                            <FeatureIcon className="h-4 w-4" />
-                                        </div>
-                                        <div className="min-w-0">
-                                            <p className="text-sm font-semibold text-slate-900 dark:text-white">{feature.title}</p>
-                                            <p className="mt-1 text-sm leading-6 text-slate-500 dark:text-white/55">{feature.description}</p>
-                                        </div>
-                                    </div>
-                                </motion.div>
-                            );
-                        })}
-                    </div>
 
                     {/* Card */}
                     <motion.div

@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "motion/react";
+import { CanvasLogo } from "../CanvasLogo";
 
 export function Footer() {
   return (
@@ -14,22 +15,7 @@ export function Footer() {
             viewport={{ once: true }}
             className="flex items-center gap-2"
           >
-            <div className="w-8 h-8 bg-gradient-to-br from-indigo-500 to-purple-500 rounded-lg flex items-center justify-center">
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 20 20"
-                fill="none"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M4 4L16 16M4 16L16 4"
-                  stroke="white"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                />
-              </svg>
-            </div>
+            <CanvasLogo className="w-8 h-8" />
             <span className="text-xl font-bold text-gray-900 dark:text-white">Canvas</span>
           </motion.div>
 

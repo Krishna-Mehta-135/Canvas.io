@@ -16,7 +16,21 @@
 ## Two Reading Paths
 
 - Product overview: start with [Product Snapshot](#product-snapshot)
-- Engineering reference: continue through [Architecture](#architecture), [Realtime Sync Model](#realtime-sync-model), and setup sections
+- Engineering reference:
+    - [Architectural Overview](docs/architecture-overview.md)
+    - [API Reference](docs/api-reference.md)
+    - [Developer Guide](docs/developer-guide.md)
+    - [Codebase Walkthrough](docs/codebase-walkthrough.md)
+    - **Conceptual Deep Dives:**
+        - [Core Concepts (State, Shapes, Rooms)](docs/core-concepts.md)
+        - [Persistence Layer (Storage, Soft Delete, Recovery)](docs/persistence-layer.md)
+        - [Real-time Synchronization (Intent & Trade-offs)](docs/architecture-realtime-sync.md)
+        - [Canvas Engine Performance (Why we decoupled React)](docs/architecture-canvas-engine.md)
+        - [Database Resilience Strategy (Circuit Breakers & Retries)](docs/architecture-db-resilience.md)
+        - [Asynchronous AI Pipeline (Why we use queues)](docs/architecture-ai-pipeline.md)
+        - [Security, Auth & Multi-tenancy (Defensive Layering)](docs/architecture-security-model.md)
+        - [Monorepo & Shared Package Strategy](docs/architecture-monorepo-strategy.md)
+    - [Scaling & Performance](docs/scaling-runbook.md)
 
 ## Table of Contents
 

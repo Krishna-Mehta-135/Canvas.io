@@ -68,6 +68,19 @@ function boundsChanged(a: SelectionBounds | null, b: SelectionBounds | null): bo
     );
 }
 
+function areStringArraysEqual(left: string[], right: string[]) {
+    if (left === right) return true;
+    if (left.length !== right.length) return false;
+
+    for (let index = 0; index < left.length; index += 1) {
+        if (left[index] !== right[index]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 /**
  * Renders remote collaborators' selection outlines above the canvas.
  *
@@ -221,7 +234,7 @@ export function RemotePresenceLayer({
             })
             .map((p) => p.userId);
 
-        setActiveUserIds(nextIds);
+        setActiveUserIds((previous) => (areStringArraysEqual(previous, nextIds) ? previous : nextIds));
     }, [remotePresences]);
 
     const canRender = Boolean(viewportRef.current) && (presenceState?.connectedUsersCount ?? 0) > 1;

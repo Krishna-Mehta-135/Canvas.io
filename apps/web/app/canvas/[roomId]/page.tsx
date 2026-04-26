@@ -359,6 +359,19 @@ function escapeXml(value: string) {
         .replace(/'/g, "&apos;");
 }
 
+function areStringArraysEqual(left: string[], right: string[]) {
+    if (left === right) return true;
+    if (left.length !== right.length) return false;
+
+    for (let index = 0; index < left.length; index += 1) {
+        if (left[index] !== right[index]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 // File intent: keep AI-generated geometry safe/normalized so selection and dragging remain stable.
 function asFiniteNumber(value: unknown): number | null {
     if (typeof value !== "number" || !Number.isFinite(value)) return null;
@@ -1421,6 +1434,11 @@ export default function CanvasPage() {
                     setActiveTool(tool);
                 },
                 onSelectionChange: (selectedIds) => {
+                    const hasSelectionChanged = !areStringArraysEqual(selectedIdsRef.current, selectedIds);
+                    if (!hasSelectionChanged) {
+                        return;
+                    }
+
                     setSelectedCount(selectedIds.length);
                     setSelectedIds(selectedIds);
                     selectedIdsRef.current = selectedIds;

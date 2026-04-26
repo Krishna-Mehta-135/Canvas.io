@@ -235,7 +235,13 @@ This starts:
 
 ### 4. Configure environment
 
-Create `.env` at the repository root.
+Use the root env template as the single source of truth for all backend services.
+
+```bash
+cp .env.example .env
+```
+
+Then edit `.env` values for your local machine (JWT secret, database URL, Gmail app password, Gemini key, and similar secrets).
 
 ```env
 # Core
@@ -292,6 +298,8 @@ pnpm --filter ai-worker dev
 
 ## Environment Variables
 
+Source of truth: `.env.example` at repository root. Keep `.env.example` aligned with any new runtime variable.
+
 ### Required
 
 | Variable | Used By | Description |
@@ -303,6 +311,29 @@ pnpm --filter ai-worker dev
 | `RABBITMQ_URL` | http-backend, ws-backend, ai-worker | Durable queue/event transport |
 | `INTERNAL_SECRET` | http-backend, ai-worker | Secret for internal AI callback endpoint |
 | `GEMINI_API_KEY` | ai-worker | Gemini API authentication |
+
+### Auth and Email
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `WEB_APP_URL` | `http://localhost:3000` | Base URL used in auth emails and password reset links |
+| `GMAIL_USER` | none | SMTP sender account |
+| `GMAIL_APP_PASSWORD` | none | Gmail app password used by mail transport |
+| `GMAIL_FROM_EMAIL` | falls back to `GMAIL_USER` | Sender label/email for outgoing auth emails |
+
+### HTTP and DB resilience
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `HTTP_RATE_LIMIT_WINDOW_MS` | `60000` | HTTP rate-limit window |
+| `HTTP_RATE_LIMIT_MAX_REQUESTS` | `120` | HTTP requests allowed per window |
+| `DB_RETRY_ATTEMPTS` | `3` | Transient DB retry attempts |
+| `DB_RETRY_BASE_DELAY_MS` | `75` | Base delay for exponential backoff |
+| `DB_CIRCUIT_BREAKER_ENABLED` | `true` | Enable fail-fast circuit breaker for DB calls |
+| `DB_CIRCUIT_FAILURE_THRESHOLD` | `5` | Failures in window before opening breaker |
+| `DB_CIRCUIT_WINDOW_MS` | `60000` | Sliding failure window |
+| `DB_CIRCUIT_OPEN_MS` | `30000` | Cooldown while circuit is open |
+| `DB_CIRCUIT_HALF_OPEN_SUCCESS_THRESHOLD` | `2` | Probe successes required to close circuit |
 
 ### Queue and sync tuning
 
@@ -393,6 +424,7 @@ Operational documentation:
 - If AI jobs remain pending, ensure `apps/ai-worker` is running and `GEMINI_API_KEY` is valid.
 - If shapes fail to persist, run Prisma migrations and confirm PostgreSQL is healthy.
 - If password reset emails are not delivered, verify Gmail app-password configuration.
+- If collaborators joining causes frame drops or `Maximum update depth exceeded`, update to latest sync hooks and verify no custom `useEffect` calls are setting state from unstable array/object dependencies.
 
 ## License
 

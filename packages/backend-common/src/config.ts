@@ -2,15 +2,16 @@ import dotenv from "dotenv";
 import {resolve} from "node:path";
 import {existsSync} from "node:fs";
 
+// File intent: Load backend environment variables from root .env files.
 // Single source of truth for backend env loading.
 const cwd = process.cwd();
 const envCandidates = [
     resolve(cwd, ".env"),
     resolve(cwd, ".env.local"),
+    resolve(cwd, "../.env"),
+    resolve(cwd, "../.env.local"),
     resolve(cwd, "../../.env"),
     resolve(cwd, "../../.env.local"),
-    resolve(cwd, "../../packages/db/.env"),
-    resolve(cwd, "../../packages/db/.env.local"),
 ];
 
 for (const envPath of envCandidates) {

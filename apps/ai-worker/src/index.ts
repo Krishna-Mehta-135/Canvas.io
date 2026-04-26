@@ -8,7 +8,9 @@
  *  4. POSTs the result back to the HTTP backend via /internal/ai/result
  */
 
-import "dotenv/config";
+import dotenv from "dotenv";
+import {existsSync} from "node:fs";
+import {resolve} from "node:path";
 import {subscribeAiGenerateJobs, type AiGenerateJob} from "@repo/queue-sync";
 import {CanvasShapeSchema} from "@repo/common/types";
 import {GoogleGenerativeAI} from "@google/generative-ai";
@@ -16,6 +18,22 @@ import axios from "axios";
 import {z} from "zod";
 
 // File intent: Generate robust, complete AI diagrams and recover from malformed/truncated model output.
+
+// Load env from root .env files regardless of current working directory.
+const envCandidates = [
+    resolve(process.cwd(), ".env"),
+    resolve(process.cwd(), "../.env"),
+    resolve(process.cwd(), "../../.env"),
+    resolve(process.cwd(), ".env.local"),
+    resolve(process.cwd(), "../.env.local"),
+    resolve(process.cwd(), "../../.env.local"),
+];
+
+for (const envPath of envCandidates) {
+    if (existsSync(envPath)) {
+        dotenv.config({path: envPath, quiet: true});
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Config

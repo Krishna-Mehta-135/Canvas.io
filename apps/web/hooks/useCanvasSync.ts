@@ -73,6 +73,45 @@ export type SyncTimelineEntry = {
   detail: string;
 };
 
+function areStringArraysEqual(left: string[], right: string[]) {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+
+  for (let index = 0; index < left.length; index += 1) {
+    if (left[index] !== right[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function arePresenceStatesEqual(left: RoomPresenceState, right: RoomPresenceState) {
+  if (left === right) return true;
+  if (left.roomId !== right.roomId) return false;
+  if (left.connectedUsersCount !== right.connectedUsersCount) return false;
+  if (left.presences.length !== right.presences.length) return false;
+
+  for (let index = 0; index < left.presences.length; index += 1) {
+    const leftPresence = left.presences[index];
+    const rightPresence = right.presences[index];
+
+    if (!leftPresence || !rightPresence) return false;
+    if (leftPresence.userId !== rightPresence.userId) return false;
+    if (leftPresence.userName !== rightPresence.userName) return false;
+    if (leftPresence.tool !== rightPresence.tool) return false;
+    if (!areStringArraysEqual(leftPresence.selectedIds, rightPresence.selectedIds)) return false;
+
+    const leftCursor = leftPresence.cursor;
+    const rightCursor = rightPresence.cursor;
+    if (leftCursor === rightCursor) continue;
+    if (!leftCursor || !rightCursor) return false;
+    if (leftCursor.x !== rightCursor.x || leftCursor.y !== rightCursor.y) return false;
+  }
+
+  return true;
+}
+
 /**
  * Synchronizes canvas state and room presence with the websocket backend.
  */
@@ -126,6 +165,8 @@ export function useCanvasSync({
   const lastBurstSnapshotAtRef = useRef(0);
   const isDragBurstActiveRef = useRef(false);
   const dragBurstCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const localSelectionIdsRef = useRef<string[]>(localSelectionIds);
+  const localToolRef = useRef<Tool>(localTool);
 
   // Rate-limit backoff state.
   const rateLimitBackoffUntilRef = useRef(0);
@@ -136,6 +177,14 @@ export function useCanvasSync({
 
   const getEffectiveMaxInFlight = () =>
     isDragBurstActiveRef.current ? DRAG_BURST_MAX_IN_FLIGHT : WS_MAX_IN_FLIGHT_SNAPSHOTS;
+
+  useEffect(() => {
+    localSelectionIdsRef.current = localSelectionIds;
+  }, [localSelectionIds]);
+
+  useEffect(() => {
+    localToolRef.current = localTool;
+  }, [localTool]);
 
   const appendTimelineEvent = useCallback((type: string, detail: string) => {
     if (!WS_SYNC_DEBUG) return;
@@ -393,13 +442,13 @@ export function useCanvasSync({
         type: "update_presence",
         roomId,
         cursor: null,
-        selectedIds: localSelectionIds,
-        tool: localTool,
+        selectedIds: localSelectionIdsRef.current,
+        tool: localToolRef.current,
       };
 
       wsRef.current.send(JSON.stringify(message));
     }, 80);
-  }, [localSelectionIds, localTool, roomId]);
+  }, [roomId]);
 
   // Subscribe to local canvas changes.
   useEffect(() => {
@@ -471,10 +520,16 @@ export function useCanvasSync({
           hasJoinedRoomRef.current = true;
           inFlightSnapshotCountRef.current = 0;
           setCurrentUserId(message.userId);
-          setPresenceState({
-            roomId: message.roomId,
-            connectedUsersCount: message.connectedUsersCount,
-            presences: message.presences,
+          setPresenceState((previous) => {
+            const nextPresenceState: RoomPresenceState = {
+              roomId: message.roomId,
+              connectedUsersCount: message.connectedUsersCount,
+              presences: message.presences,
+            };
+
+            return arePresenceStatesEqual(previous, nextPresenceState)
+              ? previous
+              : nextPresenceState;
           });
           setLastSyncError(null);
           isConnectedRef.current = true;
@@ -548,10 +603,16 @@ export function useCanvasSync({
           setLastSyncError(null);
           scheduleSnapshotFlush();
         } else if (message.type === "room_presence_state") {
-          setPresenceState({
-            roomId: message.roomId,
-            connectedUsersCount: message.connectedUsersCount,
-            presences: message.presences,
+          setPresenceState((previous) => {
+            const nextPresenceState: RoomPresenceState = {
+              roomId: message.roomId,
+              connectedUsersCount: message.connectedUsersCount,
+              presences: message.presences,
+            };
+
+            return arePresenceStatesEqual(previous, nextPresenceState)
+              ? previous
+              : nextPresenceState;
           });
         } else if (message.type === "chat_message_created") {
           appendRealtimeChatMessage(message.message);

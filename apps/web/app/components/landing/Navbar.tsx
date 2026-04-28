@@ -2,7 +2,7 @@
 
 import { motion, AnimatePresence } from "motion/react";
 import { useState, useEffect } from "react";
-import { Menu, X, Sun, Moon, LayoutGrid } from "lucide-react";
+import { Menu, X, Sun, Moon } from "lucide-react";
 import { useTheme } from "../ThemeProvider";
 import Link from "next/link";
 import { CanvasLogo } from "../CanvasLogo";
@@ -34,10 +34,13 @@ export function Navbar() {
       transition={{ duration: 0.5, ease: "easeOut" }}
     >
       <nav className="max-w-7xl mx-auto px-6 h-28 flex items-center justify-between gap-4">
-        
         {/* Left: Logo */}
-        <div className="flex-shrink-0">
-          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="inline-block">
+        <div className="shrink-0">
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="inline-block"
+          >
             <Link href="/" className="flex items-center gap-3">
               <LogoIcon />
               <span className="text-[32px] font-black text-slate-900 dark:text-white tracking-tighter">
@@ -59,7 +62,9 @@ export function Navbar() {
               href={item.href}
               onClick={(e) => {
                 e.preventDefault();
-                document.querySelector(item.href)?.scrollIntoView({ behavior: 'smooth' });
+                document
+                  .querySelector(item.href)
+                  ?.scrollIntoView({ behavior: "smooth" });
               }}
               className="px-6 py-2.5 text-[16px] font-bold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-white dark:hover:bg-slate-700/50 rounded-full transition-all"
             >
@@ -69,7 +74,7 @@ export function Navbar() {
         </div>
 
         {/* Right: Actions */}
-        <div className="flex-shrink-0 flex items-center justify-end gap-3 h-full">
+        <div className="shrink-0 flex items-center justify-end gap-3 h-full">
           {/* Theme toggle */}
           <motion.button
             onClick={toggleTheme}
@@ -104,7 +109,11 @@ export function Navbar() {
           </motion.button>
 
           {/* Sign In */}
-          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="hidden md:flex items-center">
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="hidden md:flex items-center"
+          >
             <Link
               href="/signin"
               className="px-4 py-2.5 text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors whitespace-nowrap"
@@ -114,7 +123,11 @@ export function Navbar() {
           </motion.div>
 
           {/* Get Started */}
-          <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="hidden md:flex items-center">
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="hidden md:flex items-center"
+          >
             <Link
               href="/signup"
               className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-bold rounded-xl shadow-md shadow-indigo-500/20 transition-colors whitespace-nowrap"
@@ -129,7 +142,11 @@ export function Navbar() {
             onClick={() => setIsMenuOpen(!isMenuOpen)}
             whileTap={{ scale: 0.9 }}
           >
-            {isMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            {isMenuOpen ? (
+              <X className="w-5 h-5" />
+            ) : (
+              <Menu className="w-5 h-5" />
+            )}
           </motion.button>
         </div>
       </nav>
@@ -156,7 +173,9 @@ export function Navbar() {
                   onClick={(e) => {
                     e.preventDefault();
                     setIsMenuOpen(false);
-                    document.querySelector(item.href)?.scrollIntoView({ behavior: 'smooth' });
+                    document
+                      .querySelector(item.href)
+                      ?.scrollIntoView({ behavior: "smooth" });
                   }}
                   className="text-slate-700 dark:text-slate-300 font-bold text-lg"
                 >
@@ -164,10 +183,16 @@ export function Navbar() {
                 </a>
               ))}
               <div className="border-t border-slate-200 dark:border-slate-800 pt-6 flex flex-col gap-4">
-                <Link href="/signin" className="text-center py-3 border-2 border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-white font-bold">
+                <Link
+                  href="/signin"
+                  className="text-center py-3 border-2 border-slate-200 dark:border-slate-800 rounded-xl text-slate-800 dark:text-white font-bold"
+                >
                   Sign In
                 </Link>
-                <Link href="/signup" className="text-center py-3 bg-indigo-600 text-white rounded-xl font-bold">
+                <Link
+                  href="/signup"
+                  className="text-center py-3 bg-indigo-600 text-white rounded-xl font-bold"
+                >
                   Sign Up Free
                 </Link>
               </div>

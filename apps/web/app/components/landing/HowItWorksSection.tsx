@@ -17,14 +17,16 @@ const steps = [
     number: "02",
     icon: Users,
     title: "Draw or invite others",
-    description: "Sketch ideas yourself or collaborate in real-time with your team",
+    description:
+      "Sketch ideas yourself or collaborate in real-time with your team",
     color: "from-purple-400 to-pink-400",
   },
   {
     number: "03",
     icon: Sparkles,
     title: "Use AI to accelerate",
-    description: "Let AI generate diagrams, refine layouts, and enhance your work",
+    description:
+      "Let AI generate diagrams, refine layouts, and enhance your work",
     color: "from-indigo-400 to-purple-400",
   },
 ];
@@ -103,7 +105,7 @@ function StepCard({
   index,
   isInView,
 }: {
-  step: typeof steps[0];
+  step: (typeof steps)[0];
   index: number;
   isInView: boolean;
 }) {
@@ -149,8 +151,12 @@ function StepCard({
       </motion.div>
 
       {/* Content */}
-      <h3 className="text-2xl font-semibold mb-3 text-gray-900 dark:text-white">{step.title}</h3>
-      <p className="text-gray-600 dark:text-white/60 leading-relaxed max-w-xs">{step.description}</p>
+      <h3 className="text-2xl font-semibold mb-3 text-gray-900 dark:text-white">
+        {step.title}
+      </h3>
+      <p className="text-gray-600 dark:text-white/60 leading-relaxed max-w-xs">
+        {step.description}
+      </p>
 
       {/* Decorative dots */}
       <div className="flex gap-2 mt-6">

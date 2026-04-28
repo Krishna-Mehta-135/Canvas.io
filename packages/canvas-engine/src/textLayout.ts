@@ -5,38 +5,38 @@ Shared helpers for wrapping canvas text inside a target width.
 */
 
 export function getWrappedTextLines(
-    ctx: CanvasRenderingContext2D,
-    text: string,
-    maxWidth: number
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  maxWidth: number,
 ): string[] {
-    const width = Math.max(8, maxWidth);
-    const rawLines = text.split("\n");
-    const wrapped: string[] = [];
+  const width = Math.max(8, maxWidth);
+  const rawLines = text.split("\n");
+  const wrapped: string[] = [];
 
-    const wrapSingleLine = (line: string) => {
-        if (line.length === 0) {
-            wrapped.push("");
-            return;
-        }
+  const wrapSingleLine = (line: string) => {
+    if (line.length === 0) {
+      wrapped.push("");
+      return;
+    }
 
-        let current = "";
+    let current = "";
 
-        for (const ch of line) {
-            const candidate = current + ch;
+    for (const ch of line) {
+      const candidate = current + ch;
 
-            // Character-level wrapping keeps behavior predictable for long tokens without spaces.
-            if (current.length > 0 && ctx.measureText(candidate).width > width) {
-                wrapped.push(current);
-                current = ch;
-            } else {
-                current = candidate;
-            }
-        }
-
+      // Character-level wrapping keeps behavior predictable for long tokens without spaces.
+      if (current.length > 0 && ctx.measureText(candidate).width > width) {
         wrapped.push(current);
-    };
+        current = ch;
+      } else {
+        current = candidate;
+      }
+    }
 
-    rawLines.forEach(wrapSingleLine);
+    wrapped.push(current);
+  };
 
-    return wrapped;
+  rawLines.forEach(wrapSingleLine);
+
+  return wrapped;
 }

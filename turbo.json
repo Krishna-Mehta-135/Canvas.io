@@ -1,6 +1,54 @@
 {
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
+  "globalPassThroughEnv": [
+    "CI",
+    "NODE_ENV",
+    "DATABASE_URL",
+    "JWT_SECRET",
+    "REDIS_URL",
+    "RABBITMQ_URL",
+    "IDEMPOTENCY_WINDOW_MS",
+    "IDEMPOTENCY_MAX_ENTRIES",
+    "HTTP_RATE_LIMIT_WINDOW_MS",
+    "HTTP_RATE_LIMIT_MAX_REQUESTS",
+    "DB_RETRY_ATTEMPTS",
+    "DB_RETRY_BASE_DELAY_MS",
+    "DB_CIRCUIT_BREAKER_ENABLED",
+    "DB_CIRCUIT_FAILURE_THRESHOLD",
+    "DB_CIRCUIT_WINDOW_MS",
+    "DB_CIRCUIT_OPEN_MS",
+    "DB_CIRCUIT_HALF_OPEN_SUCCESS_THRESHOLD",
+    "GMAIL_USER",
+    "GMAIL_APP_PASSWORD",
+    "GMAIL_FROM_EMAIL",
+    "RABBITMQ_ROOM_EVENTS_EXCHANGE",
+    "RABBITMQ_ROOM_EVENTS_QUEUE_PREFIX",
+    "RABBITMQ_ROOM_EVENTS_PARTITIONS",
+    "RABBITMQ_PREFETCH",
+    "RABBITMQ_DB_PERSIST_EXCHANGE",
+    "RABBITMQ_DB_PERSIST_QUEUE",
+    "RABBITMQ_DB_PERSIST_ROUTING_KEY",
+    "RABBITMQ_AI_GENERATE_EXCHANGE",
+    "RABBITMQ_AI_GENERATE_QUEUE",
+    "RABBITMQ_AI_GENERATE_ROUTING_KEY",
+    "INTERNAL_SECRET",
+    "HTTP_BACKEND_INTERNAL_URL",
+    "WS_RABBITMQ_RETRY_INITIAL_MS",
+    "WS_RABBITMQ_RETRY_MAX_MS",
+    "WS_ENABLE_DURABLE_QUEUE",
+    "WS_DEBUG_ERRORS",
+    "WS_MAX_MESSAGE_BYTES",
+    "WS_SNAPSHOT_RATE_LIMIT_COUNT",
+    "WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS",
+    "AUTH_DEBUG",
+    "PORT",
+    "WEB_APP_URL",
+    "WS_METRICS_LOG_INTERVAL_MS",
+    "WS_METRICS_ENABLED",
+    "GEMINI_API_KEY",
+    "GEMINI_MODEL_CANDIDATES"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -12,6 +60,16 @@
     },
     "check-types": {
       "dependsOn": ["^check-types"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"],
+      "passThroughEnv": ["CI"]
+    },
+    "test:coverage": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"],
+      "passThroughEnv": ["CI"]
     },
     "dev": {
       "cache": false,

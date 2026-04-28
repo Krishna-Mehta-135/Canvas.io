@@ -1,201 +1,207 @@
-import {prismaClient} from "@repo/db/client";
-import {ApiError} from "../utils/ApiError";
-import {ApiResponse} from "../utils/ApiResponse";
+import { prismaClient } from "@repo/db/client";
+import { ApiError } from "../utils/ApiError";
+import { ApiResponse } from "../utils/ApiResponse";
 import {
-    CreateRoomSchema,
-    RenameRoomSlugSchema,
-    RoomIdParamSchema,
-    RoomSlugParamSchema,
-    OwnerSlugParamsSchema,
-    ReplaceShapesBodySchema,
-    RoomAccessRequestCreateSchema,
-    RoomAccessRequestDecisionSchema,
-    AiGenerateRequestSchema,
-    AiGenerateJobIdParamSchema,
-    type ChatParticipant,
-    type PersistedChatMessage,
+  CreateRoomSchema,
+  RenameRoomSlugSchema,
+  RoomIdParamSchema,
+  RoomSlugParamSchema,
+  OwnerSlugParamsSchema,
+  ReplaceShapesBodySchema,
+  RoomAccessRequestCreateSchema,
+  RoomAccessRequestDecisionSchema,
+  AiGenerateRequestSchema,
+  AiGenerateJobIdParamSchema,
+  type ChatParticipant,
+  type PersistedChatMessage,
 } from "@repo/common/types";
-import {asyncHandler} from "../utils/asyncHandler";
-import {publishAiGenerateJob} from "@repo/queue-sync";
-import {INTERNAL_SECRET} from "@repo/backend-common/config";
-import type {Shape} from "@repo/canvas-engine";
-import {randomUUID} from "node:crypto";
-
+import { asyncHandler } from "../utils/asyncHandler";
+import { publishAiGenerateJob } from "@repo/queue-sync";
+import { INTERNAL_SECRET } from "@repo/backend-common/config";
+import { randomUUID } from "node:crypto";
 
 function requireUserId(userId?: string) {
-    if (!userId) {
-        throw new ApiError(401, "Unauthorized: User ID not found");
-    }
+  if (!userId) {
+    throw new ApiError(401, "Unauthorized: User ID not found");
+  }
 
-    return userId;
+  return userId;
 }
 
-function buildCanonicalRoomPath(room: {slug: string; admin: {handle: string | null}}) {
-    const handle = room.admin.handle?.trim();
+function buildCanonicalRoomPath(room: {
+  slug: string;
+  admin: { handle: string | null };
+}) {
+  const handle = room.admin.handle?.trim();
 
-    // Use the owner handle when we have one. Fall back to the slug-only canvas
-    // route so invite/open flows still work for accounts that have not set a handle.
-    return handle ? `/room/${handle}/${room.slug}` : `/canvas/${room.slug}`;
+  // Use the owner handle when we have one. Fall back to the slug-only canvas
+  // route so invite/open flows still work for accounts that have not set a handle.
+  return handle ? `/room/${handle}/${room.slug}` : `/canvas/${room.slug}`;
 }
 
 type ChatRecordWithUsers = {
-    id: number;
-    roomId: number;
-    message: string;
-    messageType: "GROUP" | "DIRECT" | "COMMENT";
-    shapeId: string | null;
-    createdAt: Date;
-    user: ChatParticipant;
-    recipient: ChatParticipant | null;
+  id: number;
+  roomId: number;
+  message: string;
+  messageType: "GROUP" | "DIRECT" | "COMMENT";
+  shapeId: string | null;
+  createdAt: Date;
+  user: ChatParticipant;
+  recipient: ChatParticipant | null;
 };
 
 function mapChatParticipant(user: {
-    id: string;
-    name: string;
-    handle: string | null;
-    photo?: string | null;
+  id: string;
+  name: string;
+  handle: string | null;
+  photo?: string | null;
 }): ChatParticipant {
-    return {
-        id: user.id,
-        name: user.name,
-        handle: user.handle,
-        photo: user.photo ?? null,
-    };
+  return {
+    id: user.id,
+    name: user.name,
+    handle: user.handle,
+    photo: user.photo ?? null,
+  };
 }
 
-function mapPersistedChatMessage(chat: ChatRecordWithUsers): PersistedChatMessage {
-    return {
-        id: chat.id,
-        roomId: chat.roomId,
-        kind:
-            chat.messageType === "DIRECT"
-                ? "direct"
-                : chat.messageType === "COMMENT"
-                    ? "comment"
-                    : "group",
-        body: chat.message,
-        shapeId: chat.shapeId ?? null,
-        createdAt: chat.createdAt.toISOString(),
-        sender: chat.user,
-        recipient: chat.recipient,
-    };
+function mapPersistedChatMessage(
+  chat: ChatRecordWithUsers,
+): PersistedChatMessage {
+  return {
+    id: chat.id,
+    roomId: chat.roomId,
+    kind:
+      chat.messageType === "DIRECT"
+        ? "direct"
+        : chat.messageType === "COMMENT"
+          ? "comment"
+          : "group",
+    body: chat.message,
+    shapeId: chat.shapeId ?? null,
+    createdAt: chat.createdAt.toISOString(),
+    sender: chat.user,
+    recipient: chat.recipient,
+  };
 }
 
 async function assertOwnerRoomAccess(roomId: number, userId: string) {
-    const room = await prismaClient.room.findFirst({
-        where: {
-            id: roomId,
-            adminId: userId,
-        },
-        select: {
-            id: true,
-            adminId: true,
-        },
-    });
+  const room = await prismaClient.room.findFirst({
+    where: {
+      id: roomId,
+      adminId: userId,
+    },
+    select: {
+      id: true,
+      adminId: true,
+    },
+  });
 
-    if (!room) {
-        // Return forbidden uniformly to avoid leaking room existence.
-        throw new ApiError(403, "Forbidden");
-    }
+  if (!room) {
+    // Return forbidden uniformly to avoid leaking room existence.
+    throw new ApiError(403, "Forbidden");
+  }
 
-    return room;
+  return room;
 }
 
 async function hasRoomAccess(roomId: number, userId: string) {
-    const room = await prismaClient.room.findFirst({
-        where: {
-            id: roomId,
-            OR: [
-                {adminId: userId},
-                {
-                    members: {
-                        some: {
-                            userId,
-                        },
-                    },
-                },
-            ],
+  const room = await prismaClient.room.findFirst({
+    where: {
+      id: roomId,
+      OR: [
+        { adminId: userId },
+        {
+          members: {
+            some: {
+              userId,
+            },
+          },
         },
-        select: {
-            id: true,
-        },
-    });
+      ],
+    },
+    select: {
+      id: true,
+    },
+  });
 
-    return Boolean(room);
+  return Boolean(room);
 }
 
 const createRoom = asyncHandler(async (req, res) => {
-    const validationResult = CreateRoomSchema.safeParse(req.body);
-    if (!validationResult.success) {
-        throw new ApiError(400, "Incorrect input");
+  const validationResult = CreateRoomSchema.safeParse(req.body);
+  if (!validationResult.success) {
+    throw new ApiError(400, "Incorrect input");
+  }
+
+  const { slug } = validationResult.data;
+  const userId = requireUserId(req.userId);
+
+  try {
+    const room = await prismaClient.room.create({
+      data: {
+        slug,
+        adminId: userId,
+      },
+      include: {
+        admin: {
+          select: {
+            handle: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    const canonicalPath = buildCanonicalRoomPath(room);
+
+    return res.status(201).json(
+      new ApiResponse(
+        201,
+        {
+          ...room,
+          canonicalPath,
+        },
+        "Room created successfully",
+      ),
+    );
+  } catch (err: unknown) {
+    const e = err as { code?: string } | undefined;
+    if (e?.code === "P2002") {
+      throw new ApiError(409, "Room slug already exists for this user");
     }
-
-    const {slug} = validationResult.data;
-    const userId = requireUserId(req.userId);
-
-    try {
-        const room = await prismaClient.room.create({
-            data: {
-                slug,
-                adminId: userId,
-            },
-            include: {
-                admin: {
-                    select: {
-                        handle: true,
-                        name: true,
-                    },
-                },
-            },
-        });
-
-        const canonicalPath = buildCanonicalRoomPath(room);
-
-        return res.status(201).json(
-            new ApiResponse(
-                201,
-                {
-                    ...room,
-                    canonicalPath,
-                },
-                "Room created successfully"
-            )
-        );
-    } catch (err: any) {
-        if (err.code === "P2002") {
-            throw new ApiError(409, "Room slug already exists for this user");
-        }
-        throw err;
-    }
+    throw err;
+  }
 });
 
 const listMyRooms = asyncHandler(async (req, res) => {
-    const userId = requireUserId(req.userId);
+  const userId = requireUserId(req.userId);
 
-    const rooms = await prismaClient.room.findMany({
-        where: {
-            adminId: userId,
+  const rooms = await prismaClient.room.findMany({
+    where: {
+      adminId: userId,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    include: {
+      admin: {
+        select: {
+          id: true,
+          handle: true,
+          name: true,
         },
-        orderBy: {
-            createdAt: "desc",
-        },
-        include: {
-            admin: {
-                select: {
-                    id: true,
-                    handle: true,
-                    name: true,
-                },
-            },
-        },
-    });
+      },
+    },
+  });
 
-    const payload = rooms.map((room) => ({
-        ...room,
-        canonicalPath: buildCanonicalRoomPath(room),
-    }));
+  const payload = rooms.map((room) => ({
+    ...room,
+    canonicalPath: buildCanonicalRoomPath(room),
+  }));
 
-    res.status(200).json(new ApiResponse(200, payload, "Rooms fetched successfully"));
+  res
+    .status(200)
+    .json(new ApiResponse(200, payload, "Rooms fetched successfully"));
 });
 
 const MAX_SHAPES_PER_PAGE = 5000;
@@ -205,75 +211,75 @@ const DEFAULT_SHAPES_PER_PAGE = 2000;
  * Parse a viewport query string "x1,y1,x2,y2" into its numeric components.
  * Returns null when the string is absent or malformed.
  */
-function parseViewportParam(raw: string | undefined): {x1: number; y1: number; x2: number; y2: number} | null {
-    if (!raw) return null;
-    const parts = raw.split(",");
-    if (parts.length !== 4) return null;
-    const [x1, y1, x2, y2] = parts.map(Number);
-    if ([x1, y1, x2, y2].some((n) => !Number.isFinite(n))) return null;
-    return {x1: x1!, y1: y1!, x2: x2!, y2: y2!};
+function parseViewportParam(
+  raw: string | undefined,
+): { x1: number; y1: number; x2: number; y2: number } | null {
+  if (!raw) return null;
+  const parts = raw.split(",");
+  if (parts.length !== 4) return null;
+  const [x1, y1, x2, y2] = parts.map(Number);
+  if ([x1, y1, x2, y2].some((n) => !Number.isFinite(n))) return null;
+  return { x1: x1!, y1: y1!, x2: x2!, y2: y2! };
 }
 
 const getShapes = asyncHandler(async (req, res) => {
-    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
-    if (!paramsValidation.success) {
-        throw new ApiError(400, "Invalid roomId");
-    }
+  const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+  if (!paramsValidation.success) {
+    throw new ApiError(400, "Invalid roomId");
+  }
 
-    const {roomId} = paramsValidation.data;
+  const { roomId } = paramsValidation.data;
 
-    const userId = requireUserId(req.userId);
-    const canAccess = await hasRoomAccess(roomId, userId);
-    if (!canAccess) {
-        throw new ApiError(403, "Forbidden");
-    }
+  const userId = requireUserId(req.userId);
+  const canAccess = await hasRoomAccess(roomId, userId);
+  if (!canAccess) {
+    throw new ApiError(403, "Forbidden");
+  }
 
-    // --- Pagination params ---
-    const rawLimit = Number(req.query.limit ?? DEFAULT_SHAPES_PER_PAGE);
-    const limit = Number.isFinite(rawLimit)
-        ? Math.max(1, Math.min(MAX_SHAPES_PER_PAGE, rawLimit))
-        : DEFAULT_SHAPES_PER_PAGE;
+  // --- Pagination params ---
+  const rawLimit = Number(req.query.limit ?? DEFAULT_SHAPES_PER_PAGE);
+  const limit = Number.isFinite(rawLimit)
+    ? Math.max(1, Math.min(MAX_SHAPES_PER_PAGE, rawLimit))
+    : DEFAULT_SHAPES_PER_PAGE;
 
-    // cursor is the `createdAt` ISO timestamp of the last shape from the previous page.
-    const cursorRaw = typeof req.query.cursor === "string" ? req.query.cursor : undefined;
-    const cursorDate = cursorRaw ? new Date(cursorRaw) : undefined;
-    const cursorIsValid = cursorDate && !isNaN(cursorDate.getTime());
+  // cursor is the `createdAt` ISO timestamp of the last shape from the previous page.
+  const cursorRaw =
+    typeof req.query.cursor === "string" ? req.query.cursor : undefined;
+  const cursorDate = cursorRaw ? new Date(cursorRaw) : undefined;
+  const cursorIsValid = cursorDate && !isNaN(cursorDate.getTime());
 
-    // --- Optional viewport spatial filter ---
-    const viewportRaw = typeof req.query.viewport === "string" ? req.query.viewport : undefined;
-    const viewport = parseViewportParam(viewportRaw);
+  // --- Optional viewport spatial filter ---
+  const viewportRaw =
+    typeof req.query.viewport === "string" ? req.query.viewport : undefined;
+  const viewport = parseViewportParam(viewportRaw);
 
-    try {
-        // Build the Prisma where clause.
-        // When a viewport is provided we apply a best-effort spatial pre-filter:
-        // shapes whose canonical bounding box overlaps the viewport rectangle are
-        // included; freehand shapes are always included because their bounds are
-        // implicit in a points[] array (too expensive to filter server-side without
-        // a precomputed bbox column).
-        //
-        // The jsonb cast trick works on Postgres >= 12.  On other engines it
-        // degrades gracefully by returning all shapes (the `viewport` branch simply
-        // won't be entered).
+  try {
+    // Build the Prisma where clause.
+    // When a viewport is provided we apply a best-effort spatial pre-filter:
+    // shapes whose canonical bounding box overlaps the viewport rectangle are
+    // included; freehand shapes are always included because their bounds are
+    // implicit in a points[] array (too expensive to filter server-side without
+    // a precomputed bbox column).
+    //
+    // The jsonb cast trick works on Postgres >= 12.  On other engines it
+    // degrades gracefully by returning all shapes (the `viewport` branch simply
+    // won't be entered).
 
-        let shapes;
+    if (viewport) {
+      // Use a raw query so we can leverage Postgres jsonb operators for the
+      // spatial filter.  This is safe because all values are parameterised.
+      const { x1: vx1, y1: vy1, x2: vx2, y2: vy2 } = viewport;
 
-        if (viewport) {
-            // Use a raw query so we can leverage Postgres jsonb operators for the
-            // spatial filter.  This is safe because all values are parameterised.
-            const {x1: vx1, y1: vy1, x2: vx2, y2: vy2} = viewport;
+      // Build cursor clause fragments.
+      const cursorClause = cursorIsValid ? `AND s."createdAt" > $7\n` : "";
+      const cursorParam = cursorIsValid ? [cursorDate] : [];
 
-            // Build cursor clause fragments.
-            const cursorClause = cursorIsValid
-                ? `AND s."createdAt" > $7\n`
-                : "";
-            const cursorParam = cursorIsValid ? [cursorDate] : [];
-
-            // Shape types with axis-aligned bounding boxes that we can filter cheaply.
-            //   rect / rhombus / text  →  x, y, width, height
-            //   circle                 →  centerX, centerY, radiusX, radiusY
-            //   line / arrow           →  x1, y1, x2, y2
-            // All other types (freehand) bypass the spatial filter.
-            const spatialFilter = `
+      // Shape types with axis-aligned bounding boxes that we can filter cheaply.
+      //   rect / rhombus / text  →  x, y, width, height
+      //   circle                 →  centerX, centerY, radiusX, radiusY
+      //   line / arrow           →  x1, y1, x2, y2
+      // All other types (freehand) bypass the spatial filter.
+      const spatialFilter = `
                 AND (
                     s.type = 'freehand'
                     OR (
@@ -300,8 +306,10 @@ const getShapes = asyncHandler(async (req, res) => {
                 )
             `;
 
-            const rows = await prismaClient.$queryRawUnsafe<Array<{props: unknown; createdAt: Date}>>(
-                `SELECT s.props, s."createdAt"
+      const rows = await prismaClient.$queryRawUnsafe<
+        Array<{ props: unknown; createdAt: Date }>
+      >(
+        `SELECT s.props, s."createdAt"
                  FROM "Shape" s
                  WHERE s."roomId" = $1
                    AND s.deleted = false
@@ -309,752 +317,811 @@ const getShapes = asyncHandler(async (req, res) => {
                    ${cursorClause}
                  ORDER BY s."createdAt" ASC
                  LIMIT $2`,
-                roomId,
-                limit + 1,          // fetch one extra to detect next page
-                vx1, vy1, vx2, vy2,
-                ...cursorParam
-            );
+        roomId,
+        limit + 1, // fetch one extra to detect next page
+        vx1,
+        vy1,
+        vx2,
+        vy2,
+        ...cursorParam,
+      );
 
-            const hasMore = rows.length > limit;
-            const pageRows = hasMore ? rows.slice(0, limit) : rows;
-            const nextCursor = hasMore ? pageRows[pageRows.length - 1]?.createdAt?.toISOString() : null;
+      const hasMore = rows.length > limit;
+      const pageRows = hasMore ? rows.slice(0, limit) : rows;
+      const nextCursor = hasMore
+        ? pageRows[pageRows.length - 1]?.createdAt?.toISOString()
+        : null;
 
-            return res.status(200).json(
-                new ApiResponse(
-                    200,
-                    {
-                        shapes: pageRows.map((row) => row.props),
-                        nextCursor,
-                    },
-                    "Shapes fetched successfully"
-                )
-            );
-        }
-
-        // ---- Non-spatial path: plain cursor-paginated fetch ----
-        shapes = await prismaClient.shape.findMany({
-            where: {
-                roomId,
-                deleted: false,
-                ...(cursorIsValid ? {createdAt: {gt: cursorDate}} : {}),
-            },
-            orderBy: {createdAt: "asc"},
-            take: limit + 1,
-        });
-
-        const hasMore = shapes.length > limit;
-        const pageShapes = hasMore ? shapes.slice(0, limit) : shapes;
-        const nextCursor = hasMore
-            ? pageShapes[pageShapes.length - 1]?.createdAt?.toISOString() ?? null
-            : null;
-
-        const serializedShapes = pageShapes.map((shape) => shape.props);
-
-        res.status(200).json(
-            new ApiResponse(
-                200,
-                {shapes: serializedShapes, nextCursor},
-                "Shapes fetched successfully"
-            )
-        );
-    } catch (err: any) {
-        // If Prisma schema is out-of-sync (missing table/columns), keep canvas usable.
-        if (err?.code === "P2021" || err?.code === "P2022") {
-            return res.status(200).json(
-                new ApiResponse(200, {shapes: [], nextCursor: null}, "Shapes unavailable; returned empty state")
-            );
-        }
-        if (typeof err?.code === "string" && err.code.startsWith("P")) {
-            return res.status(200).json(
-                new ApiResponse(200, {shapes: [], nextCursor: null}, "Shapes unavailable; returned empty state")
-            );
-        }
-        throw err;
+      return res.status(200).json(
+        new ApiResponse(
+          200,
+          {
+            shapes: pageRows.map((row) => row.props),
+            nextCursor,
+          },
+          "Shapes fetched successfully",
+        ),
+      );
     }
+
+    // ---- Non-spatial path: plain cursor-paginated fetch ----
+    const shapes = await prismaClient.shape.findMany({
+      where: {
+        roomId,
+        deleted: false,
+        ...(cursorIsValid ? { createdAt: { gt: cursorDate } } : {}),
+      },
+      orderBy: { createdAt: "asc" },
+      take: limit + 1,
+    });
+
+    const hasMore = shapes.length > limit;
+    const pageShapes = hasMore ? shapes.slice(0, limit) : shapes;
+    const nextCursor = hasMore
+      ? (pageShapes[pageShapes.length - 1]?.createdAt?.toISOString() ?? null)
+      : null;
+
+    const serializedShapes = pageShapes.map(
+      (shape: { props: unknown }) => shape.props,
+    );
+
+    res
+      .status(200)
+      .json(
+        new ApiResponse(
+          200,
+          { shapes: serializedShapes, nextCursor },
+          "Shapes fetched successfully",
+        ),
+      );
+  } catch (err: unknown) {
+    // If Prisma schema is out-of-sync (missing table/columns), keep canvas usable.
+    const e = err as { code?: string } | undefined;
+    if (e?.code === "P2021" || e?.code === "P2022") {
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(
+            200,
+            { shapes: [], nextCursor: null },
+            "Shapes unavailable; returned empty state",
+          ),
+        );
+    }
+    if (typeof e?.code === "string" && e.code.startsWith("P")) {
+      return res
+        .status(200)
+        .json(
+          new ApiResponse(
+            200,
+            { shapes: [], nextCursor: null },
+            "Shapes unavailable; returned empty state",
+          ),
+        );
+    }
+    throw err;
+  }
 });
 
 const getRoomChatBootstrap = asyncHandler(async (req, res) => {
-    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
-    if (!paramsValidation.success) {
-        throw new ApiError(400, "Invalid roomId");
-    }
+  const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+  if (!paramsValidation.success) {
+    throw new ApiError(400, "Invalid roomId");
+  }
 
-    const {roomId} = paramsValidation.data;
-    const userId = requireUserId(req.userId);
-    const canAccess = await hasRoomAccess(roomId, userId);
-    if (!canAccess) {
-        throw new ApiError(403, "Forbidden");
-    }
+  const { roomId } = paramsValidation.data;
+  const userId = requireUserId(req.userId);
+  const canAccess = await hasRoomAccess(roomId, userId);
+  if (!canAccess) {
+    throw new ApiError(403, "Forbidden");
+  }
 
-    const room = await prismaClient.room.findUnique({
-        where: {id: roomId},
+  const room = await prismaClient.room.findUnique({
+    where: { id: roomId },
+    select: {
+      admin: {
         select: {
-            admin: {
-                select: {
-                    id: true,
-                    name: true,
-                    handle: true,
-                    photo: true,
-                },
-            },
-            members: {
-                select: {
-                    user: {
-                        select: {
-                            id: true,
-                            name: true,
-                            handle: true,
-                            photo: true,
-                        },
-                    },
-                },
-            },
+          id: true,
+          name: true,
+          handle: true,
+          photo: true,
         },
-    });
-
-    if (!room) {
-        throw new ApiError(404, "Room not found");
-    }
-
-    let groupMessagesRaw: Array<any> = [];
-    let directMessagesRaw: Array<any> = [];
-    let commentsRaw: Array<any> = [];
-
-    try {
-        [groupMessagesRaw, directMessagesRaw, commentsRaw] = await Promise.all([
-            prismaClient.chat.findMany({
-                where: {
-                    roomId,
-                    messageType: "GROUP",
-                },
-                include: {
-                    user: {
-                        select: {
-                            id: true,
-                            name: true,
-                            handle: true,
-                            photo: true,
-                        },
-                    },
-                    recipient: {
-                        select: {
-                            id: true,
-                            name: true,
-                            handle: true,
-                            photo: true,
-                        },
-                    },
-                },
-                orderBy: {
-                    createdAt: "desc",
-                },
-                take: 80,
-            }),
-            prismaClient.chat.findMany({
-                where: {
-                    roomId,
-                    messageType: "DIRECT",
-                    OR: [
-                        {userId},
-                        {recipientId: userId},
-                    ],
-                },
-                include: {
-                    user: {
-                        select: {
-                            id: true,
-                            name: true,
-                            handle: true,
-                            photo: true,
-                        },
-                    },
-                    recipient: {
-                        select: {
-                            id: true,
-                            name: true,
-                            handle: true,
-                            photo: true,
-                        },
-                    },
-                },
-                orderBy: {
-                    createdAt: "desc",
-                },
-                take: 160,
-            }),
-            prismaClient.chat.findMany({
-                where: {
-                    roomId,
-                    messageType: "COMMENT",
-                },
-                include: {
-                    user: {
-                        select: {
-                            id: true,
-                            name: true,
-                            handle: true,
-                            photo: true,
-                        },
-                    },
-                    recipient: {
-                        select: {
-                            id: true,
-                            name: true,
-                            handle: true,
-                            photo: true,
-                        },
-                    },
-                },
-                orderBy: {
-                    createdAt: "desc",
-                },
-                take: 120,
-            }),
-        ]);
-    } catch (error: any) {
-        if (error?.code !== "P2021" && error?.code !== "P2022") {
-            throw error;
-        }
-
-        groupMessagesRaw = [];
-        directMessagesRaw = [];
-        commentsRaw = [];
-    }
-
-    const participantsMap = new Map<string, ChatParticipant>();
-    participantsMap.set(room.admin.id, mapChatParticipant(room.admin));
-    for (const member of room.members) {
-        participantsMap.set(member.user.id, mapChatParticipant(member.user));
-    }
-
-    const groupMessages = [...groupMessagesRaw]
-        .reverse()
-        .map((chat) =>
-            mapPersistedChatMessage({
-                ...chat,
-                user: mapChatParticipant(chat.user),
-                recipient: chat.recipient ? mapChatParticipant(chat.recipient) : null,
-            })
-        );
-
-    const directMessages = [...directMessagesRaw]
-        .reverse()
-        .map((chat) =>
-            mapPersistedChatMessage({
-                ...chat,
-                user: mapChatParticipant(chat.user),
-                recipient: chat.recipient ? mapChatParticipant(chat.recipient) : null,
-            })
-        );
-
-    const comments = [...commentsRaw]
-        .reverse()
-        .map((chat) =>
-            mapPersistedChatMessage({
-                ...chat,
-                user: mapChatParticipant(chat.user),
-                recipient: chat.recipient ? mapChatParticipant(chat.recipient) : null,
-            })
-        );
-
-    return res.status(200).json(
-        new ApiResponse(
-            200,
-            {
-                participants: [...participantsMap.values()],
-                groupMessages,
-                directMessages,
-                comments,
+      },
+      members: {
+        select: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              handle: true,
+              photo: true,
             },
-            "Chat bootstrap fetched"
-        )
-    );
-});
+          },
+        },
+      },
+    },
+  });
 
+  if (!room) {
+    throw new ApiError(404, "Room not found");
+  }
+
+  // Type definition for chat messages with included user and recipient data
+  type ChatWithParticipants = {
+    id: number;
+    roomId: number;
+    message: string;
+    messageType: "GROUP" | "DIRECT" | "COMMENT";
+    shapeId: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+    userId: string;
+    recipientId: string | null;
+    user: {
+      id: string;
+      name: string;
+      handle: string | null;
+      photo: string | null;
+    };
+    recipient: {
+      id: string;
+      name: string;
+      handle: string | null;
+      photo: string | null;
+    } | null;
+  };
+
+  let groupMessagesRaw: Array<ChatWithParticipants> = [];
+  let directMessagesRaw: Array<ChatWithParticipants> = [];
+  let commentsRaw: Array<ChatWithParticipants> = [];
+
+  try {
+    [groupMessagesRaw, directMessagesRaw, commentsRaw] = await Promise.all([
+      prismaClient.chat.findMany({
+        where: {
+          roomId,
+          messageType: "GROUP",
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              handle: true,
+              photo: true,
+            },
+          },
+          recipient: {
+            select: {
+              id: true,
+              name: true,
+              handle: true,
+              photo: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: 80,
+      }),
+      prismaClient.chat.findMany({
+        where: {
+          roomId,
+          messageType: "DIRECT",
+          OR: [{ userId }, { recipientId: userId }],
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              handle: true,
+              photo: true,
+            },
+          },
+          recipient: {
+            select: {
+              id: true,
+              name: true,
+              handle: true,
+              photo: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: 160,
+      }),
+      prismaClient.chat.findMany({
+        where: {
+          roomId,
+          messageType: "COMMENT",
+        },
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              handle: true,
+              photo: true,
+            },
+          },
+          recipient: {
+            select: {
+              id: true,
+              name: true,
+              handle: true,
+              photo: true,
+            },
+          },
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        take: 120,
+      }),
+    ]);
+  } catch (error: unknown) {
+    const e = error as { code?: string } | undefined;
+    if (e?.code !== "P2021" && e?.code !== "P2022") {
+      throw error;
+    }
+
+    groupMessagesRaw = [];
+    directMessagesRaw = [];
+    commentsRaw = [];
+  }
+
+  const participantsMap = new Map<string, ChatParticipant>();
+  participantsMap.set(room.admin.id, mapChatParticipant(room.admin));
+  for (const member of room.members) {
+    participantsMap.set(member.user.id, mapChatParticipant(member.user));
+  }
+
+  const groupMessages = [...groupMessagesRaw]
+    .reverse()
+    .map((chat: ChatWithParticipants) =>
+      mapPersistedChatMessage({
+        ...chat,
+        user: mapChatParticipant(chat.user),
+        recipient: chat.recipient ? mapChatParticipant(chat.recipient) : null,
+      }),
+    );
+
+  const directMessages = [...directMessagesRaw]
+    .reverse()
+    .map((chat: ChatWithParticipants) =>
+      mapPersistedChatMessage({
+        ...chat,
+        user: mapChatParticipant(chat.user),
+        recipient: chat.recipient ? mapChatParticipant(chat.recipient) : null,
+      }),
+    );
+
+  const comments = [...commentsRaw]
+    .reverse()
+    .map((chat: ChatWithParticipants) =>
+      mapPersistedChatMessage({
+        ...chat,
+        user: mapChatParticipant(chat.user),
+        recipient: chat.recipient ? mapChatParticipant(chat.recipient) : null,
+      }),
+    );
+
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        participants: [...participantsMap.values()],
+        groupMessages,
+        directMessages,
+        comments,
+      },
+      "Chat bootstrap fetched",
+    ),
+  );
+});
 
 //save the full current canvas snapshot for this room
 const replaceShapes = asyncHandler(async (req, res) => {
-    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
-    if (!paramsValidation.success) {
-        throw new ApiError(400, "Invalid roomId");
+  const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+  if (!paramsValidation.success) {
+    throw new ApiError(400, "Invalid roomId");
+  }
+
+  const { roomId } = paramsValidation.data;
+
+  const userId = requireUserId(req.userId);
+  await assertOwnerRoomAccess(roomId, userId);
+
+  const bodyValidation = ReplaceShapesBodySchema.safeParse(req.body);
+  if (!bodyValidation.success) {
+    throw new ApiError(400, "Invalid shapes payload");
+  }
+
+  const { shapes } = bodyValidation.data;
+
+  try {
+    // Deduplicate shapes by ID (keep last occurrence) to avoid unique constraint violations
+    const uniqueShapesMap = new Map();
+    for (const shape of shapes) {
+      uniqueShapesMap.set(shape.id, shape);
     }
+    const uniqueShapes = Array.from(uniqueShapesMap.values());
 
-    const {roomId} = paramsValidation.data;
+    await prismaClient.$transaction(async (tx) => {
+      await tx.shape.deleteMany({
+        where: {
+          roomId,
+        },
+      });
 
-    const userId = requireUserId(req.userId);
-    await assertOwnerRoomAccess(roomId, userId);
-
-    const bodyValidation = ReplaceShapesBodySchema.safeParse(req.body);
-    if (!bodyValidation.success) {
-        throw new ApiError(400, "Invalid shapes payload");
-    }
-
-    const {shapes} = bodyValidation.data;
-
-    try {
-        // Deduplicate shapes by ID (keep last occurrence) to avoid unique constraint violations
-        const uniqueShapesMap = new Map();
-        for (const shape of shapes) {
-            uniqueShapesMap.set(shape.id, shape);
-        }
-        const uniqueShapes = Array.from(uniqueShapesMap.values());
-        
-        await prismaClient.$transaction(async (tx) => {
-            await tx.shape.deleteMany({
-                where: {
-                    roomId,
-                },
-            });
-
-            if (uniqueShapes.length > 0) {
-                await tx.shape.createMany({
-                    data: uniqueShapes.map((shape) => ({
-                        // Database id must be globally unique across all rooms.
-                        // Keep client shape.id inside props unchanged for canvas logic.
-                        id: `${roomId}:${shape.id}`,
-                        roomId,
-                        type: shape.type,
-                        props: shape,
-                        deleted: false,
-                    })),
-                    skipDuplicates: true,
-                });
-            }
+      if (uniqueShapes.length > 0) {
+        await tx.shape.createMany({
+          data: uniqueShapes.map((shape) => ({
+            // Database id must be globally unique across all rooms.
+            // Keep client shape.id inside props unchanged for canvas logic.
+            id: `${roomId}:${shape.id}`,
+            roomId,
+            type: shape.type,
+            props: shape,
+            deleted: false,
+          })),
+          skipDuplicates: true,
         });
-    } catch (err: any) {
-        if (err?.code === "P2021" || err?.code === "P2022") {
-            throw new ApiError(503, "Shape storage is not ready. Run database migrations/push first.");
-        }
-
-        if (err?.code === "P2003") {
-            throw new ApiError(404, "Room not found for provided roomId");
-        }
-
-        if (typeof err?.code === "string" && err.code.startsWith("P")) {
-            console.error(`Prisma error ${err.code} while persisting shapes for roomId ${roomId}:`, err);
-            throw new ApiError(503, "Shape storage is temporarily unavailable");
-        }
-
-        throw err;
+      }
+    });
+  } catch (err: unknown) {
+    const e = err as { code?: string } | undefined;
+    if (e?.code === "P2021" || e?.code === "P2022") {
+      throw new ApiError(
+        503,
+        "Shape storage is not ready. Run database migrations/push first.",
+      );
     }
 
-    res.status(200).json(new ApiResponse(200, null, "Shapes saved successfully"));
+    if (e?.code === "P2003") {
+      throw new ApiError(404, "Room not found for provided roomId");
+    }
+
+    if (typeof e?.code === "string" && e.code.startsWith("P")) {
+      console.error(
+        `Prisma error ${e.code} while persisting shapes for roomId ${roomId}:`,
+        err,
+      );
+      throw new ApiError(503, "Shape storage is temporarily unavailable");
+    }
+
+    throw err;
+  }
+
+  res.status(200).json(new ApiResponse(200, null, "Shapes saved successfully"));
 });
 
 const getRoomIdFromSlug = asyncHandler(async (req, res) => {
-    const paramsValidation = RoomSlugParamSchema.safeParse(req.params);
-    if (!paramsValidation.success) {
-        throw new ApiError(400, "Invalid slug");
-    }
+  const paramsValidation = RoomSlugParamSchema.safeParse(req.params);
+  if (!paramsValidation.success) {
+    throw new ApiError(400, "Invalid slug");
+  }
 
-    const userId = requireUserId(req.userId);
-    const {slug} = paramsValidation.data;
+  const userId = requireUserId(req.userId);
+  const { slug } = paramsValidation.data;
 
-    const room = await prismaClient.room.findFirst({
-        where: {
-            adminId: userId,
-            slug,
+  const room = await prismaClient.room.findFirst({
+    where: {
+      adminId: userId,
+      slug,
+    },
+    include: {
+      admin: {
+        select: {
+          id: true,
+          handle: true,
+          name: true,
         },
-        include: {
-            admin: {
-                select: {
-                    id: true,
-                    handle: true,
-                    name: true,
-                },
-            },
-        },
-    });
+      },
+    },
+  });
 
-    if (!room) {
-        throw new ApiError(404, "Room not found");
-    }
+  if (!room) {
+    throw new ApiError(404, "Room not found");
+  }
 
-    res.status(200).json(
-        new ApiResponse(
-            200,
-            {
-                ...room,
-                canonicalPath: buildCanonicalRoomPath(room),
-            },
-            "RoomId successfully fetched from slug"
-        )
-    );
+  res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        ...room,
+        canonicalPath: buildCanonicalRoomPath(room),
+      },
+      "RoomId successfully fetched from slug",
+    ),
+  );
 });
 
 const getRoomByOwnerAndSlug = asyncHandler(async (req, res) => {
-    const paramsValidation = OwnerSlugParamsSchema.safeParse(req.params);
-    if (!paramsValidation.success) {
-        throw new ApiError(400, "Invalid room route parameters");
-    }
+  const paramsValidation = OwnerSlugParamsSchema.safeParse(req.params);
+  if (!paramsValidation.success) {
+    throw new ApiError(400, "Invalid room route parameters");
+  }
 
-    const userId = requireUserId(req.userId);
-    const {userHandle: ownerHandle, slug} = paramsValidation.data;
+  const userId = requireUserId(req.userId);
+  const { userHandle: ownerHandle, slug } = paramsValidation.data;
 
-    const room = await prismaClient.room.findFirst({
-        where: {
-            slug,
-            admin: {
-                handle: ownerHandle,
+  const room = await prismaClient.room.findFirst({
+    where: {
+      slug,
+      admin: {
+        handle: ownerHandle,
+      },
+      OR: [
+        { adminId: userId },
+        {
+          members: {
+            some: {
+              userId,
             },
-            OR: [
-                {adminId: userId},
-                {
-                    members: {
-                        some: {
-                            userId,
-                        },
-                    },
-                },
-            ],
+          },
         },
-        include: {
-            admin: {
-                select: {
-                    id: true,
-                    name: true,
-                    handle: true,
-                },
-            },
+      ],
+    },
+    include: {
+      admin: {
+        select: {
+          id: true,
+          name: true,
+          handle: true,
         },
-    });
+      },
+    },
+  });
 
-    if (!room) {
-        throw new ApiError(403, "Forbidden");
-    }
+  if (!room) {
+    throw new ApiError(403, "Forbidden");
+  }
 
-    res.status(200).json(
-        new ApiResponse(
-            200,
-            {
-                ...room,
-                canonicalPath: buildCanonicalRoomPath(room),
-            },
-            "Room fetched successfully"
-        )
-    );
+  res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        ...room,
+        canonicalPath: buildCanonicalRoomPath(room),
+      },
+      "Room fetched successfully",
+    ),
+  );
 });
 
 const renameRoomSlug = asyncHandler(async (req, res) => {
-    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
-    if (!paramsValidation.success) {
-        throw new ApiError(400, "Invalid roomId");
+  const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+  if (!paramsValidation.success) {
+    throw new ApiError(400, "Invalid roomId");
+  }
+
+  const { roomId } = paramsValidation.data;
+
+  const validationResult = RenameRoomSlugSchema.safeParse(req.body);
+  if (!validationResult.success) {
+    throw new ApiError(400, "Incorrect input");
+  }
+
+  const userId = requireUserId(req.userId);
+  await assertOwnerRoomAccess(roomId, userId);
+
+  try {
+    const updatedRoom = await prismaClient.room.update({
+      where: { id: roomId },
+      data: {
+        slug: validationResult.data.slug,
+      },
+      include: {
+        admin: {
+          select: {
+            id: true,
+            handle: true,
+            name: true,
+          },
+        },
+      },
+    });
+
+    res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          ...updatedRoom,
+          canonicalPath: buildCanonicalRoomPath(updatedRoom),
+        },
+        "Room slug updated successfully",
+      ),
+    );
+  } catch (err: unknown) {
+    const e = err as { code?: string } | undefined;
+    if (e?.code === "P2002") {
+      throw new ApiError(409, "Room slug already exists for this user");
     }
-
-    const {roomId} = paramsValidation.data;
-
-    const validationResult = RenameRoomSlugSchema.safeParse(req.body);
-    if (!validationResult.success) {
-        throw new ApiError(400, "Incorrect input");
-    }
-
-    const userId = requireUserId(req.userId);
-    await assertOwnerRoomAccess(roomId, userId);
-
-    try {
-        const updatedRoom = await prismaClient.room.update({
-            where: {id: roomId},
-            data: {
-                slug: validationResult.data.slug,
-            },
-            include: {
-                admin: {
-                    select: {
-                        id: true,
-                        handle: true,
-                        name: true,
-                    },
-                },
-            },
-        });
-
-        res.status(200).json(
-            new ApiResponse(
-                200,
-                {
-                    ...updatedRoom,
-                    canonicalPath: buildCanonicalRoomPath(updatedRoom),
-                },
-                "Room slug updated successfully"
-            )
-        );
-    } catch (err: any) {
-        if (err?.code === "P2002") {
-            throw new ApiError(409, "Room slug already exists for this user");
-        }
-        throw err;
-    }
+    throw err;
+  }
 });
 
 const getInviteLink = asyncHandler(async (req, res) => {
-    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
-    if (!paramsValidation.success) {
-        throw new ApiError(400, "Invalid roomId");
-    }
+  const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+  if (!paramsValidation.success) {
+    throw new ApiError(400, "Invalid roomId");
+  }
 
-    const userId = requireUserId(req.userId);
-    const {roomId} = paramsValidation.data;
+  const userId = requireUserId(req.userId);
+  const { roomId } = paramsValidation.data;
 
-    await assertOwnerRoomAccess(roomId, userId);
+  await assertOwnerRoomAccess(roomId, userId);
 
-    const room = await prismaClient.room.findUnique({
-        where: {
-            id: roomId,
+  const room = await prismaClient.room.findUnique({
+    where: {
+      id: roomId,
+    },
+    include: {
+      admin: {
+        select: {
+          handle: true,
+          name: true,
         },
-        include: {
-            admin: {
-                select: {
-                    handle: true,
-                    name: true,
-                },
-            },
+      },
+    },
+  });
+
+  if (!room) {
+    throw new ApiError(403, "Forbidden");
+  }
+
+  const inviteLink = `${req.protocol}://${req.get("host")}${buildCanonicalRoomPath(room)}`;
+
+  res
+    .status(200)
+    .json(
+      new ApiResponse(
+        200,
+        {
+          inviteLink,
+          canonicalPath: buildCanonicalRoomPath(room),
+          roomSlug: room.slug,
         },
-    });
-
-    if (!room) {
-        throw new ApiError(403, "Forbidden");
-    }
-
-    const inviteLink = `${req.protocol}://${req.get("host")}${buildCanonicalRoomPath(room)}`;
-
-    res.status(200).json(
-        new ApiResponse(
-            200,
-            { inviteLink, canonicalPath: buildCanonicalRoomPath(room), roomSlug: room.slug },
-            "Invite link generated successfully"
-        )
+        "Invite link generated successfully",
+      ),
     );
 });
 
 const requestRoomAccess = asyncHandler(async (req, res) => {
-    const validationResult = RoomAccessRequestCreateSchema.safeParse(req.body);
-    if (!validationResult.success) {
-        throw new ApiError(400, "Invalid access request payload");
-    }
+  const validationResult = RoomAccessRequestCreateSchema.safeParse(req.body);
+  if (!validationResult.success) {
+    throw new ApiError(400, "Invalid access request payload");
+  }
 
-    const requesterId = requireUserId(req.userId);
-    const {ownerHandle, slug, note} = validationResult.data;
+  const requesterId = requireUserId(req.userId);
+  const { ownerHandle, slug, note } = validationResult.data;
 
-    const room = await prismaClient.room.findFirst({
-        where: {
-            slug,
-            admin: {
-                handle: ownerHandle,
-            },
+  const room = await prismaClient.room.findFirst({
+    where: {
+      slug,
+      admin: {
+        handle: ownerHandle,
+      },
+    },
+    include: {
+      admin: {
+        select: {
+          id: true,
+          handle: true,
+          name: true,
         },
-        include: {
-            admin: {
-                select: {
-                    id: true,
-                    handle: true,
-                    name: true,
-                },
-            },
+      },
+    },
+  });
+
+  if (!room) {
+    throw new ApiError(404, "Room not found");
+  }
+
+  if (room.adminId === requesterId) {
+    throw new ApiError(400, "You already own this room");
+  }
+
+  const existingMembership = await prismaClient.roomMember.findUnique({
+    where: {
+      roomId_userId: {
+        roomId: room.id,
+        userId: requesterId,
+      },
+    },
+  });
+
+  if (existingMembership) {
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          roomId: room.id,
+          status: "approved",
         },
-    });
-
-    if (!room) {
-        throw new ApiError(404, "Room not found");
-    }
-
-    if (room.adminId === requesterId) {
-        throw new ApiError(400, "You already own this room");
-    }
-
-    const existingMembership = await prismaClient.roomMember.findUnique({
-        where: {
-            roomId_userId: {
-                roomId: room.id,
-                userId: requesterId,
-            },
-        },
-    });
-
-    if (existingMembership) {
-        return res.status(200).json(
-            new ApiResponse(
-                200,
-                {
-                    roomId: room.id,
-                    status: "approved",
-                },
-                "You already have access to this room"
-            )
-        );
-    }
-
-    const existingRequest = await prismaClient.roomAccessRequest.findUnique({
-        where: {
-            roomId_requesterId: {
-                roomId: room.id,
-                requesterId,
-            },
-        },
-    });
-
-    if (existingRequest && existingRequest.status === "pending") {
-        return res.status(200).json(
-            new ApiResponse(
-                200,
-                {
-                    requestId: existingRequest.id,
-                    roomId: room.id,
-                    status: existingRequest.status,
-                },
-                "Access request already pending"
-            )
-        );
-    }
-
-    const nextRequest = existingRequest
-        ? await prismaClient.roomAccessRequest.update({
-              where: {
-                  id: existingRequest.id,
-              },
-              data: {
-                  status: "pending",
-                  decisionNote: note,
-                  respondedAt: null,
-              },
-          })
-        : await prismaClient.roomAccessRequest.create({
-              data: {
-                  roomId: room.id,
-                  requesterId,
-                  status: "pending",
-                  decisionNote: note,
-              },
-          });
-
-    res.status(201).json(
-        new ApiResponse(
-            201,
-            {
-                requestId: nextRequest.id,
-                roomId: room.id,
-                status: nextRequest.status,
-            },
-            "Access request sent to room owner"
-        )
+        "You already have access to this room",
+      ),
     );
+  }
+
+  const existingRequest = await prismaClient.roomAccessRequest.findUnique({
+    where: {
+      roomId_requesterId: {
+        roomId: room.id,
+        requesterId,
+      },
+    },
+  });
+
+  if (existingRequest && existingRequest.status === "pending") {
+    return res.status(200).json(
+      new ApiResponse(
+        200,
+        {
+          requestId: existingRequest.id,
+          roomId: room.id,
+          status: existingRequest.status,
+        },
+        "Access request already pending",
+      ),
+    );
+  }
+
+  const nextRequest = existingRequest
+    ? await prismaClient.roomAccessRequest.update({
+        where: {
+          id: existingRequest.id,
+        },
+        data: {
+          status: "pending",
+          decisionNote: note,
+          respondedAt: null,
+        },
+      })
+    : await prismaClient.roomAccessRequest.create({
+        data: {
+          roomId: room.id,
+          requesterId,
+          status: "pending",
+          decisionNote: note,
+        },
+      });
+
+  res.status(201).json(
+    new ApiResponse(
+      201,
+      {
+        requestId: nextRequest.id,
+        roomId: room.id,
+        status: nextRequest.status,
+      },
+      "Access request sent to room owner",
+    ),
+  );
 });
 
 const listIncomingRoomAccessRequests = asyncHandler(async (req, res) => {
-    const ownerId = requireUserId(req.userId);
+  const ownerId = requireUserId(req.userId);
 
-    const requests = await prismaClient.roomAccessRequest.findMany({
-        where: {
-            status: "pending",
-            room: {
-                adminId: ownerId,
+  const requests = await prismaClient.roomAccessRequest.findMany({
+    where: {
+      status: "pending",
+      room: {
+        adminId: ownerId,
+      },
+    },
+    include: {
+      room: {
+        select: {
+          id: true,
+          slug: true,
+          admin: {
+            select: {
+              handle: true,
+              name: true,
             },
+          },
         },
-        include: {
-            room: {
-                select: {
-                    id: true,
-                    slug: true,
-                    admin: {
-                        select: {
-                            handle: true,
-                            name: true,
-                        },
-                    },
-                },
-            },
-            requester: {
-                select: {
-                    id: true,
-                    name: true,
-                    handle: true,
-                    email: true,
-                },
-            },
+      },
+      requester: {
+        select: {
+          id: true,
+          name: true,
+          handle: true,
+          email: true,
         },
-        orderBy: {
-            createdAt: "desc",
-        },
-    });
+      },
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+  });
 
-    res.status(200).json(new ApiResponse(200, requests, "Incoming access requests fetched"));
+  res
+    .status(200)
+    .json(new ApiResponse(200, requests, "Incoming access requests fetched"));
 });
 
 const decideRoomAccessRequest = asyncHandler(async (req, res) => {
-    const validationResult = RoomAccessRequestDecisionSchema.safeParse(req.body);
-    if (!validationResult.success) {
-        throw new ApiError(400, "Invalid access decision payload");
-    }
+  const validationResult = RoomAccessRequestDecisionSchema.safeParse(req.body);
+  if (!validationResult.success) {
+    throw new ApiError(400, "Invalid access decision payload");
+  }
 
-    const ownerId = requireUserId(req.userId);
-    const {requestId, action, note} = validationResult.data;
+  const ownerId = requireUserId(req.userId);
+  const { requestId, action, note } = validationResult.data;
 
-    const accessRequest = await prismaClient.roomAccessRequest.findUnique({
+  const accessRequest = await prismaClient.roomAccessRequest.findUnique({
+    where: {
+      id: requestId,
+    },
+    include: {
+      room: {
+        select: {
+          id: true,
+          adminId: true,
+        },
+      },
+    },
+  });
+
+  if (!accessRequest) {
+    throw new ApiError(404, "Access request not found");
+  }
+
+  if (accessRequest.room.adminId !== ownerId) {
+    throw new ApiError(403, "Forbidden");
+  }
+
+  if (accessRequest.status !== "pending") {
+    throw new ApiError(409, "Access request is already resolved");
+  }
+
+  await prismaClient.$transaction(async (tx) => {
+    await tx.roomAccessRequest.update({
+      where: {
+        id: accessRequest.id,
+      },
+      data: {
+        status: action === "approve" ? "approved" : "rejected",
+        respondedAt: new Date(),
+        decisionNote: note,
+      },
+    });
+
+    if (action === "approve") {
+      await tx.roomMember.upsert({
         where: {
-            id: requestId,
+          roomId_userId: {
+            roomId: accessRequest.room.id,
+            userId: accessRequest.requesterId,
+          },
         },
-        include: {
-            room: {
-                select: {
-                    id: true,
-                    adminId: true,
-                },
-            },
+        create: {
+          roomId: accessRequest.room.id,
+          userId: accessRequest.requesterId,
         },
-    });
-
-    if (!accessRequest) {
-        throw new ApiError(404, "Access request not found");
+        update: {},
+      });
     }
+  });
 
-    if (accessRequest.room.adminId !== ownerId) {
-        throw new ApiError(403, "Forbidden");
-    }
-
-    if (accessRequest.status !== "pending") {
-        throw new ApiError(409, "Access request is already resolved");
-    }
-
-    await prismaClient.$transaction(async (tx) => {
-        await tx.roomAccessRequest.update({
-            where: {
-                id: accessRequest.id,
-            },
-            data: {
-                status: action === "approve" ? "approved" : "rejected",
-                respondedAt: new Date(),
-                decisionNote: note,
-            },
-        });
-
-        if (action === "approve") {
-            await tx.roomMember.upsert({
-                where: {
-                    roomId_userId: {
-                        roomId: accessRequest.room.id,
-                        userId: accessRequest.requesterId,
-                    },
-                },
-                create: {
-                    roomId: accessRequest.room.id,
-                    userId: accessRequest.requesterId,
-                },
-                update: {},
-            });
-        }
-    });
-
-    res.status(200).json(
-        new ApiResponse(
-            200,
-            {
-                requestId: accessRequest.id,
-                action,
-            },
-            `Access request ${action}d`
-        )
-    );
+  res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        requestId: accessRequest.id,
+        action,
+      },
+      `Access request ${action}d`,
+    ),
+  );
 });
-
 
 // ---------------------------------------------------------------------------
 // In-memory AI job store (single-node dev; upgrade to Redis later if needed)
@@ -1062,22 +1129,25 @@ const decideRoomAccessRequest = asyncHandler(async (req, res) => {
 type AiJobStatus = "pending" | "done" | "error";
 
 interface AiJobEntry {
-    status: AiJobStatus;
-    roomId: number;
-    shapes?: unknown[];
-    errorMessage?: string;
-    createdAt: number;
+  status: AiJobStatus;
+  roomId: number;
+  shapes?: unknown[];
+  errorMessage?: string;
+  createdAt: number;
 }
 
 const aiJobStore = new Map<string, AiJobEntry>();
 
 // Purge stale jobs older than 10 minutes to prevent unbounded memory growth.
-setInterval(() => {
+setInterval(
+  () => {
     const cutoff = Date.now() - 10 * 60 * 1000;
     for (const [id, entry] of aiJobStore) {
-        if (entry.createdAt < cutoff) aiJobStore.delete(id);
+      if (entry.createdAt < cutoff) aiJobStore.delete(id);
     }
-}, 5 * 60 * 1000).unref();
+  },
+  5 * 60 * 1000,
+).unref();
 
 // ---------------------------------------------------------------------------
 // AI controller functions
@@ -1085,141 +1155,150 @@ setInterval(() => {
 
 // POST /room/:roomId/ai/generate
 const generateAiCanvas = asyncHandler(async (req, res) => {
-    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
-    if (!paramsValidation.success) {
-        throw new ApiError(400, "Invalid roomId");
-    }
+  const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+  if (!paramsValidation.success) {
+    throw new ApiError(400, "Invalid roomId");
+  }
 
-    const {roomId} = paramsValidation.data;
-    const userId = requireUserId(req.userId);
+  const { roomId } = paramsValidation.data;
+  const userId = requireUserId(req.userId);
 
-    const canAccess = await hasRoomAccess(roomId, userId);
-    if (!canAccess) {
-        throw new ApiError(403, "Forbidden");
-    }
+  const canAccess = await hasRoomAccess(roomId, userId);
+  if (!canAccess) {
+    throw new ApiError(403, "Forbidden");
+  }
 
-    const bodyValidation = AiGenerateRequestSchema.safeParse(req.body);
-    if (!bodyValidation.success) {
-        throw new ApiError(400, "Invalid prompt — must be 1–12000 characters");
-    }
+  const bodyValidation = AiGenerateRequestSchema.safeParse(req.body);
+  if (!bodyValidation.success) {
+    throw new ApiError(400, "Invalid prompt — must be 1–12000 characters");
+  }
 
-    const {prompt} = bodyValidation.data;
-    const jobId = randomUUID();
+  const { prompt } = bodyValidation.data;
+  const jobId = randomUUID();
 
-    aiJobStore.set(jobId, {
-        status: "pending",
-        roomId,
-        createdAt: Date.now(),
+  aiJobStore.set(jobId, {
+    status: "pending",
+    roomId,
+    createdAt: Date.now(),
+  });
+
+  try {
+    await publishAiGenerateJob({
+      jobId,
+      roomId,
+      prompt,
+      requestedBy: userId,
+      enqueuedAtMs: Date.now(),
     });
-
-    try {
-        await publishAiGenerateJob({
-            jobId,
-            roomId,
-            prompt,
-            requestedBy: userId,
-            enqueuedAtMs: Date.now(),
-        });
-    } catch {
-        aiJobStore.set(jobId, {
-            status: "error",
-            roomId,
-            errorMessage: "Failed to enqueue AI job",
-            createdAt: Date.now(),
-        });
-        throw new ApiError(503, "AI generation queue is unavailable. Please try again.");
-    }
-
-    return res.status(202).json(
-        new ApiResponse(202, {jobId}, "AI generation started")
+  } catch {
+    aiJobStore.set(jobId, {
+      status: "error",
+      roomId,
+      errorMessage: "Failed to enqueue AI job",
+      createdAt: Date.now(),
+    });
+    throw new ApiError(
+      503,
+      "AI generation queue is unavailable. Please try again.",
     );
+  }
+
+  return res
+    .status(202)
+    .json(new ApiResponse(202, { jobId }, "AI generation started"));
 });
 
 // GET /room/:roomId/ai/generate/:jobId
 const getAiGenerateStatus = asyncHandler(async (req, res) => {
-    const paramsValidation = RoomIdParamSchema.safeParse(req.params);
-    if (!paramsValidation.success) {
-        throw new ApiError(400, "Invalid roomId");
-    }
+  const paramsValidation = RoomIdParamSchema.safeParse(req.params);
+  if (!paramsValidation.success) {
+    throw new ApiError(400, "Invalid roomId");
+  }
 
-    const jobParamsValidation = AiGenerateJobIdParamSchema.safeParse(req.params);
-    if (!jobParamsValidation.success) {
-        throw new ApiError(400, "Invalid jobId");
-    }
+  const jobParamsValidation = AiGenerateJobIdParamSchema.safeParse(req.params);
+  if (!jobParamsValidation.success) {
+    throw new ApiError(400, "Invalid jobId");
+  }
 
-    const {jobId} = jobParamsValidation.data;
-    const {roomId} = paramsValidation.data;
-    const userId = requireUserId(req.userId);
+  const { jobId } = jobParamsValidation.data;
+  const { roomId } = paramsValidation.data;
+  const userId = requireUserId(req.userId);
 
-    const canAccess = await hasRoomAccess(roomId, userId);
-    if (!canAccess) {
-        throw new ApiError(403, "Forbidden");
-    }
+  const canAccess = await hasRoomAccess(roomId, userId);
+  if (!canAccess) {
+    throw new ApiError(403, "Forbidden");
+  }
 
-    const entry = aiJobStore.get(jobId);
-    if (!entry) {
-        throw new ApiError(404, "Job not found or expired");
-    }
+  const entry = aiJobStore.get(jobId);
+  if (!entry) {
+    throw new ApiError(404, "Job not found or expired");
+  }
 
-    if (entry.roomId !== roomId) {
-        throw new ApiError(403, "Forbidden");
-    }
+  if (entry.roomId !== roomId) {
+    throw new ApiError(403, "Forbidden");
+  }
 
-    return res.status(200).json(
-        new ApiResponse(200, {
-            jobId,
-            status: entry.status,
-            shapes: entry.shapes ?? null,
-            errorMessage: entry.errorMessage ?? null,
-        }, "Job status fetched")
-    );
+  return res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        jobId,
+        status: entry.status,
+        shapes: entry.shapes ?? null,
+        errorMessage: entry.errorMessage ?? null,
+      },
+      "Job status fetched",
+    ),
+  );
 });
 
 // POST /internal/ai/result  — called by AI worker only, guarded by shared secret
 const receiveAiResult = asyncHandler(async (req, res) => {
-    const secret = req.headers["x-internal-secret"];
-    if (secret !== INTERNAL_SECRET) {
-        throw new ApiError(403, "Forbidden");
-    }
+  const secret = req.headers["x-internal-secret"];
+  if (secret !== INTERNAL_SECRET) {
+    throw new ApiError(403, "Forbidden");
+  }
 
-    const {jobId, shapes, errorMessage} = req.body as {
-        jobId?: string;
-        shapes?: unknown[];
-        errorMessage?: string;
-    };
+  const { jobId, shapes, errorMessage } = req.body as {
+    jobId?: string;
+    shapes?: unknown[];
+    errorMessage?: string;
+  };
 
-    if (!jobId || typeof jobId !== "string") {
-        throw new ApiError(400, "Missing jobId");
-    }
+  if (typeof jobId !== "string") {
+    throw new ApiError(400, "Missing or invalid jobId");
+  }
 
-    const entry = aiJobStore.get(jobId);
-    if (!entry) {
-        return res.status(200).json(new ApiResponse(200, null, "Job not found (may have expired)"));
-    }
+  const entry = aiJobStore.get(jobId);
+  if (!entry) {
+    return res
+      .status(200)
+      .json(new ApiResponse(200, null, "Job not found (may have expired)"));
+  }
 
-    if (errorMessage) {
-        aiJobStore.set(jobId, {...entry, status: "error", errorMessage});
-    } else {
-        aiJobStore.set(jobId, {...entry, status: "done", shapes: shapes ?? []});
-    }
+  if (errorMessage) {
+    aiJobStore.set(jobId, { ...entry, status: "error", errorMessage });
+  } else {
+    aiJobStore.set(jobId, { ...entry, status: "done", shapes: shapes ?? [] });
+  }
 
-    return res.status(200).json(new ApiResponse(200, null, "AI result received"));
+  return res.status(200).json(new ApiResponse(200, null, "AI result received"));
 });
 
 export {
-    createRoom,
-    listMyRooms,
-    getShapes,
-    getRoomChatBootstrap,
-    replaceShapes,
-    getRoomIdFromSlug,
-    getRoomByOwnerAndSlug,
-    renameRoomSlug,
-    getInviteLink,
-    requestRoomAccess,
-    listIncomingRoomAccessRequests,
-    decideRoomAccessRequest,
-    generateAiCanvas,
-    getAiGenerateStatus,
-    receiveAiResult,
+  createRoom,
+  listMyRooms,
+  getShapes,
+  getRoomChatBootstrap,
+  replaceShapes,
+  getRoomIdFromSlug,
+  getRoomByOwnerAndSlug,
+  renameRoomSlug,
+  getInviteLink,
+  requestRoomAccess,
+  listIncomingRoomAccessRequests,
+  decideRoomAccessRequest,
+  generateAiCanvas,
+  getAiGenerateStatus,
+  receiveAiResult,
 };

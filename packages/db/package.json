@@ -11,16 +11,20 @@
     "db:generate": "npx prisma generate",
     "db:push": "npx prisma db push",
     "db:migrate": "npx prisma migrate dev",
+    "lint": "eslint .",
+    "test": "echo 'No tests configured for db'",
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "@prisma/adapter-pg": "^7.4.0",
-    "@prisma/client": "^7.6.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
     "dotenv": "^17.2.4"
   },
   "devDependencies": {
+    "@repo/eslint-config": "workspace: *",
     "@repo/typescript-config": "workspace:*",
     "@types/node": "^22.15.3",
-    "prisma": "^7.6.0"
+    "eslint": "^9.39.1",
+    "prisma": "^7.8.0"
   }
 }

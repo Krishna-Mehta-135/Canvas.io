@@ -16,7 +16,7 @@ import { PrismaClient } from "../prisma/generated/prisma/client.ts";
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
-	throw new Error("DATABASE_URL is not defined");
+  throw new Error("DATABASE_URL is not defined");
 }
 
 const adapter = new PrismaPg({ connectionString });
@@ -26,32 +26,43 @@ const rawPrismaClient = new PrismaClient({ adapter });
 
 // Transient Prisma codes worth retrying because they often recover quickly.
 const RETRYABLE_PRISMA_CODES = new Set([
-	"P1001",
-	"P1002",
-	"P1008",
-	"P1017",
-	"P2024",
+  "P1001",
+  "P1002",
+  "P1008",
+  "P1017",
+  "P2024",
 ]);
 
 // Retryable PostgreSQL/system classes (serialization, restart, overload, etc).
 const RETRYABLE_PG_CODES = new Set([
-	"40001",
-	"40P01",
-	"57P01",
-	"57P02",
-	"57P03",
-	"53300",
+  "40001",
+  "40P01",
+  "57P01",
+  "57P02",
+  "57P03",
+  "53300",
 ]);
 
 const DEFAULT_RETRY_ATTEMPTS = Number(process.env.DB_RETRY_ATTEMPTS ?? "3");
-const DEFAULT_RETRY_BASE_DELAY_MS = Number(process.env.DB_RETRY_BASE_DELAY_MS ?? "75");
+const DEFAULT_RETRY_BASE_DELAY_MS = Number(
+  process.env.DB_RETRY_BASE_DELAY_MS ?? "75",
+);
 
 // Circuit breaker controls (all optional env vars).
-const CIRCUIT_BREAKER_ENABLED = process.env.DB_CIRCUIT_BREAKER_ENABLED !== "false";
-const CIRCUIT_BREAKER_FAILURE_THRESHOLD = Number(process.env.DB_CIRCUIT_FAILURE_THRESHOLD ?? "5");
-const CIRCUIT_BREAKER_WINDOW_MS = Number(process.env.DB_CIRCUIT_WINDOW_MS ?? "60000");
-const CIRCUIT_BREAKER_OPEN_MS = Number(process.env.DB_CIRCUIT_OPEN_MS ?? "30000");
-const CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD = Number(process.env.DB_CIRCUIT_HALF_OPEN_SUCCESS_THRESHOLD ?? "2");
+const CIRCUIT_BREAKER_ENABLED =
+  process.env.DB_CIRCUIT_BREAKER_ENABLED !== "false";
+const CIRCUIT_BREAKER_FAILURE_THRESHOLD = Number(
+  process.env.DB_CIRCUIT_FAILURE_THRESHOLD ?? "5",
+);
+const CIRCUIT_BREAKER_WINDOW_MS = Number(
+  process.env.DB_CIRCUIT_WINDOW_MS ?? "60000",
+);
+const CIRCUIT_BREAKER_OPEN_MS = Number(
+  process.env.DB_CIRCUIT_OPEN_MS ?? "30000",
+);
+const CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD = Number(
+  process.env.DB_CIRCUIT_HALF_OPEN_SUCCESS_THRESHOLD ?? "2",
+);
 
 type CircuitBreakerState = "closed" | "open" | "half-open";
 
@@ -59,7 +70,7 @@ type CircuitBreakerState = "closed" | "open" | "half-open";
 // This keeps the implementation simple and avoids cross-process chatter,
 // while still protecting each service instance from cascading DB failures.
 let circuitBreakerState: CircuitBreakerState = "closed";
-let circuitOpenedAtMs = 0;
+
 let circuitOpenUntilMs = 0;
 let halfOpenSuccessCount = 0;
 let halfOpenInFlight = false;
@@ -67,15 +78,15 @@ let halfOpenInFlight = false;
 const transientFailureTimestampsMs: number[] = [];
 
 class DbCircuitOpenError extends Error {
-	readonly code = "DB_CIRCUIT_OPEN";
-	readonly statusCode = 503;
-	retryAfterMs: number;
+  readonly code = "DB_CIRCUIT_OPEN";
+  readonly statusCode = 503;
+  retryAfterMs: number;
 
-	constructor(retryAfterMs: number) {
-		super("Database temporarily unavailable; retry shortly");
-		this.name = "DbCircuitOpenError";
-		this.retryAfterMs = retryAfterMs;
-	}
+  constructor(retryAfterMs: number) {
+    super("Database temporarily unavailable; retry shortly");
+    this.name = "DbCircuitOpenError";
+    this.retryAfterMs = retryAfterMs;
+  }
 }
 
 /**
@@ -85,9 +96,9 @@ class DbCircuitOpenError extends Error {
  * and to make retry timing behavior explicit and testable.
  */
 function sleep(ms: number) {
-	return new Promise((resolve) => {
-		setTimeout(resolve, ms);
-	});
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 /**
@@ -97,16 +108,16 @@ function sleep(ms: number) {
  * count toward opening the breaker.
  */
 function pruneFailureWindow(nowMs: number) {
-	// Keep only failures inside the configured rolling time window.
-	const minTimestamp = nowMs - CIRCUIT_BREAKER_WINDOW_MS;
-	while (transientFailureTimestampsMs.length > 0) {
-		const oldestTimestamp = transientFailureTimestampsMs[0];
-		if (oldestTimestamp === undefined || oldestTimestamp >= minTimestamp) {
-			break;
-		}
+  // Keep only failures inside the configured rolling time window.
+  const minTimestamp = nowMs - CIRCUIT_BREAKER_WINDOW_MS;
+  while (transientFailureTimestampsMs.length > 0) {
+    const oldestTimestamp = transientFailureTimestampsMs[0];
+    if (oldestTimestamp === undefined || oldestTimestamp >= minTimestamp) {
+      break;
+    }
 
-		transientFailureTimestampsMs.shift();
-	}
+    transientFailureTimestampsMs.shift();
+  }
 }
 
 /**
@@ -116,17 +127,16 @@ function pruneFailureWindow(nowMs: number) {
  * protecting the database and reducing downstream latency amplification.
  */
 function openCircuit(nowMs: number) {
-	// Open means all requests fail fast until the cool-down period expires.
-	circuitBreakerState = "open";
-	circuitOpenedAtMs = nowMs;
-	circuitOpenUntilMs = nowMs + CIRCUIT_BREAKER_OPEN_MS;
-	halfOpenSuccessCount = 0;
-	halfOpenInFlight = false;
-	console.warn("[db-circuit-breaker] opened", {
-		failureThreshold: CIRCUIT_BREAKER_FAILURE_THRESHOLD,
-		windowMs: CIRCUIT_BREAKER_WINDOW_MS,
-		openMs: CIRCUIT_BREAKER_OPEN_MS,
-	});
+  // Open means all requests fail fast until the cool-down period expires.
+  circuitBreakerState = "open";
+  circuitOpenUntilMs = nowMs + CIRCUIT_BREAKER_OPEN_MS;
+  halfOpenSuccessCount = 0;
+  halfOpenInFlight = false;
+  console.warn("[db-circuit-breaker] opened", {
+    failureThreshold: CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+    windowMs: CIRCUIT_BREAKER_WINDOW_MS,
+    openMs: CIRCUIT_BREAKER_OPEN_MS,
+  });
 }
 
 /**
@@ -135,14 +145,14 @@ function openCircuit(nowMs: number) {
  * Called only after enough successful probes in HALF-OPEN mode.
  */
 function closeCircuit() {
-	// Closed means normal traffic: calls are allowed and counters reset.
-	circuitBreakerState = "closed";
-	circuitOpenedAtMs = 0;
-	circuitOpenUntilMs = 0;
-	halfOpenSuccessCount = 0;
-	halfOpenInFlight = false;
-	transientFailureTimestampsMs.length = 0;
-	console.info("[db-circuit-breaker] closed");
+  // Closed means normal traffic: calls are allowed and counters reset.
+  circuitBreakerState = "closed";
+
+  circuitOpenUntilMs = 0;
+  halfOpenSuccessCount = 0;
+  halfOpenInFlight = false;
+  transientFailureTimestampsMs.length = 0;
+  console.info("[db-circuit-breaker] closed");
 }
 
 /**
@@ -152,11 +162,11 @@ function closeCircuit() {
  * is allowed to verify DB health before full reopening.
  */
 function startHalfOpen() {
-	// Half-open allows controlled probes before restoring full traffic.
-	circuitBreakerState = "half-open";
-	halfOpenSuccessCount = 0;
-	halfOpenInFlight = false;
-	console.info("[db-circuit-breaker] half-open probe window started");
+  // Half-open allows controlled probes before restoring full traffic.
+  circuitBreakerState = "half-open";
+  halfOpenSuccessCount = 0;
+  halfOpenInFlight = false;
+  console.info("[db-circuit-breaker] half-open probe window started");
 }
 
 /**
@@ -166,31 +176,31 @@ function startHalfOpen() {
  * apply stricter success/failure handling after execution.
  */
 function checkCircuitBeforeRequest() {
-	if (!CIRCUIT_BREAKER_ENABLED) {
-		return false;
-	}
+  if (!CIRCUIT_BREAKER_ENABLED) {
+    return false;
+  }
 
-	const nowMs = Date.now();
-	if (circuitBreakerState === "open") {
-		if (nowMs >= circuitOpenUntilMs) {
-			startHalfOpen();
-		} else {
-			throw new DbCircuitOpenError(Math.max(0, circuitOpenUntilMs - nowMs));
-		}
-	}
+  const nowMs = Date.now();
+  if (circuitBreakerState === "open") {
+    if (nowMs >= circuitOpenUntilMs) {
+      startHalfOpen();
+    } else {
+      throw new DbCircuitOpenError(Math.max(0, circuitOpenUntilMs - nowMs));
+    }
+  }
 
-	if (circuitBreakerState === "half-open") {
-		// Allow only one probe at a time while half-open.
-		if (halfOpenInFlight) {
-			// Short retry hint for callers while probe is in progress.
-			throw new DbCircuitOpenError(250);
-		}
+  if (circuitBreakerState === "half-open") {
+    // Allow only one probe at a time while half-open.
+    if (halfOpenInFlight) {
+      // Short retry hint for callers while probe is in progress.
+      throw new DbCircuitOpenError(250);
+    }
 
-		halfOpenInFlight = true;
-		return true;
-	}
+    halfOpenInFlight = true;
+    return true;
+  }
 
-	return false;
+  return false;
 }
 
 /**
@@ -200,18 +210,18 @@ function checkCircuitBeforeRequest() {
  * a success streak to avoid flapping on momentary recoveries.
  */
 function onCircuitSuccess(wasHalfOpenRequest: boolean) {
-	if (!CIRCUIT_BREAKER_ENABLED) {
-		return;
-	}
+  if (!CIRCUIT_BREAKER_ENABLED) {
+    return;
+  }
 
-	if (wasHalfOpenRequest) {
-		// In half-open mode, we require a small success streak before closing.
-		halfOpenInFlight = false;
-		halfOpenSuccessCount += 1;
-		if (halfOpenSuccessCount >= CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD) {
-			closeCircuit();
-		}
-	}
+  if (wasHalfOpenRequest) {
+    // In half-open mode, we require a small success streak before closing.
+    halfOpenInFlight = false;
+    halfOpenSuccessCount += 1;
+    if (halfOpenSuccessCount >= CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD) {
+      closeCircuit();
+    }
+  }
 }
 
 /**
@@ -220,34 +230,36 @@ function onCircuitSuccess(wasHalfOpenRequest: boolean) {
  * Only transient failures influence circuit transitions. Hard/terminal errors
  * (for example bad queries or validation mistakes) should not open the breaker.
  */
-function onCircuitFailure(error: any, wasHalfOpenRequest: boolean) {
-	if (!CIRCUIT_BREAKER_ENABLED) {
-		return;
-	}
+function onCircuitFailure(error: unknown, wasHalfOpenRequest: boolean) {
+  if (!CIRCUIT_BREAKER_ENABLED) {
+    return;
+  }
 
-	if (!isRetryableDbError(error)) {
-		// Non-transient errors should not open the circuit breaker.
-		if (wasHalfOpenRequest) {
-			halfOpenInFlight = false;
-		}
-		return;
-	}
+  if (!isRetryableDbError(error)) {
+    // Non-transient errors should not open the circuit breaker.
+    if (wasHalfOpenRequest) {
+      halfOpenInFlight = false;
+    }
+    return;
+  }
 
-	const nowMs = Date.now();
-	if (wasHalfOpenRequest || circuitBreakerState === "half-open") {
-		// Any transient failure during half-open immediately re-opens the circuit.
-		halfOpenInFlight = false;
-		openCircuit(nowMs);
-		return;
-	}
+  const nowMs = Date.now();
+  if (wasHalfOpenRequest || circuitBreakerState === "half-open") {
+    // Any transient failure during half-open immediately re-opens the circuit.
+    halfOpenInFlight = false;
+    openCircuit(nowMs);
+    return;
+  }
 
-	// In closed mode, open only after enough failures in the rolling window.
-	pruneFailureWindow(nowMs);
-	transientFailureTimestampsMs.push(nowMs);
+  // In closed mode, open only after enough failures in the rolling window.
+  pruneFailureWindow(nowMs);
+  transientFailureTimestampsMs.push(nowMs);
 
-	if (transientFailureTimestampsMs.length >= CIRCUIT_BREAKER_FAILURE_THRESHOLD) {
-		openCircuit(nowMs);
-	}
+  if (
+    transientFailureTimestampsMs.length >= CIRCUIT_BREAKER_FAILURE_THRESHOLD
+  ) {
+    openCircuit(nowMs);
+  }
 }
 
 /**
@@ -258,19 +270,26 @@ function onCircuitFailure(error: any, wasHalfOpenRequest: boolean) {
  * - known PostgreSQL transient/restart/overload classes
  * - common transient network error strings
  */
-function isRetryableDbError(error: any) {
-	const code = typeof error?.code === "string" ? error.code : undefined;
-	if (code && (RETRYABLE_PRISMA_CODES.has(code) || RETRYABLE_PG_CODES.has(code))) {
-		return true;
-	}
+function isRetryableDbError(error: unknown) {
+  const err = error as { code?: unknown; message?: unknown; cause?: { code?: unknown } };
+  const code = typeof err?.code === "string" ? err.code : undefined;
+  if (
+    code &&
+    (RETRYABLE_PRISMA_CODES.has(code) || RETRYABLE_PG_CODES.has(code))
+  ) {
+    return true;
+  }
 
-	const message = typeof error?.message === "string" ? error.message : "";
-	if (/ECONNRESET|EPIPE|ETIMEDOUT|Connection terminated|timeout/i.test(message)) {
-		return true;
-	}
+  const message = typeof err?.message === "string" ? err.message : "";
+  if (
+    /ECONNRESET|EPIPE|ETIMEDOUT|Connection terminated|timeout/i.test(message)
+  ) {
+    return true;
+  }
 
-	const causeCode = typeof error?.cause?.code === "string" ? error.cause.code : undefined;
-	return Boolean(causeCode && RETRYABLE_PG_CODES.has(causeCode));
+  const causeCode =
+    typeof err?.cause?.code === "string" ? err.cause.code : undefined;
+  return Boolean(causeCode && RETRYABLE_PG_CODES.has(causeCode));
 }
 
 /**
@@ -281,26 +300,30 @@ function isRetryableDbError(error: any) {
  * - max attempts is strict and finite
  * - backoff doubles each attempt to reduce pressure on an unhealthy DB
  */
-async function runWithDbRetry<T>(operation: () => Promise<T>, attempt = 1): Promise<T> {
-	try {
-		return await operation();
-	} catch (error: any) {
-		// Retry only transient errors, and only up to a strict max attempt count.
-		if (attempt >= DEFAULT_RETRY_ATTEMPTS || !isRetryableDbError(error)) {
-			throw error;
-		}
+async function runWithDbRetry<T>(
+  operation: () => Promise<T>,
+  attempt = 1,
+): Promise<T> {
+  try {
+    return await operation();
+  } catch (error: unknown) {
+    // Retry only transient errors, and only up to a strict max attempt count.
+    if (attempt >= DEFAULT_RETRY_ATTEMPTS || !isRetryableDbError(error)) {
+      throw error;
+    }
 
-		const backoffMs = DEFAULT_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
-		console.warn("[db-retry] transient database error, retrying", {
-			attempt,
-			maxAttempts: DEFAULT_RETRY_ATTEMPTS,
-			code: error?.code,
-			message: error?.message,
-		});
+    const backoffMs = DEFAULT_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+    const err = error as { code?: unknown; message?: unknown };
+    console.warn("[db-retry] transient database error, retrying", {
+      attempt,
+      maxAttempts: DEFAULT_RETRY_ATTEMPTS,
+      code: err?.code,
+      message: err?.message,
+    });
 
-		await sleep(backoffMs);
-		return runWithDbRetry(operation, attempt + 1);
-	}
+    await sleep(backoffMs);
+    return runWithDbRetry(operation, attempt + 1);
+  }
 }
 
 /**
@@ -312,52 +335,54 @@ async function runWithDbRetry<T>(operation: () => Promise<T>, attempt = 1): Prom
  * 3) circuit transition bookkeeping
  */
 async function runWithDbProtection<T>(operation: () => Promise<T>): Promise<T> {
-	// Circuit decision happens before retry execution.
-	const wasHalfOpenRequest = checkCircuitBeforeRequest();
+  // Circuit decision happens before retry execution.
+  const wasHalfOpenRequest = checkCircuitBeforeRequest();
 
-	try {
-		const result = await runWithDbRetry(operation);
-		onCircuitSuccess(wasHalfOpenRequest);
-		return result;
-	} catch (error) {
-		onCircuitFailure(error, wasHalfOpenRequest);
-		throw error;
-	}
+  try {
+    const result = await runWithDbRetry(operation);
+    onCircuitSuccess(wasHalfOpenRequest);
+    return result;
+  } catch (error) {
+    onCircuitFailure(error, wasHalfOpenRequest);
+    throw error;
+  }
 }
 
 // Cache nested proxies so repeated property access does not allocate new Proxy
 // instances for the same Prisma sub-object.
-const proxyCache = new WeakMap<object, any>();
+const proxyCache = new WeakMap<object, unknown>();
 
 /**
  * Recursively wraps Prisma objects/functions so all DB operations pass through
  * the same resilience layer without changing caller code.
  */
-function wrapPrismaValue(value: any): any {
-	if (typeof value !== "object" || value === null) {
-		return value;
-	}
+function wrapPrismaValue(value: unknown): unknown {
+  if (typeof value !== "object" || value === null) {
+    return value;
+  }
 
-	const cachedProxy = proxyCache.get(value);
-	if (cachedProxy) {
-		return cachedProxy;
-	}
+  const cachedProxy = proxyCache.get(value);
+  if (cachedProxy) {
+    return cachedProxy;
+  }
 
-	const proxiedValue = new Proxy(value, {
-		get(target, property, receiver) {
-			const propertyValue = Reflect.get(target, property, receiver);
+  const proxiedValue = new Proxy(value, {
+    get(target, property, receiver) {
+      const propertyValue = Reflect.get(target, property, receiver);
 
-			if (typeof propertyValue === "function") {
-				// Every Prisma call path funnels through retry + circuit-breaker guards.
-				return (...args: any[]) => runWithDbProtection(() => propertyValue.apply(target, args));
-			}
+      if (typeof propertyValue === "function") {
+        // Every Prisma call path funnels through retry + circuit-breaker guards.
+        return (...args: unknown[]) =>
+          runWithDbProtection(() => propertyValue.apply(target, args));
+      }
 
-			return wrapPrismaValue(propertyValue);
-		},
-	});
+      return wrapPrismaValue(propertyValue);
+    },
+  });
 
-	proxyCache.set(value, proxiedValue);
-	return proxiedValue;
+  proxyCache.set(value, proxiedValue);
+  return proxiedValue;
 }
 
 export const prismaClient = wrapPrismaValue(rawPrismaClient) as PrismaClient;
+;

@@ -2,7 +2,14 @@
 
 import { motion, useInView } from "motion/react";
 import { useRef, useState, useEffect } from "react";
-import { Sparkles, ArrowRight, Database, Server, User, Box } from "lucide-react";
+import {
+  Sparkles,
+  ArrowRight,
+  Database,
+  Server,
+  User,
+  Box,
+} from "lucide-react";
 
 export function AIHighlightSection() {
   const ref = useRef(null);
@@ -29,7 +36,10 @@ export function AIHighlightSection() {
   }, [isInView]);
 
   return (
-    <section ref={ref} className="py-24 px-6 relative overflow-hidden bg-white dark:bg-[#070b14]">
+    <section
+      ref={ref}
+      className="py-24 px-6 relative overflow-hidden bg-white dark:bg-[#070b14]"
+    >
       {/* Structural Background Pattern */}
       <div className="absolute inset-0 z-0 bg-[linear-gradient(rgba(0,0,0,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.03)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:32px_32px]" />
 
@@ -60,13 +70,13 @@ export function AIHighlightSection() {
             </span>
           </h2>
           <p className="text-lg md:text-xl font-medium text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
-            Describe what you need, and watch our AI co-pilot construct structural, editable geometry instantly.
+            Describe what you need, and watch our AI co-pilot construct
+            structural, editable geometry instantly.
           </p>
         </motion.div>
 
         {/* Transformation Demo */}
         <div className="grid lg:grid-cols-[1fr_auto_1.5fr] gap-8 items-center max-w-5xl mx-auto">
-          
           {/* Input Side */}
           <motion.div
             initial={{ opacity: 0, x: -30 }}
@@ -83,7 +93,9 @@ export function AIHighlightSection() {
                 </div>
               </div>
               <div className="flex items-start gap-3 bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-lg p-4">
-                <span className="text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">{">"}</span>
+                <span className="text-indigo-600 dark:text-indigo-400 font-mono mt-0.5">
+                  {">"}
+                </span>
                 <div className="flex-1 font-mono text-sm text-slate-800 dark:text-slate-300">
                   <span>{typedText}</span>
                   <motion.span
@@ -105,7 +117,11 @@ export function AIHighlightSection() {
           >
             <motion.div
               animate={{ x: [0, 8, 0] }}
-              transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+              transition={{
+                duration: 1.5,
+                repeat: Infinity,
+                ease: "easeInOut",
+              }}
             >
               <ArrowRight className="w-8 h-8 text-indigo-400 dark:text-indigo-600" />
             </motion.div>
@@ -127,10 +143,8 @@ export function AIHighlightSection() {
 
               {/* Structural Generated Diagram */}
               <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-lg p-6 min-h-[240px] relative flex flex-col items-center justify-center gap-8 bg-[linear-gradient(rgba(0,0,0,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.05)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:16px_16px]">
-                
                 {/* Flow Layout */}
                 <div className="flex items-center gap-8 relative z-10 w-full justify-center">
-                  
                   {/* Client */}
                   <motion.div
                     className="flex flex-col items-center gap-2"
@@ -141,7 +155,9 @@ export function AIHighlightSection() {
                     <div className="w-20 h-16 bg-blue-50/80 dark:bg-slate-800 border-2 border-blue-400 dark:border-blue-500 rounded-lg flex flex-col items-center justify-center shadow-sm">
                       <User className="w-5 h-5 text-blue-500 mb-1" />
                     </div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400">Client</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400">
+                      Client
+                    </span>
                   </motion.div>
 
                   {/* Arrow 1 */}
@@ -165,7 +181,9 @@ export function AIHighlightSection() {
                     <div className="w-24 h-16 bg-indigo-50/80 dark:bg-slate-800 border-2 border-indigo-400 dark:border-indigo-500 rounded-lg flex flex-col items-center justify-center shadow-sm">
                       <Server className="w-5 h-5 text-indigo-500 mb-1" />
                     </div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400">Server</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400">
+                      Server
+                    </span>
                   </motion.div>
 
                   {/* Arrow 2 */}
@@ -189,7 +207,9 @@ export function AIHighlightSection() {
                     <div className="w-20 h-16 bg-emerald-50/80 dark:bg-slate-800 border-2 border-emerald-400 dark:border-emerald-500 rounded-lg flex flex-col items-center justify-center shadow-sm">
                       <Database className="w-5 h-5 text-emerald-500 mb-1" />
                     </div>
-                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400">Database</span>
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-600 dark:text-slate-400">
+                      Database
+                    </span>
                   </motion.div>
                 </div>
               </div>
@@ -219,7 +239,9 @@ export function AIHighlightSection() {
               <div className="text-4xl font-black text-slate-900 dark:text-white mb-2">
                 {stat.value}
               </div>
-              <div className="text-sm font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">{stat.label}</div>
+              <div className="text-sm font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
+                {stat.label}
+              </div>
             </motion.div>
           ))}
         </motion.div>

@@ -1,15 +1,15 @@
-import {WebSocket} from "ws";
-import {JwtPayload} from "jsonwebtoken";
+import { WebSocket } from "ws";
+import { JwtPayload } from "jsonwebtoken";
 
 export interface AuthenticatedWebSocket extends WebSocket {
-    userId?: string;
-    userName?: string;
-    currentRoomId?: number;
+  userId?: string;
+  userName?: string;
+  currentRoomId?: number;
 }
 
 export interface MyJwtPayload extends JwtPayload {
-    userId: string;
-    name?: string;
-    tokenVersion?: number;
-    type?: "access" | "refresh";
+  userId: string;
+  name?: string;
+  tokenVersion?: number;
+  type?: "access" | "refresh";
 }

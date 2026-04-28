@@ -31,8 +31,8 @@ export function InteractiveDemoSection() {
               See it in action.
             </h2>
             <p className="text-lg font-medium text-slate-600 dark:text-slate-400">
-              A collaborative space that feels like a native app. 
-              No spinners, no loading bars. Just immediate visual feedback.
+              A collaborative space that feels like a native app. No spinners,
+              no loading bars. Just immediate visual feedback.
             </p>
           </div>
         </motion.div>
@@ -53,7 +53,9 @@ export function InteractiveDemoSection() {
                 <div className="w-3 h-3 rounded-full bg-slate-300 dark:bg-slate-700" />
               </div>
               <div className="h-4 w-px bg-slate-300 dark:bg-slate-700 mx-2" />
-              <span className="text-sm font-bold text-slate-700 dark:text-slate-300 tracking-tight">System Architecture</span>
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-300 tracking-tight">
+                System Architecture
+              </span>
             </div>
 
             {/* Collaborator Avatars */}
@@ -68,7 +70,8 @@ export function InteractiveDemoSection() {
                     className={`w-7 h-7 ${person.color} rounded-md border-2 border-white dark:border-[#0a0f1a] flex items-center justify-center text-white text-[10px] font-bold`}
                     title={person.name}
                   >
-                    {person.name.split(' ')[0]![0]}{person.name.split(' ')[1]![0]}
+                    {person.name.split(" ")[0]![0]}
+                    {person.name.split(" ")[1]![0]}
                   </motion.div>
                 ))}
               </div>
@@ -94,7 +97,7 @@ export function InteractiveDemoSection() {
               />
               <motion.button
                 className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-md flex items-center gap-2 transition-colors"
-                onClick={() => router.push('/signin')}
+                onClick={() => router.push("/signin")}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
               >

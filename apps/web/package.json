@@ -8,6 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint --max-warnings 0",
+    "test": "echo 'No tests configured for web app'",
     "check-types": "next typegen && tsc --noEmit"
   },
   "dependencies": {

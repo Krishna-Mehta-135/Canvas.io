@@ -15,7 +15,8 @@ const geistMono = localFont({
 
 export const metadata: Metadata = {
   title: "Canvas.io — AI-Powered Infinite Canvas",
-  description: "A collaborative infinite canvas with AI built in. Think, draw, and build in real time.",
+  description:
+    "A collaborative infinite canvas with AI built in. Think, draw, and build in real time.",
   icons: {
     icon: "/logo-canvasio.svg",
   },
@@ -48,7 +49,9 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className={`${geistSans.variable} ${geistMono.variable} touch-none`}>
+      <body
+        className={`${geistSans.variable} ${geistMono.variable} touch-none`}
+      >
         <ThemeProvider>
           <GlobalCursor />
           {children}

@@ -16,153 +16,179 @@ Think of it as:
 "Gatekeeper of all changes to the canvas state"
 */
 
-import {CanvasState} from "./state";
-import {Shape} from "./types";
-import {convertToPoints} from "./geometry";
+import { CanvasState } from "./state";
+import { Shape } from "./types";
+import { convertToPoints } from "./geometry";
 
-type ConnectorShape = Extract<Shape, {type: "line" | "arrow"}>;
+type ConnectorShape = Extract<Shape, { type: "line" | "arrow" }>;
 
 function isConnectorShape(shape: Shape): shape is ConnectorShape {
-    return shape.type === "line" || shape.type === "arrow";
+  return shape.type === "line" || shape.type === "arrow";
 }
 
 function isBindableTarget(shape: Shape) {
-    return shape.type !== "line" && shape.type !== "arrow";
+  return shape.type !== "line" && shape.type !== "arrow";
 }
 
 const CONNECTOR_SNAP_TOLERANCE = 10;
 let connectorSnapEnabled = true;
 
 export function setConnectorSnapEnabled(enabled: boolean) {
-    connectorSnapEnabled = enabled;
+  connectorSnapEnabled = enabled;
 }
 
 export function getConnectorSnapEnabled() {
-    return connectorSnapEnabled;
+  return connectorSnapEnabled;
 }
 
 function clamp01(value: number) {
-    return Math.max(0, Math.min(1, value));
+  return Math.max(0, Math.min(1, value));
 }
 
 // Converts an absolute endpoint into normalized anchor space of a target shape.
 function getRelativeBindingForPoint(shape: Shape, x: number, y: number) {
-    const box = convertToPoints(shape);
-    const width = Math.max(1, box.x2 - box.x1);
-    const height = Math.max(1, box.y2 - box.y1);
+  const box = convertToPoints(shape);
+  const width = Math.max(1, box.x2 - box.x1);
+  const height = Math.max(1, box.y2 - box.y1);
 
-    return {
-        shapeId: shape.id,
-        relX: clamp01((x - box.x1) / width),
-        relY: clamp01((y - box.y1) / height),
-    };
+  return {
+    shapeId: shape.id,
+    relX: clamp01((x - box.x1) / width),
+    relY: clamp01((y - box.y1) / height),
+  };
 }
 
 function getPointFromBinding(
-    binding: ConnectorShape["startBinding"],
-    shapeById: Map<string, Shape>
-): {x: number; y: number} | null {
-    if (!binding) return null;
+  binding: ConnectorShape["startBinding"],
+  shapeById: Map<string, Shape>,
+): { x: number; y: number } | null {
+  if (!binding) return null;
 
-    const target = shapeById.get(binding.shapeId);
-    if (!target || !isBindableTarget(target)) return null;
+  const target = shapeById.get(binding.shapeId);
+  if (!target || !isBindableTarget(target)) return null;
 
-    const box = convertToPoints(target);
-    const width = box.x2 - box.x1;
-    const height = box.y2 - box.y1;
+  const box = convertToPoints(target);
+  const width = box.x2 - box.x1;
+  const height = box.y2 - box.y1;
 
-    return {
-        x: box.x1 + clamp01(binding.relX) * width,
-        y: box.y1 + clamp01(binding.relY) * height,
-    };
+  return {
+    x: box.x1 + clamp01(binding.relX) * width,
+    y: box.y1 + clamp01(binding.relY) * height,
+  };
 }
 
 // Chooses the visually top-most candidate so endpoint attachment matches user intent.
-export function findTopBindableShapeAtPoint(shapes: Shape[], x: number, y: number, excludeId?: string | null) {
-    if (!connectorSnapEnabled) {
-        return null;
-    }
-
-    const excludedId = excludeId ?? null;
-
-    for (let i = shapes.length - 1; i >= 0; i--) {
-        const shape = shapes[i];
-        if (!shape || shape.id === excludedId || !isBindableTarget(shape)) continue;
-
-        const box = convertToPoints(shape);
-        const isInside =
-            x >= box.x1 - CONNECTOR_SNAP_TOLERANCE &&
-            x <= box.x2 + CONNECTOR_SNAP_TOLERANCE &&
-            y >= box.y1 - CONNECTOR_SNAP_TOLERANCE &&
-            y <= box.y2 + CONNECTOR_SNAP_TOLERANCE;
-
-        if (isInside) return shape;
-    }
-
+export function findTopBindableShapeAtPoint(
+  shapes: Shape[],
+  x: number,
+  y: number,
+  excludeId?: string | null,
+) {
+  if (!connectorSnapEnabled) {
     return null;
+  }
+
+  const excludedId = excludeId ?? null;
+
+  for (let i = shapes.length - 1; i >= 0; i--) {
+    const shape = shapes[i];
+    if (!shape || shape.id === excludedId || !isBindableTarget(shape)) continue;
+
+    const box = convertToPoints(shape);
+    const isInside =
+      x >= box.x1 - CONNECTOR_SNAP_TOLERANCE &&
+      x <= box.x2 + CONNECTOR_SNAP_TOLERANCE &&
+      y >= box.y1 - CONNECTOR_SNAP_TOLERANCE &&
+      y <= box.y2 + CONNECTOR_SNAP_TOLERANCE;
+
+    if (isInside) return shape;
+  }
+
+  return null;
 }
 
-function attachConnectorBindings(connector: ConnectorShape, shapes: Shape[]): ConnectorShape {
-    if (!connectorSnapEnabled) {
-        return {
-            ...connector,
-            startBinding: undefined,
-            endBinding: undefined,
-        };
-    }
-
-    const startTarget = findTopBindableShapeAtPoint(shapes, connector.x1, connector.y1, connector.id);
-    const endTarget = findTopBindableShapeAtPoint(shapes, connector.x2, connector.y2, connector.id);
-
+function attachConnectorBindings(
+  connector: ConnectorShape,
+  shapes: Shape[],
+): ConnectorShape {
+  if (!connectorSnapEnabled) {
     return {
-        ...connector,
-        startBinding: startTarget ? getRelativeBindingForPoint(startTarget, connector.x1, connector.y1) : undefined,
-        endBinding: endTarget ? getRelativeBindingForPoint(endTarget, connector.x2, connector.y2) : undefined,
+      ...connector,
+      startBinding: undefined,
+      endBinding: undefined,
     };
+  }
+
+  const startTarget = findTopBindableShapeAtPoint(
+    shapes,
+    connector.x1,
+    connector.y1,
+    connector.id,
+  );
+  const endTarget = findTopBindableShapeAtPoint(
+    shapes,
+    connector.x2,
+    connector.y2,
+    connector.id,
+  );
+
+  return {
+    ...connector,
+    startBinding: startTarget
+      ? getRelativeBindingForPoint(startTarget, connector.x1, connector.y1)
+      : undefined,
+    endBinding: endTarget
+      ? getRelativeBindingForPoint(endTarget, connector.x2, connector.y2)
+      : undefined,
+  };
 }
 
-function refreshBindingsForConnectorIds(shapes: Shape[], connectorIds: string[]) {
-    if (connectorIds.length === 0) return shapes;
+function refreshBindingsForConnectorIds(
+  shapes: Shape[],
+  connectorIds: string[],
+) {
+  if (connectorIds.length === 0) return shapes;
 
-    const targetIds = new Set(connectorIds);
+  const targetIds = new Set(connectorIds);
 
-    return shapes.map((shape) => {
-        if (!targetIds.has(shape.id) || !isConnectorShape(shape)) return shape;
-        return attachConnectorBindings(shape, shapes);
-    });
+  return shapes.map((shape) => {
+    if (!targetIds.has(shape.id) || !isConnectorShape(shape)) return shape;
+    return attachConnectorBindings(shape, shapes);
+  });
 }
 
 // Reprojects all currently bound connector endpoints using latest shape bounds.
 function applyConnectorBindings(shapes: Shape[]) {
-    if (!connectorSnapEnabled) {
-        return shapes.map((shape) => {
-            if (!isConnectorShape(shape)) return shape;
-            return {
-                ...shape,
-                startBinding: undefined,
-                endBinding: undefined,
-            };
-        });
-    }
-
-    const shapeById = new Map(shapes.map((shape) => [shape.id, shape] as const));
-
+  if (!connectorSnapEnabled) {
     return shapes.map((shape) => {
-        if (!isConnectorShape(shape)) return shape;
-
-        const startPoint = getPointFromBinding(shape.startBinding, shapeById);
-        const endPoint = getPointFromBinding(shape.endBinding, shapeById);
-
-        return {
-            ...shape,
-            x1: startPoint?.x ?? shape.x1,
-            y1: startPoint?.y ?? shape.y1,
-            x2: endPoint?.x ?? shape.x2,
-            y2: endPoint?.y ?? shape.y2,
-            startBinding: shape.startBinding && !startPoint ? undefined : shape.startBinding,
-            endBinding: shape.endBinding && !endPoint ? undefined : shape.endBinding,
-        };
+      if (!isConnectorShape(shape)) return shape;
+      return {
+        ...shape,
+        startBinding: undefined,
+        endBinding: undefined,
+      };
     });
+  }
+
+  const shapeById = new Map(shapes.map((shape) => [shape.id, shape] as const));
+
+  return shapes.map((shape) => {
+    if (!isConnectorShape(shape)) return shape;
+
+    const startPoint = getPointFromBinding(shape.startBinding, shapeById);
+    const endPoint = getPointFromBinding(shape.endBinding, shapeById);
+
+    return {
+      ...shape,
+      x1: startPoint?.x ?? shape.x1,
+      y1: startPoint?.y ?? shape.y1,
+      x2: endPoint?.x ?? shape.x2,
+      y2: endPoint?.y ?? shape.y2,
+      startBinding:
+        shape.startBinding && !startPoint ? undefined : shape.startBinding,
+      endBinding: shape.endBinding && !endPoint ? undefined : shape.endBinding,
+    };
+  });
 }
 
 /*
@@ -174,37 +200,37 @@ We keep it minimal for now:
 - MOVE_SHAPES → selected group moved together
 */
 export type Action =
-    | {type: "ADD_SHAPE"; payload: Shape}
-    | {
-          type: "DELETE_SHAPES";
-          payload: {
-              ids: string[];
-          };
-      }
-    | {
-          type: "MOVE_SHAPE";
-          payload: {
-              id: string;
-              updates: Partial<Shape>;
-              skipConnectorBindingRefresh?: boolean;
-          };
-      }
-    | {
-          type: "MOVE_SHAPES";
-          payload: {
-              ids: string[];
-              dx: number;
-              dy: number;
-          };
-      }
-    | {
-          type: "NUDGE_SHAPES";
-          payload: {
-              ids: string[];
-              dx: number;
-              dy: number;
-          };
+  | { type: "ADD_SHAPE"; payload: Shape }
+  | {
+      type: "DELETE_SHAPES";
+      payload: {
+        ids: string[];
       };
+    }
+  | {
+      type: "MOVE_SHAPE";
+      payload: {
+        id: string;
+        updates: Partial<Shape>;
+        skipConnectorBindingRefresh?: boolean;
+      };
+    }
+  | {
+      type: "MOVE_SHAPES";
+      payload: {
+        ids: string[];
+        dx: number;
+        dy: number;
+      };
+    }
+  | {
+      type: "NUDGE_SHAPES";
+      payload: {
+        ids: string[];
+        dx: number;
+        dy: number;
+      };
+    };
 
 /*
 Dispatch function
@@ -217,238 +243,262 @@ IMPORTANT:
 - Action handlers are pure shape transforms based on payload intent
 */
 export function dispatch(state: CanvasState, action: Action) {
-    const shapes = state.getShapes();
+  const shapes = state.getShapes();
 
-    const syncTextChildrenToParent = (
-        prevShapes: Shape[],
-        nextShapes: Shape[],
-        parentId: string,
-        skipIds: Set<string> = new Set()
-    ) => {
-        const prevParent = prevShapes.find((shape) => shape.id === parentId);
-        const nextParent = nextShapes.find((shape) => shape.id === parentId);
-        if (!prevParent || !nextParent) return nextShapes;
+  const syncTextChildrenToParent = (
+    prevShapes: Shape[],
+    nextShapes: Shape[],
+    parentId: string,
+    skipIds: Set<string> = new Set(),
+  ) => {
+    const prevParent = prevShapes.find((shape) => shape.id === parentId);
+    const nextParent = nextShapes.find((shape) => shape.id === parentId);
+    if (!prevParent || !nextParent) return nextShapes;
 
-        // Compare parent bounds before/after action to move child text proportionally.
-        const prevBox = convertToPoints(prevParent);
-        const nextBox = convertToPoints(nextParent);
+    // Compare parent bounds before/after action to move child text proportionally.
+    const prevBox = convertToPoints(prevParent);
+    const nextBox = convertToPoints(nextParent);
 
-        const prevWidth = Math.max(1, prevBox.x2 - prevBox.x1);
-        const prevHeight = Math.max(1, prevBox.y2 - prevBox.y1);
-        const nextWidth = Math.max(1, nextBox.x2 - nextBox.x1);
-        const nextHeight = Math.max(1, nextBox.y2 - nextBox.y1);
+    const prevWidth = Math.max(1, prevBox.x2 - prevBox.x1);
+    const prevHeight = Math.max(1, prevBox.y2 - prevBox.y1);
+    const nextWidth = Math.max(1, nextBox.x2 - nextBox.x1);
+    const nextHeight = Math.max(1, nextBox.y2 - nextBox.y1);
 
-        return nextShapes.map((shape) => {
-            if (shape.type !== "text") return shape;
-            if (shape.parentId !== parentId) return shape;
-            if (skipIds.has(shape.id)) return shape;
+    return nextShapes.map((shape) => {
+      if (shape.type !== "text") return shape;
+      if (shape.parentId !== parentId) return shape;
+      if (skipIds.has(shape.id)) return shape;
 
-            // Store child text in normalized parent-space so transform propagation is shape-agnostic.
-            const relX = clamp01((shape.x - prevBox.x1) / prevWidth);
-            const relY = clamp01((shape.y - prevBox.y1) / prevHeight);
-            const relWidth = clamp01(shape.width / prevWidth);
-            const relHeight = clamp01(shape.height / prevHeight);
+      // Store child text in normalized parent-space so transform propagation is shape-agnostic.
+      const relX = clamp01((shape.x - prevBox.x1) / prevWidth);
+      const relY = clamp01((shape.y - prevBox.y1) / prevHeight);
+      const relWidth = clamp01(shape.width / prevWidth);
+      const relHeight = clamp01(shape.height / prevHeight);
 
-            const nextX = nextBox.x1 + relX * nextWidth;
-            const nextY = nextBox.y1 + relY * nextHeight;
-            const maxWidthFromX = Math.max(8, nextBox.x2 - nextX);
-            const maxHeightFromY = Math.max(8, nextBox.y2 - nextY);
-            const nextTextWidth = Math.max(8, Math.min(relWidth * nextWidth, maxWidthFromX));
-            const nextTextHeight = Math.max(8, Math.min(relHeight * nextHeight, maxHeightFromY));
+      const nextX = nextBox.x1 + relX * nextWidth;
+      const nextY = nextBox.y1 + relY * nextHeight;
+      const maxWidthFromX = Math.max(8, nextBox.x2 - nextX);
+      const maxHeightFromY = Math.max(8, nextBox.y2 - nextY);
+      const nextTextWidth = Math.max(
+        8,
+        Math.min(relWidth * nextWidth, maxWidthFromX),
+      );
+      const nextTextHeight = Math.max(
+        8,
+        Math.min(relHeight * nextHeight, maxHeightFromY),
+      );
 
-            return {
-                ...shape,
-                x: nextX,
-                y: nextY,
-                width: nextTextWidth,
-                height: nextTextHeight,
-                // Preserve authored font size; renderer performs fit-to-box only when overflow would occur.
-                fontSize: shape.fontSize,
-            };
-        });
-    };
+      return {
+        ...shape,
+        x: nextX,
+        y: nextY,
+        width: nextTextWidth,
+        height: nextTextHeight,
+        // Preserve authored font size; renderer performs fit-to-box only when overflow would occur.
+        fontSize: shape.fontSize,
+      };
+    });
+  };
 
-    switch (action.type) {
-        case "ADD_SHAPE": {
-            let newShapes = [...shapes, action.payload];
+  switch (action.type) {
+    case "ADD_SHAPE": {
+      let newShapes = [...shapes, action.payload];
 
-            if (isConnectorShape(action.payload)) {
-                newShapes = refreshBindingsForConnectorIds(newShapes, [action.payload.id]);
-            }
+      if (isConnectorShape(action.payload)) {
+        newShapes = refreshBindingsForConnectorIds(newShapes, [
+          action.payload.id,
+        ]);
+      }
 
-            newShapes = applyConnectorBindings(newShapes);
-            state.setShapes(newShapes);
-            break;
-        }
-
-        case "MOVE_SHAPE": {
-            const {id, updates, skipConnectorBindingRefresh = false} = action.payload;
-
-            let newShapes = shapes.map((s) => {
-                if (s.id !== id) return s;
-
-                return {
-                    ...s,
-                    ...updates,
-                } as Shape;
-            });
-
-            newShapes = syncTextChildrenToParent(shapes, newShapes, id);
-            if (!skipConnectorBindingRefresh) {
-                newShapes = refreshBindingsForConnectorIds(newShapes, [id]);
-            }
-            newShapes = applyConnectorBindings(newShapes);
-
-            state.setShapes(newShapes);
-            break;
-        }
-
-        case "MOVE_SHAPES": {
-            const {ids, dx, dy} = action.payload;
-            const selectedSet = new Set(ids);
-
-            let newShapes = shapes.map((shape) => {
-                if (!selectedSet.has(shape.id)) return shape;
-
-                if (shape.type === "rect") {
-                    return {
-                        ...shape,
-                        x: shape.x + dx,
-                        y: shape.y + dy,
-                    };
-                }
-
-                if (shape.type === "rhombus") {
-                    return {
-                        ...shape,
-                        x: shape.x + dx,
-                        y: shape.y + dy,
-                    };
-                }
-
-                if (shape.type === "circle") {
-                    return {
-                        ...shape,
-                        centerX: shape.centerX + dx,
-                        centerY: shape.centerY + dy,
-                    };
-                }
-
-                if (shape.type === "text") {
-                    return {
-                        ...shape,
-                        x: shape.x + dx,
-                        y: shape.y + dy,
-                    };
-                }
-
-                if (shape.type === "freehand") {
-                    return {
-                        ...shape,
-                        points: shape.points.map((point) => ({
-                            x: point.x + dx,
-                            y: point.y + dy,
-                        })),
-                    };
-                }
-
-                return {
-                    ...shape,
-                    x1: shape.x1 + dx,
-                    y1: shape.y1 + dy,
-                    x2: shape.x2 + dx,
-                    y2: shape.y2 + dy,
-                };
-            });
-
-            for (const parentId of ids) {
-                newShapes = syncTextChildrenToParent(shapes, newShapes, parentId, selectedSet);
-            }
-
-            newShapes = refreshBindingsForConnectorIds(newShapes, ids);
-            newShapes = applyConnectorBindings(newShapes);
-
-            state.setShapes(newShapes);
-            break;
-        }
-
-        case "DELETE_SHAPES": {
-            const selectedSet = new Set(action.payload.ids);
-            const newShapes = applyConnectorBindings(shapes.filter((shape) => !selectedSet.has(shape.id)));
-            state.setShapes(newShapes);
-            break;
-        }
-
-        case "NUDGE_SHAPES": {
-            const {ids, dx, dy} = action.payload;
-            const selectedSet = new Set(ids);
-
-            let newShapes = shapes.map((shape) => {
-                if (!selectedSet.has(shape.id)) return shape;
-
-                if (shape.type === "rect") {
-                    return {
-                        ...shape,
-                        x: shape.x + dx,
-                        y: shape.y + dy,
-                    };
-                }
-
-                if (shape.type === "rhombus") {
-                    return {
-                        ...shape,
-                        x: shape.x + dx,
-                        y: shape.y + dy,
-                    };
-                }
-
-                if (shape.type === "circle") {
-                    return {
-                        ...shape,
-                        centerX: shape.centerX + dx,
-                        centerY: shape.centerY + dy,
-                    };
-                }
-
-                if (shape.type === "text") {
-                    return {
-                        ...shape,
-                        x: shape.x + dx,
-                        y: shape.y + dy,
-                    };
-                }
-
-                if (shape.type === "freehand") {
-                    return {
-                        ...shape,
-                        points: shape.points.map((point) => ({
-                            x: point.x + dx,
-                            y: point.y + dy,
-                        })),
-                    };
-                }
-
-                return {
-                    ...shape,
-                    x1: shape.x1 + dx,
-                    y1: shape.y1 + dy,
-                    x2: shape.x2 + dx,
-                    y2: shape.y2 + dy,
-                };
-            });
-
-            for (const parentId of ids) {
-                newShapes = syncTextChildrenToParent(shapes, newShapes, parentId, selectedSet);
-            }
-
-            newShapes = refreshBindingsForConnectorIds(newShapes, ids);
-            newShapes = applyConnectorBindings(newShapes);
-
-            state.setShapes(newShapes);
-            break;
-        }
-
-        default:
-            break;
+      newShapes = applyConnectorBindings(newShapes);
+      state.setShapes(newShapes);
+      break;
     }
+
+    case "MOVE_SHAPE": {
+      const {
+        id,
+        updates,
+        skipConnectorBindingRefresh = false,
+      } = action.payload;
+
+      let newShapes = shapes.map((s) => {
+        if (s.id !== id) return s;
+
+        return {
+          ...s,
+          ...updates,
+        } as Shape;
+      });
+
+      newShapes = syncTextChildrenToParent(shapes, newShapes, id);
+      if (!skipConnectorBindingRefresh) {
+        newShapes = refreshBindingsForConnectorIds(newShapes, [id]);
+      }
+      newShapes = applyConnectorBindings(newShapes);
+
+      state.setShapes(newShapes);
+      break;
+    }
+
+    case "MOVE_SHAPES": {
+      const { ids, dx, dy } = action.payload;
+      const selectedSet = new Set(ids);
+
+      let newShapes = shapes.map((shape) => {
+        if (!selectedSet.has(shape.id)) return shape;
+
+        if (shape.type === "rect") {
+          return {
+            ...shape,
+            x: shape.x + dx,
+            y: shape.y + dy,
+          };
+        }
+
+        if (shape.type === "rhombus") {
+          return {
+            ...shape,
+            x: shape.x + dx,
+            y: shape.y + dy,
+          };
+        }
+
+        if (shape.type === "circle") {
+          return {
+            ...shape,
+            centerX: shape.centerX + dx,
+            centerY: shape.centerY + dy,
+          };
+        }
+
+        if (shape.type === "text") {
+          return {
+            ...shape,
+            x: shape.x + dx,
+            y: shape.y + dy,
+          };
+        }
+
+        if (shape.type === "freehand") {
+          return {
+            ...shape,
+            points: shape.points.map((point) => ({
+              x: point.x + dx,
+              y: point.y + dy,
+            })),
+          };
+        }
+
+        return {
+          ...shape,
+          x1: shape.x1 + dx,
+          y1: shape.y1 + dy,
+          x2: shape.x2 + dx,
+          y2: shape.y2 + dy,
+        };
+      });
+
+      for (const parentId of ids) {
+        newShapes = syncTextChildrenToParent(
+          shapes,
+          newShapes,
+          parentId,
+          selectedSet,
+        );
+      }
+
+      newShapes = refreshBindingsForConnectorIds(newShapes, ids);
+      newShapes = applyConnectorBindings(newShapes);
+
+      state.setShapes(newShapes);
+      break;
+    }
+
+    case "DELETE_SHAPES": {
+      const selectedSet = new Set(action.payload.ids);
+      const newShapes = applyConnectorBindings(
+        shapes.filter((shape) => !selectedSet.has(shape.id)),
+      );
+      state.setShapes(newShapes);
+      break;
+    }
+
+    case "NUDGE_SHAPES": {
+      const { ids, dx, dy } = action.payload;
+      const selectedSet = new Set(ids);
+
+      let newShapes = shapes.map((shape) => {
+        if (!selectedSet.has(shape.id)) return shape;
+
+        if (shape.type === "rect") {
+          return {
+            ...shape,
+            x: shape.x + dx,
+            y: shape.y + dy,
+          };
+        }
+
+        if (shape.type === "rhombus") {
+          return {
+            ...shape,
+            x: shape.x + dx,
+            y: shape.y + dy,
+          };
+        }
+
+        if (shape.type === "circle") {
+          return {
+            ...shape,
+            centerX: shape.centerX + dx,
+            centerY: shape.centerY + dy,
+          };
+        }
+
+        if (shape.type === "text") {
+          return {
+            ...shape,
+            x: shape.x + dx,
+            y: shape.y + dy,
+          };
+        }
+
+        if (shape.type === "freehand") {
+          return {
+            ...shape,
+            points: shape.points.map((point) => ({
+              x: point.x + dx,
+              y: point.y + dy,
+            })),
+          };
+        }
+
+        return {
+          ...shape,
+          x1: shape.x1 + dx,
+          y1: shape.y1 + dy,
+          x2: shape.x2 + dx,
+          y2: shape.y2 + dy,
+        };
+      });
+
+      for (const parentId of ids) {
+        newShapes = syncTextChildrenToParent(
+          shapes,
+          newShapes,
+          parentId,
+          selectedSet,
+        );
+      }
+
+      newShapes = refreshBindingsForConnectorIds(newShapes, ids);
+      newShapes = applyConnectorBindings(newShapes);
+
+      state.setShapes(newShapes);
+      break;
+    }
+
+    default:
+      break;
+  }
 }

@@ -8,7 +8,8 @@ const features = [
   {
     icon: Layers,
     title: "Structural Canvas",
-    description: "Built for architecture. Not just drawing, but organizing complex systems logically.",
+    description:
+      "Built for architecture. Not just drawing, but organizing complex systems logically.",
     color: "text-blue-600 dark:text-blue-400",
     bg: "bg-blue-50 dark:bg-blue-900/20",
     border: "border-blue-200 dark:border-blue-900/50",
@@ -16,7 +17,8 @@ const features = [
   {
     icon: Users,
     title: "Multiplayer Engine",
-    description: "Low-latency WebSockets ensure everyone's cursor and edits are synced sub-50ms.",
+    description:
+      "Low-latency WebSockets ensure everyone's cursor and edits are synced sub-50ms.",
     color: "text-indigo-600 dark:text-indigo-400",
     bg: "bg-indigo-50 dark:bg-indigo-900/20",
     border: "border-indigo-200 dark:border-indigo-900/50",
@@ -24,7 +26,8 @@ const features = [
   {
     icon: Cpu,
     title: "AI Co-pilot",
-    description: "Generate entire diagrams from structural prompts. Turn ideas into raw geometry.",
+    description:
+      "Generate entire diagrams from structural prompts. Turn ideas into raw geometry.",
     color: "text-emerald-600 dark:text-emerald-400",
     bg: "bg-emerald-50 dark:bg-emerald-900/20",
     border: "border-emerald-200 dark:border-emerald-900/50",
@@ -32,7 +35,8 @@ const features = [
   {
     icon: Zap,
     title: "Instant Persistence",
-    description: "Durable queue-based persistence. Never lose a stroke, even on network drop.",
+    description:
+      "Durable queue-based persistence. Never lose a stroke, even on network drop.",
     color: "text-amber-600 dark:text-amber-400",
     bg: "bg-amber-50 dark:bg-amber-900/20",
     border: "border-amber-200 dark:border-amber-900/50",
@@ -40,7 +44,8 @@ const features = [
   {
     icon: Lock,
     title: "Enterprise Auth",
-    description: "Strict room permissions. Invite-only access with role-based visibility controls.",
+    description:
+      "Strict room permissions. Invite-only access with role-based visibility controls.",
     color: "text-rose-600 dark:text-rose-400",
     bg: "bg-rose-50 dark:bg-rose-900/20",
     border: "border-rose-200 dark:border-rose-900/50",
@@ -48,7 +53,8 @@ const features = [
   {
     icon: Share2,
     title: "Vector Export",
-    description: "Export perfect SVGs and PDFs for documentation. No pixelated artifacts.",
+    description:
+      "Export perfect SVGs and PDFs for documentation. No pixelated artifacts.",
     color: "text-purple-600 dark:text-purple-400",
     bg: "bg-purple-50 dark:bg-purple-900/20",
     border: "border-purple-200 dark:border-purple-900/50",
@@ -60,7 +66,11 @@ export function FeaturesSection() {
   const isInView = useInView(ref, { once: true, amount: 0.1 });
 
   return (
-    <section id="features" ref={ref} className="py-24 px-6 relative bg-slate-50/50 dark:bg-[#0a0f1a]">
+    <section
+      id="features"
+      ref={ref}
+      className="py-24 px-6 relative bg-slate-50/50 dark:bg-[#0a0f1a]"
+    >
       <div className="max-w-6xl mx-auto">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -70,10 +80,11 @@ export function FeaturesSection() {
         >
           <div className="max-w-2xl">
             <h2 className="text-4xl md:text-5xl font-black text-slate-900 dark:text-white mb-6 tracking-tight">
-              Tools that don't get in the way.
+              Tools that don&apos;t get in the way.
             </h2>
             <p className="text-lg font-medium text-slate-600 dark:text-slate-400">
-              We stripped away the clutter. What's left is a fast, reliable engine for visual thought.
+              We stripped away the clutter. What&apos;s left is a fast, reliable
+              engine for visual thought.
             </p>
           </div>
         </motion.div>
@@ -98,7 +109,7 @@ function FeatureCard({
   index,
   isInView,
 }: {
-  feature: typeof features[0];
+  feature: (typeof features)[0];
   index: number;
   isInView: boolean;
 }) {
@@ -113,7 +124,9 @@ function FeatureCard({
       className="group"
     >
       <div className="h-full bg-white dark:bg-[#101726] border border-slate-200 dark:border-slate-800 rounded-xl p-8 transition-shadow hover:shadow-xl hover:shadow-slate-200/50 dark:hover:shadow-black/50">
-        <div className={`inline-flex p-3 rounded-lg border ${feature.bg} ${feature.border} mb-6 transition-transform group-hover:scale-110`}>
+        <div
+          className={`inline-flex p-3 rounded-lg border ${feature.bg} ${feature.border} mb-6 transition-transform group-hover:scale-110`}
+        >
           <Icon className={`w-6 h-6 ${feature.color}`} />
         </div>
 

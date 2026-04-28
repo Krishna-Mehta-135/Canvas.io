@@ -1,12 +1,12 @@
 /**
  * WebSocket Protocol
- * 
+ *
  * Defines all message types exchanged between client and WS server.
  * Version tracking prevents overwrite collisions and enables explicit resync.
  */
 
 import type { Shape } from "@repo/canvas-engine";
-import {z} from "zod";
+import { z } from "zod";
 
 const CanvasShapeSchema = z
   .object({
@@ -198,7 +198,13 @@ export type ServerMessage =
 // Client -> Server commands
 export type ClientMessage = Extract<
   WsMessage,
-  { type: "join_room" | "canvas_snapshot" | "update_presence" | "send_chat_message" }
+  {
+    type:
+      | "join_room"
+      | "canvas_snapshot"
+      | "update_presence"
+      | "send_chat_message";
+  }
 >;
 
 export const PresenceCursorSchema = z.object({

@@ -1,12 +1,12 @@
-import { Navbar } from './components/landing/Navbar';
-import { HeroSection } from './components/landing/HeroSection';
-import { InteractiveDemoSection } from './components/landing/InteractiveDemoSection';
-import { FeaturesSection } from './components/landing/FeaturesSection';
-import { ToolbarShowcase } from './components/landing/ToolbarShowcase';
-import { AIHighlightSection } from './components/landing/AIHighlightSection';
-import { HowItWorksSection } from './components/landing/HowItWorksSection';
-import { FinalCTASection } from './components/landing/FinalCTASection';
-import { Footer } from './components/landing/Footer';
+import { Navbar } from "./components/landing/Navbar";
+import { HeroSection } from "./components/landing/HeroSection";
+import { InteractiveDemoSection } from "./components/landing/InteractiveDemoSection";
+import { FeaturesSection } from "./components/landing/FeaturesSection";
+import { ToolbarShowcase } from "./components/landing/ToolbarShowcase";
+import { AIHighlightSection } from "./components/landing/AIHighlightSection";
+import { HowItWorksSection } from "./components/landing/HowItWorksSection";
+import { FinalCTASection } from "./components/landing/FinalCTASection";
+import { Footer } from "./components/landing/Footer";
 
 export default function LandingPage() {
   return (
@@ -23,4 +23,3 @@ export default function LandingPage() {
     </div>
   );
 }
-

@@ -11,7 +11,11 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-export function LandingThemeProvider({ children }: { children: React.ReactNode }) {
+export function LandingThemeProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [theme, setTheme] = useState<Theme>("dark");
 
   useEffect(() => {

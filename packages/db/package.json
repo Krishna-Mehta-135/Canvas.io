@@ -10,7 +10,8 @@
   "scripts": {
     "db:generate": "npx prisma generate",
     "db:push": "npx prisma db push",
-    "db:migrate": "npx prisma migrate dev"
+    "db:migrate": "npx prisma migrate dev",
+    "check-types": "tsc --noEmit"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.4.0",

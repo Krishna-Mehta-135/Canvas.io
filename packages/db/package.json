@@ -8,6 +8,7 @@
     "./client": "./src/index.ts"
   },
   "scripts": {
+    "postinstall": "npm run db:generate",
     "db:generate": "npx prisma generate",
     "db:push": "npx prisma db push",
     "db:migrate": "npx prisma migrate dev",
@@ -21,9 +22,10 @@
     "dotenv": "^17.2.4"
   },
   "devDependencies": {
-    "@repo/typescript-config": "workspace:*",
     "@repo/eslint-config": "workspace: *",
+    "@repo/typescript-config": "workspace:*",
     "@types/node": "^22.15.3",
+    "eslint": "^9.39.1",
     "prisma": "^7.6.0"
   }
 }

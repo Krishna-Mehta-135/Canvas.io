@@ -7,7 +7,8 @@ export default defineConfig({
     globals: true,
     exclude: [
       "**/node_modules/**",
-      "**/dist/**"
+      "**/dist/**",
+      "**/coverage/**"
     ],
     alias: {
       "@repo/db/client": path.resolve(

@@ -5,8 +5,11 @@
     "build": "turbo run build",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
+    "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "check-types": "turbo run check-types",
+    "ci": "pnpm run lint && pnpm run check-types && pnpm run test",
     "db:up": "cd packages/db && docker-compose up -d",
     "db:down": "cd packages/db && docker-compose down",
     "db:logs": "cd packages/db && docker-compose logs -f"

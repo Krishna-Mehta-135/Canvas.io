@@ -11,7 +11,7 @@
     "./ws-protocol": "./src/ws-protocol.ts"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "echo 'No tests configured for common package'",
     "check-types": "tsc --noEmit"
   },
   "devDependencies": {

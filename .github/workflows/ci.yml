@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Generate Prisma Client
+        run: pnpm --filter @repo/db db:generate
+
       - name: Run linter
         run: pnpm run lint --no-cache
 
@@ -54,6 +57,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
+
+      - name: Generate Prisma Client
+        run: pnpm --filter @repo/db db:generate
 
       - name: Type check
         run: pnpm run check-types --no-cache
@@ -78,6 +84,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install
 
+      - name: Generate Prisma Client
+        run: pnpm --filter @repo/db db:generate
+
       - name: Run tests
         run: pnpm run test --no-cache
 
@@ -101,6 +110,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
+
+      - name: Generate Prisma Client
+        run: pnpm --filter @repo/db db:generate
 
       - name: Build
         run: pnpm run build --no-cache

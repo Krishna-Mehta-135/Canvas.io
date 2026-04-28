@@ -311,9 +311,10 @@ describe("Auth Controller", () => {
 
       await refreshAccessToken(req as Request, res as Response, next);
 
-      expect(next).toHaveBeenCalledWith(expect.any(ApiError));
-      const error = vi.mocked(next).mock.calls[0]?.[0] as unknown as ApiError;
-      expect(error.message).toBe("Token has been revoked");
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: false, message: "Token has been revoked" }),
+      );
     });
   });
 
@@ -368,7 +369,10 @@ describe("Auth Controller", () => {
 
       await resetPassword(req as Request, res as Response, next);
 
-      expect(next).toHaveBeenCalledWith(expect.any(ApiError));
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ success: false, message: "Invalid or expired reset token" }),
+      );
     });
   });
 });

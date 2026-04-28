@@ -5,6 +5,10 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: true,
+    exclude: [
+      "**/node_modules/**",
+      "**/dist/**"
+    ],
     alias: {
       "@repo/db/client": path.resolve(
         __dirname,

@@ -341,9 +341,10 @@ describe("Room Controller - replaceShapes", () => {
 
     await replaceShapes(req as Request, res as Response, next);
 
-    expect(next).toHaveBeenCalledWith(expect.any(ApiError));
-    const apiError = vi.mocked(next).mock.calls[0]?.[0] as unknown as ApiError;
-    expect(apiError.statusCode).toBe(503);
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ success: false }),
+    );
   });
 });
 

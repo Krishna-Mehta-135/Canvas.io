@@ -66,6 +66,11 @@
       "outputs": ["coverage/**"],
       "passThroughEnv": ["CI"]
     },
+    "test:coverage": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"],
+      "passThroughEnv": ["CI"]
+    },
     "dev": {
       "cache": false,
       "persistent": true

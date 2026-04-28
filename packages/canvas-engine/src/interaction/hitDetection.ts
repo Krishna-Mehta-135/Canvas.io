@@ -191,7 +191,7 @@ export function getShapesAtPoint(
     if (!shape) continue;
 
     const fn = hitMap[shape.type];
-    if (fn(shape as any, x, y, ctx)) {
+    if (fn(shape as never, x, y, ctx)) {
       hits.push(shape);
     }
   }

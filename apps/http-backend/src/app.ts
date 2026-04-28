@@ -6,7 +6,7 @@ import { errorHandler } from "./middlewares/error.middleware";
 import { roomRouter } from "./routes/room.routes";
 import { rateLimitMiddleware } from "./middlewares/rate-limit.middleware";
 import { receiveAiResult } from "./controllers/room.controller";
-import { INTERNAL_SECRET } from "@repo/backend-common/config";
+
 
 const app: Express = express();
 

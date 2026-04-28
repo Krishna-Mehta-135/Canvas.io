@@ -17,7 +17,6 @@ Rendering model:
 */
 
 import { Shape } from "./types";
-import { getWrappedTextLines } from "./textLayout";
 import { getTextRenderMetrics } from "./textMetrics";
 import { Viewport, worldToScreenPoint } from "./utils";
 import rough from "roughjs/bin/rough";
@@ -654,7 +653,6 @@ function drawArrow(
 function drawText(
   ctx: CanvasRenderingContext2D,
   shape: Extract<Shape, { type: "text" }>,
-  _viewportScale: number,
 ) {
   ctx.save();
   ctx.globalAlpha = getShapeOpacity(shape);
@@ -1138,7 +1136,7 @@ export function render(
     if (!drawFn) return;
 
     // Each shape type has a specific draw function that handles its structure
-    drawFn(ctx, shape as any, viewport.scale);
+    drawFn(ctx, shape as never, viewport.scale);
   });
 
   ctx.restore();

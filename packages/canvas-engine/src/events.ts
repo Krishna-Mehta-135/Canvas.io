@@ -18,7 +18,7 @@
 // File intent: route pointer interactions through a cached renderer without freezing linked text children.
 
 import { render } from "./renderer";
-import { Handle, PreviewShape, Shape } from "./types";
+import { Handle, Shape } from "./types";
 import { Viewport, getMousePos, screenToWorldPoint } from "./utils";
 import { CanvasState } from "./state";
 import { getShapeAtPoint, getShapesAtPoint } from "./interaction/hitDetection";
@@ -287,7 +287,6 @@ export function attachEvents(
   let isDrawing = false;
   let startX = 0;
   let startY = 0;
-  let previewShape: PreviewShape | null = null;
   let pendingShapeId: string | null = null;
   let isDragging = false;
 
@@ -382,7 +381,6 @@ export function attachEvents(
     resizeSession = null;
     eraserPoints = [];
     erasedShapeIds = new Set();
-    previewShape = null;
     activeTool = null;
     connectorTargetHighlightIds = [];
     freehandPoints = [];
@@ -1075,8 +1073,7 @@ export function attachEvents(
 
     if (!isDrawing || !activeTool || !isDrawableTool(activeTool)) return;
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    previewShape = renderDrawPreview({
+    renderDrawPreview({
       state,
       activeTool,
       startX,
@@ -1190,7 +1187,6 @@ export function attachEvents(
 
     isDrawing = false;
     activeTool = null;
-    previewShape = null;
     pendingShapeId = null;
     connectorTargetHighlightIds = [];
   };

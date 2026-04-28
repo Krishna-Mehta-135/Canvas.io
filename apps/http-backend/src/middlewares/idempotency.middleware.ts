@@ -248,6 +248,8 @@ export const idempotencyMiddleware: RequestHandler = async (req, res, next) => {
     resolvePending = resolve;
     rejectPending = reject;
   });
+  // Prevent unhandled promise rejections if no other request awaits this
+  pendingPromise.catch(() => {});
 
   idempotencyStore.set(storeKey, {
     pending: {

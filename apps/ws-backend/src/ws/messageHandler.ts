@@ -594,8 +594,9 @@ export async function handleSocketMessage(
           },
         },
       });
-    } catch (error: any) {
-      if (error?.code === "P2021" || error?.code === "P2022") {
+    } catch (error: unknown) {
+      const e = error as { code?: string };
+      if (e?.code === "P2021" || e?.code === "P2022") {
         ws.send(
           JSON.stringify({
             type: "sync_error",

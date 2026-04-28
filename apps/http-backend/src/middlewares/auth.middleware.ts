@@ -2,12 +2,9 @@ import { NextFunction, Request, Response } from "express";
 import { ApiError } from "../utils/ApiError";
 import { verifyToken } from "../utils/token";
 
-// eslint-disable-next-line @typescript-eslint/no-namespace
-declare global {
-  namespace Express {
-    interface Request {
-      userId?: string;
-    }
+declare module "express" {
+  interface Request {
+    userId?: string;
   }
 }
 

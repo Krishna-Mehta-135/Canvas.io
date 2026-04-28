@@ -70,7 +70,7 @@ type CircuitBreakerState = "closed" | "open" | "half-open";
 // This keeps the implementation simple and avoids cross-process chatter,
 // while still protecting each service instance from cascading DB failures.
 let circuitBreakerState: CircuitBreakerState = "closed";
-let circuitOpenedAtMs = 0;
+
 let circuitOpenUntilMs = 0;
 let halfOpenSuccessCount = 0;
 let halfOpenInFlight = false;
@@ -129,7 +129,6 @@ function pruneFailureWindow(nowMs: number) {
 function openCircuit(nowMs: number) {
   // Open means all requests fail fast until the cool-down period expires.
   circuitBreakerState = "open";
-  circuitOpenedAtMs = nowMs;
   circuitOpenUntilMs = nowMs + CIRCUIT_BREAKER_OPEN_MS;
   halfOpenSuccessCount = 0;
   halfOpenInFlight = false;
@@ -148,7 +147,7 @@ function openCircuit(nowMs: number) {
 function closeCircuit() {
   // Closed means normal traffic: calls are allowed and counters reset.
   circuitBreakerState = "closed";
-  circuitOpenedAtMs = 0;
+
   circuitOpenUntilMs = 0;
   halfOpenSuccessCount = 0;
   halfOpenInFlight = false;
@@ -231,7 +230,7 @@ function onCircuitSuccess(wasHalfOpenRequest: boolean) {
  * Only transient failures influence circuit transitions. Hard/terminal errors
  * (for example bad queries or validation mistakes) should not open the breaker.
  */
-function onCircuitFailure(error: any, wasHalfOpenRequest: boolean) {
+function onCircuitFailure(error: unknown, wasHalfOpenRequest: boolean) {
   if (!CIRCUIT_BREAKER_ENABLED) {
     return;
   }
@@ -271,8 +270,9 @@ function onCircuitFailure(error: any, wasHalfOpenRequest: boolean) {
  * - known PostgreSQL transient/restart/overload classes
  * - common transient network error strings
  */
-function isRetryableDbError(error: any) {
-  const code = typeof error?.code === "string" ? error.code : undefined;
+function isRetryableDbError(error: unknown) {
+  const err = error as { code?: unknown; message?: unknown; cause?: { code?: unknown } };
+  const code = typeof err?.code === "string" ? err.code : undefined;
   if (
     code &&
     (RETRYABLE_PRISMA_CODES.has(code) || RETRYABLE_PG_CODES.has(code))
@@ -280,7 +280,7 @@ function isRetryableDbError(error: any) {
     return true;
   }
 
-  const message = typeof error?.message === "string" ? error.message : "";
+  const message = typeof err?.message === "string" ? err.message : "";
   if (
     /ECONNRESET|EPIPE|ETIMEDOUT|Connection terminated|timeout/i.test(message)
   ) {
@@ -288,7 +288,7 @@ function isRetryableDbError(error: any) {
   }
 
   const causeCode =
-    typeof error?.cause?.code === "string" ? error.cause.code : undefined;
+    typeof err?.cause?.code === "string" ? err.cause.code : undefined;
   return Boolean(causeCode && RETRYABLE_PG_CODES.has(causeCode));
 }
 
@@ -306,18 +306,19 @@ async function runWithDbRetry<T>(
 ): Promise<T> {
   try {
     return await operation();
-  } catch (error: any) {
+  } catch (error: unknown) {
     // Retry only transient errors, and only up to a strict max attempt count.
     if (attempt >= DEFAULT_RETRY_ATTEMPTS || !isRetryableDbError(error)) {
       throw error;
     }
 
     const backoffMs = DEFAULT_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+    const err = error as { code?: unknown; message?: unknown };
     console.warn("[db-retry] transient database error, retrying", {
       attempt,
       maxAttempts: DEFAULT_RETRY_ATTEMPTS,
-      code: error?.code,
-      message: error?.message,
+      code: err?.code,
+      message: err?.message,
     });
 
     await sleep(backoffMs);
@@ -349,13 +350,13 @@ async function runWithDbProtection<T>(operation: () => Promise<T>): Promise<T> {
 
 // Cache nested proxies so repeated property access does not allocate new Proxy
 // instances for the same Prisma sub-object.
-const proxyCache = new WeakMap<object, any>();
+const proxyCache = new WeakMap<object, unknown>();
 
 /**
  * Recursively wraps Prisma objects/functions so all DB operations pass through
  * the same resilience layer without changing caller code.
  */
-function wrapPrismaValue(value: any): any {
+function wrapPrismaValue(value: unknown): unknown {
   if (typeof value !== "object" || value === null) {
     return value;
   }
@@ -371,7 +372,7 @@ function wrapPrismaValue(value: any): any {
 
       if (typeof propertyValue === "function") {
         // Every Prisma call path funnels through retry + circuit-breaker guards.
-        return (...args: any[]) =>
+        return (...args: unknown[]) =>
           runWithDbProtection(() => propertyValue.apply(target, args));
       }
 
@@ -384,3 +385,4 @@ function wrapPrismaValue(value: any): any {
 }
 
 export const prismaClient = wrapPrismaValue(rawPrismaClient) as PrismaClient;
+;

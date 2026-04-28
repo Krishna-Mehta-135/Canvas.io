@@ -109,7 +109,6 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
     initialPinchZoom = getViewport().scale;
 
     // Safari GestureEvent has clientX/clientY but weak typing
-    const ge = e as unknown as { scale?: unknown };
     gesturePointer = getMousePos(canvas, e as unknown as MouseEvent);
     setLastPointer(gesturePointer);
   };

@@ -8,7 +8,7 @@
     "./client": "./src/index.ts"
   },
   "scripts": {
-    "postinstall": "npm run db:generate",
+    "postinstall": "npx prisma generate",
     "db:generate": "npx prisma generate",
     "db:push": "npx prisma db push",
     "db:migrate": "npx prisma migrate dev",

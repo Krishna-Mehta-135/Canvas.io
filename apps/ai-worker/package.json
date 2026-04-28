@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "ts-node --esm --experimentalSpecifierResolution=node src/index.ts",
     "start": "ts-node --esm --experimentalSpecifierResolution=node src/index.ts",
+    "lint": "eslint .",
     "test": "echo 'No tests configured for ai-worker'",
     "check-types": "tsc --noEmit"
   },
@@ -21,8 +22,7 @@
     "zod": "^4.1.11"
   },
   "devDependencies": {
-    "@repo/typescript-config": "workspace:*",
-    "@types/node": "^22.15.3",
+    "@repo/typescript-config": "workspace:*",    "@repo/eslint-config": "workspace: *",    "@types/node": "^22.15.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3"
   }

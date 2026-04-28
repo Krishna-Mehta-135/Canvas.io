@@ -20,10 +20,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // Sync from localStorage once mounted (after the init script has run)
   useEffect(() => {
     const stored = localStorage.getItem("canvas-theme") as Theme | null;
-    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    const resolved: Theme = stored === "dark" || stored === "light"
-      ? stored
-      : prefersDark ? "dark" : "light";
+    const prefersDark = window.matchMedia(
+      "(prefers-color-scheme: dark)",
+    ).matches;
+    const resolved: Theme =
+      stored === "dark" || stored === "light"
+        ? stored
+        : prefersDark
+          ? "dark"
+          : "light";
     setThemeState(resolved);
   }, []);
 
@@ -42,7 +47,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [theme]);
 
   const setTheme = (t: Theme) => setThemeState(t);
-  const toggleTheme = () => setThemeState((prev) => (prev === "dark" ? "light" : "dark"));
+  const toggleTheme = () =>
+    setThemeState((prev) => (prev === "dark" ? "light" : "dark"));
 
   return (
     <ThemeContext.Provider value={{ theme, toggleTheme, setTheme }}>

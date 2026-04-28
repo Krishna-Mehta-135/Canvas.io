@@ -9,40 +9,49 @@ import { ApiError } from "../utils/ApiError";
 /**
  * Adds HTTP backoff hints for shared DB circuit-breaker failures.
  */
-function applyCircuitBreakerHeaders(res: Response, err: any) {
-    if (err?.code !== "DB_CIRCUIT_OPEN") {
-        return;
-    }
+function applyCircuitBreakerHeaders(res: Response, err: unknown) {
+  const e = err as { code?: string; retryAfterMs?: number } | undefined;
+  if (e?.code !== "DB_CIRCUIT_OPEN") {
+    return;
+  }
 
-    const retryAfterMs = Number(err?.retryAfterMs ?? 0);
-    if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
-        res.setHeader("Retry-After", String(Math.max(1, Math.ceil(retryAfterMs / 1000))));
-    }
+  const retryAfterMs = Number(e?.retryAfterMs ?? 0);
+  if (Number.isFinite(retryAfterMs) && retryAfterMs > 0) {
+    res.setHeader(
+      "Retry-After",
+      String(Math.max(1, Math.ceil(retryAfterMs / 1000))),
+    );
+  }
 }
 
 export const errorHandler = (
-    err: any,
-    req: Request,
-    res: Response,
-    next: NextFunction
+  err: unknown,
+  req: Request,
+  res: Response,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _next: NextFunction,
 ) => {
-    // Apply DB circuit header regardless of whether error is ApiError or unknown.
-    applyCircuitBreakerHeaders(res, err);
+  // Apply DB circuit header regardless of whether error is ApiError or unknown.
+  applyCircuitBreakerHeaders(res, err);
 
-    if(err instanceof ApiError){
-        // Known app/domain errors keep their explicit status and payload.
-        return res.status(err.statusCode).json({
-            success: false,
-            message: err.message,
-            errors: err.errors
-        })
-    }
-
-    // Unknown errors are logged and normalized to 500.
-    console.error("Unhandled API error:", err);
-
-    return res.status(500).json({
-    success: false,
-    message: process.env.NODE_ENV === "development" ? err?.message || "Internal Server Error" : "Internal Server Error"
+  if (err instanceof ApiError) {
+    // Known app/domain errors keep their explicit status and payload.
+    return res.status(err.statusCode).json({
+      success: false,
+      message: err.message,
+      errors: err.errors,
     });
-}
+  }
+
+  // Unknown errors are logged and normalized to 500.
+  console.error("Unhandled API error:", err);
+
+  const errorMsg = err as { message?: string } | undefined;
+  return res.status(500).json({
+    success: false,
+    message:
+      process.env.NODE_ENV === "development"
+        ? (errorMsg?.message ?? "Internal Server Error")
+        : "Internal Server Error",
+  });
+};

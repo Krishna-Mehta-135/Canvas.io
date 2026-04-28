@@ -32,13 +32,13 @@ import { HTTP_BACKEND } from "../config";
 
 const WS_SYNC_DEBUG = process.env.NEXT_PUBLIC_WS_SYNC_DEBUG === "true";
 const SNAPSHOT_MIN_SEND_INTERVAL_MS = Number(
-  process.env.NEXT_PUBLIC_WS_SNAPSHOT_MIN_SEND_INTERVAL_MS ?? 16
+  process.env.NEXT_PUBLIC_WS_SNAPSHOT_MIN_SEND_INTERVAL_MS ?? 16,
 );
 const WS_MAX_IN_FLIGHT_SNAPSHOTS = Number(
-  process.env.NEXT_PUBLIC_WS_MAX_IN_FLIGHT_SNAPSHOTS ?? 3
+  process.env.NEXT_PUBLIC_WS_MAX_IN_FLIGHT_SNAPSHOTS ?? 3,
 );
 const REMOTE_HYDRATE_IDLE_GRACE_MS = Number(
-  process.env.NEXT_PUBLIC_WS_REMOTE_HYDRATE_IDLE_GRACE_MS ?? 6
+  process.env.NEXT_PUBLIC_WS_REMOTE_HYDRATE_IDLE_GRACE_MS ?? 6,
 );
 
 /**
@@ -86,7 +86,10 @@ function areStringArraysEqual(left: string[], right: string[]) {
   return true;
 }
 
-function arePresenceStatesEqual(left: RoomPresenceState, right: RoomPresenceState) {
+function arePresenceStatesEqual(
+  left: RoomPresenceState,
+  right: RoomPresenceState,
+) {
   if (left === right) return true;
   if (left.roomId !== right.roomId) return false;
   if (left.connectedUsersCount !== right.connectedUsersCount) return false;
@@ -100,13 +103,17 @@ function arePresenceStatesEqual(left: RoomPresenceState, right: RoomPresenceStat
     if (leftPresence.userId !== rightPresence.userId) return false;
     if (leftPresence.userName !== rightPresence.userName) return false;
     if (leftPresence.tool !== rightPresence.tool) return false;
-    if (!areStringArraysEqual(leftPresence.selectedIds, rightPresence.selectedIds)) return false;
+    if (
+      !areStringArraysEqual(leftPresence.selectedIds, rightPresence.selectedIds)
+    )
+      return false;
 
     const leftCursor = leftPresence.cursor;
     const rightCursor = rightPresence.cursor;
     if (leftCursor === rightCursor) continue;
     if (!leftCursor || !rightCursor) return false;
-    if (leftCursor.x !== rightCursor.x || leftCursor.y !== rightCursor.y) return false;
+    if (leftCursor.x !== rightCursor.x || leftCursor.y !== rightCursor.y)
+      return false;
   }
 
   return true;
@@ -130,16 +137,24 @@ export function useCanvasSync({
     presences: [],
   });
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
-  const [websocketLatencyMs, setWebsocketLatencyMs] = useState<number | null>(null);
+  const [websocketLatencyMs, setWebsocketLatencyMs] = useState<number | null>(
+    null,
+  );
   const [inFlightSnapshotCount, setInFlightSnapshotCount] = useState(0);
   const [eventTimeline, setEventTimeline] = useState<SyncTimelineEntry[]>([]);
-  const [realtimeChatMessages, setRealtimeChatMessages] = useState<PersistedChatMessage[]>([]);
+  const [realtimeChatMessages, setRealtimeChatMessages] = useState<
+    PersistedChatMessage[]
+  >([]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const isConnectedRef = useRef(false);
   const isApplyingRemoteRef = useRef(false);
   const hasJoinedRoomRef = useRef(false);
-  const syncStateRef = useRef<RoomSyncState>({ roomId, version: 0, shapes: [] });
+  const syncStateRef = useRef<RoomSyncState>({
+    roomId,
+    version: 0,
+    shapes: [],
+  });
   const pendingSyncRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingSyncRafRef = useRef<number | null>(null);
   const pendingPresenceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -150,7 +165,9 @@ export function useCanvasSync({
   const optimisticSnapshotVersionRef = useRef(0);
   const lastLocalEditAtRef = useRef(0);
   const pendingRemoteSnapshotRef = useRef<PendingRemoteSnapshot | null>(null);
-  const pendingRemoteHydrateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRemoteHydrateTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const remoteHydrateRafRef = useRef<number | null>(null);
 
   /**
@@ -164,19 +181,27 @@ export function useCanvasSync({
   // Drag-burst detection.
   const lastBurstSnapshotAtRef = useRef(0);
   const isDragBurstActiveRef = useRef(false);
-  const dragBurstCooldownTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragBurstCooldownTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const localSelectionIdsRef = useRef<string[]>(localSelectionIds);
   const localToolRef = useRef<Tool>(localTool);
 
   // Rate-limit backoff state.
   const rateLimitBackoffUntilRef = useRef(0);
-  const rateLimitBackoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rateLimitBackoffTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   const getEffectiveMinInterval = () =>
-    isDragBurstActiveRef.current ? DRAG_BURST_MIN_INTERVAL_MS : SNAPSHOT_MIN_SEND_INTERVAL_MS;
+    isDragBurstActiveRef.current
+      ? DRAG_BURST_MIN_INTERVAL_MS
+      : SNAPSHOT_MIN_SEND_INTERVAL_MS;
 
   const getEffectiveMaxInFlight = () =>
-    isDragBurstActiveRef.current ? DRAG_BURST_MAX_IN_FLIGHT : WS_MAX_IN_FLIGHT_SNAPSHOTS;
+    isDragBurstActiveRef.current
+      ? DRAG_BURST_MAX_IN_FLIGHT
+      : WS_MAX_IN_FLIGHT_SNAPSHOTS;
 
   useEffect(() => {
     localSelectionIdsRef.current = localSelectionIds;
@@ -199,15 +224,18 @@ export function useCanvasSync({
     setEventTimeline((previous) => [...previous.slice(-59), nextEvent]);
   }, []);
 
-  const appendRealtimeChatMessage = useCallback((message: PersistedChatMessage) => {
-    setRealtimeChatMessages((previous) => {
-      if (previous.some((existing) => existing.id === message.id)) {
-        return previous;
-      }
+  const appendRealtimeChatMessage = useCallback(
+    (message: PersistedChatMessage) => {
+      setRealtimeChatMessages((previous) => {
+        if (previous.some((existing) => existing.id === message.id)) {
+          return previous;
+        }
 
-      return [...previous, message].slice(-240);
-    });
-  }, []);
+        return [...previous, message].slice(-240);
+      });
+    },
+    [],
+  );
 
   const sendWsMessage = useCallback((message: ClientMessage) => {
     if (
@@ -224,7 +252,8 @@ export function useCanvasSync({
   }, []);
 
   const syncInFlightCounter = useCallback(() => {
-    const count = inFlightSnapshotCountRef.current + (queuedSnapshotRef.current ? 1 : 0);
+    const count =
+      inFlightSnapshotCountRef.current + (queuedSnapshotRef.current ? 1 : 0);
     setInFlightSnapshotCount(count);
   }, []);
 
@@ -261,7 +290,10 @@ export function useCanvasSync({
 
       const sinceLastLocalEditMs = Date.now() - lastLocalEditAtRef.current;
       if (sinceLastLocalEditMs < REMOTE_HYDRATE_IDLE_GRACE_MS) {
-        const waitMs = Math.max(1, REMOTE_HYDRATE_IDLE_GRACE_MS - sinceLastLocalEditMs);
+        const waitMs = Math.max(
+          1,
+          REMOTE_HYDRATE_IDLE_GRACE_MS - sinceLastLocalEditMs,
+        );
         pendingRemoteHydrateTimerRef.current = setTimeout(() => {
           scheduleRemoteHydrate();
         }, waitMs);
@@ -285,7 +317,7 @@ export function useCanvasSync({
 
       appendTimelineEvent(
         "snapshot_broadcast",
-        `v${pending.version}${pending.senderId ? ` from ${pending.senderId}` : ""}`
+        `v${pending.version}${pending.senderId ? ` from ${pending.senderId}` : ""}`,
       );
     };
 
@@ -304,7 +336,8 @@ export function useCanvasSync({
     typeof window !== "undefined"
       ? (() => {
           const backendHttpUrl = new URL(HTTP_BACKEND);
-          const wsProtocol = backendHttpUrl.protocol === "https:" ? "wss:" : "ws:";
+          const wsProtocol =
+            backendHttpUrl.protocol === "https:" ? "wss:" : "ws:";
           return `${wsProtocol}//${backendHttpUrl.hostname}:8080`;
         })()
       : "ws://localhost:8080";
@@ -321,7 +354,10 @@ export function useCanvasSync({
     }
 
     // Respect rate-limit backoff window.
-    if (rateLimitBackoffUntilRef.current > 0 && Date.now() < rateLimitBackoffUntilRef.current) {
+    if (
+      rateLimitBackoffUntilRef.current > 0 &&
+      Date.now() < rateLimitBackoffUntilRef.current
+    ) {
       return;
     }
 
@@ -344,7 +380,10 @@ export function useCanvasSync({
     inFlightSnapshotCountRef.current += 1;
     snapshotSentAtRef.current = Date.now();
     lastSnapshotSentAtRef.current = snapshotSentAtRef.current;
-    appendTimelineEvent("snapshot_send", `v${messageVersion} (${queuedShapes.length} shapes)`);
+    appendTimelineEvent(
+      "snapshot_send",
+      `v${messageVersion} (${queuedShapes.length} shapes)`,
+    );
     syncInFlightCounter();
 
     const message: WsMessage = {
@@ -358,7 +397,8 @@ export function useCanvasSync({
   }, [appendTimelineEvent, roomId, syncInFlightCounter]);
 
   const scheduleSnapshotFlush = useCallback(() => {
-    if (pendingSyncRafRef.current !== null || typeof window === "undefined") return;
+    if (pendingSyncRafRef.current !== null || typeof window === "undefined")
+      return;
 
     const tick = () => {
       pendingSyncRafRef.current = null;
@@ -404,7 +444,8 @@ export function useCanvasSync({
 
       // Flush immediately if budget and interval allow.
       const rateLimitCleared =
-        rateLimitBackoffUntilRef.current === 0 || Date.now() >= rateLimitBackoffUntilRef.current;
+        rateLimitBackoffUntilRef.current === 0 ||
+        Date.now() >= rateLimitBackoffUntilRef.current;
       const canFlushNow =
         rateLimitCleared &&
         inFlightSnapshotCountRef.current < getEffectiveMaxInFlight() &&
@@ -417,7 +458,13 @@ export function useCanvasSync({
 
       scheduleSnapshotFlush();
     },
-    [cancelScheduledSnapshotFlush, flushQueuedSnapshot, scheduleSnapshotFlush, syncInFlightCounter, touchDragBurst]
+    [
+      cancelScheduledSnapshotFlush,
+      flushQueuedSnapshot,
+      scheduleSnapshotFlush,
+      syncInFlightCounter,
+      touchDragBurst,
+    ],
   );
 
   /**
@@ -509,7 +556,12 @@ export function useCanvasSync({
 
         if (message.type === "room_joined") {
           if (WS_SYNC_DEBUG) {
-            console.log("[WS] Joined room, version:", message.version, "shapes:", message.shapes.length);
+            console.log(
+              "[WS] Joined room, version:",
+              message.version,
+              "shapes:",
+              message.shapes.length,
+            );
           }
           syncStateRef.current = {
             roomId: message.roomId,
@@ -534,7 +586,10 @@ export function useCanvasSync({
           setLastSyncError(null);
           isConnectedRef.current = true;
           setIsConnected(true);
-          appendTimelineEvent("room_joined", `v${message.version} (${message.shapes.length} shapes)`);
+          appendTimelineEvent(
+            "room_joined",
+            `v${message.version} (${message.shapes.length} shapes)`,
+          );
           syncInFlightCounter();
 
           // Update live ref first, then hydrate.
@@ -564,7 +619,12 @@ export function useCanvasSync({
           flushQueuedSnapshot();
         } else if (message.type === "canvas_snapshot_broadcast") {
           if (WS_SYNC_DEBUG) {
-            console.log("[WS] Received snapshot from", message.senderId, "version:", message.version);
+            console.log(
+              "[WS] Received snapshot from",
+              message.senderId,
+              "version:",
+              message.version,
+            );
           }
 
           // Keep the live overlay ref current as soon as the snapshot arrives.
@@ -586,15 +646,21 @@ export function useCanvasSync({
             version: message.version,
             shapes: syncStateRef.current.shapes,
           };
-          inFlightSnapshotCountRef.current = Math.max(0, inFlightSnapshotCountRef.current - 1);
+          inFlightSnapshotCountRef.current = Math.max(
+            0,
+            inFlightSnapshotCountRef.current - 1,
+          );
           optimisticSnapshotVersionRef.current = Math.max(
             optimisticSnapshotVersionRef.current,
-            message.version + 1
+            message.version + 1,
           );
           if (snapshotSentAtRef.current !== null) {
             const latency = Math.max(0, Date.now() - snapshotSentAtRef.current);
             setWebsocketLatencyMs(latency);
-            appendTimelineEvent("snapshot_ack", `v${message.version} (${latency}ms)`);
+            appendTimelineEvent(
+              "snapshot_ack",
+              `v${message.version} (${latency}ms)`,
+            );
             snapshotSentAtRef.current = null;
           } else {
             appendTimelineEvent("snapshot_ack", `v${message.version}`);
@@ -625,7 +691,8 @@ export function useCanvasSync({
             reasonLower.includes("version mismatch") ||
             reasonLower.includes("rate limit") ||
             (!hasJoinedRoomRef.current &&
-              (reasonLower.includes("forbidden") || reasonLower.includes("not active")));
+              (reasonLower.includes("forbidden") ||
+                reasonLower.includes("not active")));
 
           if (!isTransientSyncError) {
             setLastSyncError(message.reason);
@@ -659,9 +726,13 @@ export function useCanvasSync({
           // Rate limit: exponential backoff before retrying.
           if (reasonLower.includes("rate limit")) {
             const alreadyWaiting =
-              rateLimitBackoffUntilRef.current > 0 && Date.now() < rateLimitBackoffUntilRef.current;
+              rateLimitBackoffUntilRef.current > 0 &&
+              Date.now() < rateLimitBackoffUntilRef.current;
             const nextBackoffMs = alreadyWaiting
-              ? Math.min((rateLimitBackoffUntilRef.current - Date.now()) * 2, 4000)
+              ? Math.min(
+                  (rateLimitBackoffUntilRef.current - Date.now()) * 2,
+                  4000,
+                )
               : 250;
             rateLimitBackoffUntilRef.current = Date.now() + nextBackoffMs;
 
@@ -721,7 +792,8 @@ export function useCanvasSync({
           };
           ws.send(JSON.stringify(message));
         } catch (error) {
-          if (WS_SYNC_DEBUG) console.warn("[WS] Failed to flush snapshot during cleanup", error);
+          if (WS_SYNC_DEBUG)
+            console.warn("[WS] Failed to flush snapshot during cleanup", error);
         }
       }
 

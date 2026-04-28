@@ -1,16 +1,18 @@
 export class ApiError extends Error {
-    statusCode: number;
-    errors: any[];
-    success: boolean;
+  statusCode: number;
+  errors: unknown[];
+  success: boolean;
 
-    constructor(statusCode: number, message: string = "Something went wrong", errors: any[] = []) {
-        {
-            super(message);
-            this.statusCode = statusCode;
-            this.errors = errors;
-            this.success = false;
+  constructor(
+    statusCode: number,
+    message: string = "Something went wrong",
+    errors: unknown[] = [],
+  ) {
+    super(message);
+    this.statusCode = statusCode;
+    this.errors = errors;
+    this.success = false;
 
-            Error.captureStackTrace(this, this.constructor);
-        }
-    }
+    Error.captureStackTrace(this, this.constructor);
+  }
 }

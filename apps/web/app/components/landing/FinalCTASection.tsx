@@ -107,7 +107,11 @@ export function FinalCTASection() {
                   <motion.div
                     className="absolute inset-0 rounded-full border-2 border-white/50"
                     animate={{ scale: [1, 1.1, 1], opacity: [0.8, 0, 0.8] }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "easeOut" }}
+                    transition={{
+                      duration: 2,
+                      repeat: Infinity,
+                      ease: "easeOut",
+                    }}
                   />
                 </Link>
               </motion.div>

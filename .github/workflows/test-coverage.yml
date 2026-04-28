@@ -32,7 +32,7 @@ jobs:
         run: pnpm install
 
       - name: Generate coverage
-        run: pnpm run test:coverage
+        run: pnpm run test:coverage --no-cache
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3

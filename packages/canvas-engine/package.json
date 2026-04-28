@@ -8,6 +8,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -19,6 +20,7 @@
   "packageManager": "pnpm@10.30.1",
   "devDependencies": {
     "@repo/typescript-config": "workspace: *",
+    "@repo/eslint-config": "workspace: *",
     "@vitest/coverage-v8": "^4.1.5",
     "vitest": "^4.1.5"
   },

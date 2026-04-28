@@ -45,6 +45,9 @@ importers:
         specifier: ^4.1.11
         version: 4.3.6
     devDependencies:
+      '@repo/eslint-config':
+        specifier: 'workspace: *'
+        version: link:../../packages/eslint-config
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config
@@ -97,6 +100,9 @@ importers:
       '@repo/db':
         specifier: 'workspace: *'
         version: link:../../packages/db
+      '@repo/eslint-config':
+        specifier: 'workspace: *'
+        version: link:../../packages/eslint-config
       '@repo/queue-sync':
         specifier: 'workspace: *'
         version: link:../../packages/queue-sync
@@ -225,6 +231,9 @@ importers:
       '@repo/db':
         specifier: 'workspace: *'
         version: link:../../packages/db
+      '@repo/eslint-config':
+        specifier: 'workspace: *'
+        version: link:../../packages/eslint-config
       '@repo/queue-sync':
         specifier: 'workspace: *'
         version: link:../../packages/queue-sync
@@ -247,6 +256,9 @@ importers:
         specifier: ^17.2.4
         version: 17.2.4
     devDependencies:
+      '@repo/eslint-config':
+        specifier: 'workspace: *'
+        version: link:../eslint-config
       '@repo/typescript-config':
         specifier: 'workspace: *'
         version: link:../typescript-config
@@ -263,6 +275,9 @@ importers:
         specifier: ^4.6.6
         version: 4.6.6
     devDependencies:
+      '@repo/eslint-config':
+        specifier: 'workspace: *'
+        version: link:../eslint-config
       '@repo/typescript-config':
         specifier: 'workspace: *'
         version: link:../typescript-config
@@ -282,6 +297,9 @@ importers:
       '@repo/canvas-engine':
         specifier: 'workspace: *'
         version: link:../canvas-engine
+      '@repo/eslint-config':
+        specifier: 'workspace: *'
+        version: link:../eslint-config
       '@repo/typescript-config':
         specifier: 'workspace: *'
         version: link:../typescript-config
@@ -298,6 +316,9 @@ importers:
         specifier: ^17.2.4
         version: 17.2.4
     devDependencies:
+      '@repo/eslint-config':
+        specifier: 'workspace: *'
+        version: link:../eslint-config
       '@repo/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
@@ -362,6 +383,9 @@ importers:
         specifier: ^4.1.11
         version: 4.3.6
     devDependencies:
+      '@repo/eslint-config':
+        specifier: 'workspace: *'
+        version: link:../eslint-config
       '@repo/typescript-config':
         specifier: 'workspace: *'
         version: link:../typescript-config
@@ -387,6 +411,9 @@ importers:
         specifier: ^5.10.1
         version: 5.10.1
     devDependencies:
+      '@repo/eslint-config':
+        specifier: 'workspace: *'
+        version: link:../eslint-config
       '@repo/typescript-config':
         specifier: 'workspace: *'
         version: link:../typescript-config

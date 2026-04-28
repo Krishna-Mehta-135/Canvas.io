@@ -5,6 +5,7 @@ This document describes the continuous integration and continuous deployment (CI
 ## Overview
 
 The CI/CD pipeline runs automatically on:
+
 - **Push** to `main` or `develop` branches
 - **Pull requests** targeting `main` or `develop` branches
 
@@ -15,22 +16,26 @@ The CI/CD pipeline runs automatically on:
 The main CI workflow runs in parallel and includes:
 
 #### Lint Job
+
 - Runs ESLint and other linters across the monorepo
 - Ensures code style consistency
 - **Fails the build** if linting issues are found
 
 #### Type Check Job
+
 - Runs TypeScript type checking via `turbo run check-types`
 - Validates type safety across all packages
 - **Fails the build** if type errors are found
 
 #### Test Job
+
 - Executes all tests via `turbo run test`
 - Uses Vitest for packages with configured test suites
 - Packages without tests display a message but don't fail
 - **Fails the build** if any test fails
 
 #### Build Job
+
 - Runs after lint, type check, and test jobs pass (via `needs` dependency)
 - Builds the entire monorepo with `turbo run build`
 - Ensures the application can be successfully compiled
@@ -64,11 +69,13 @@ pnpm run build
 To add tests to a package that doesn't have them:
 
 1. Install test dependencies (usually Vitest):
+
    ```bash
    pnpm add -D vitest @vitest/coverage-v8
    ```
 
 2. Update `package.json` with test script:
+
    ```json
    {
      "scripts": {
@@ -88,11 +95,13 @@ The `turbo.json` `test` task will automatically pick up the new tests.
 ### Build fails on GitHub but passes locally
 
 Common causes:
+
 - Missing environment variables in CI
 - Different Node.js or pnpm versions
 - Caching issues
 
 Solutions:
+
 - Check workflow logs on GitHub Actions
 - Verify Node version: `node --version` (should be 18+)
 - Verify pnpm version: `pnpm --version` (should be 10.30.1)
@@ -112,11 +121,13 @@ Solutions:
 ## GitHub Actions Configuration
 
 All workflows use:
+
 - **Node.js**: 18 (LTS)
 - **pnpm**: 10.30.1
 - **OS**: ubuntu-latest
 
 To update versions, modify the environment variables in `.github/workflows/*.yml`:
+
 ```yaml
 env:
   PNPM_VERSION: 10.30.1

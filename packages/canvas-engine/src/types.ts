@@ -10,21 +10,21 @@ Contains:
 */
 
 type BaseShape = {
-    id: string;
-    stroke?: string;
-    strokeStyle?: "solid" | "dashed" | "dotted";
-    fill?: string;
-    fillStyle?: "solid" | "hachure" | "cross-hatch" | "dots";
-    strokeWidth?: number;
-    roughness?: number;
-    opacity?: number;
+  id: string;
+  stroke?: string;
+  strokeStyle?: "solid" | "dashed" | "dotted";
+  fill?: string;
+  fillStyle?: "solid" | "hachure" | "cross-hatch" | "dots";
+  strokeWidth?: number;
+  roughness?: number;
+  opacity?: number;
 };
 
 export type FreehandPoint = {
-    x: number;
-    y: number;
-    // Optional timestamp (ms) captured during drawing for faithful replay timing.
-    t?: number;
+  x: number;
+  y: number;
+  // Optional timestamp (ms) captured during drawing for faithful replay timing.
+  t?: number;
 };
 
 /**
@@ -32,9 +32,9 @@ export type FreehandPoint = {
  * relX/relY are in [0, 1] across the target's current bounding box.
  */
 type EndpointBinding = {
-    shapeId: string;
-    relX: number;
-    relY: number;
+  shapeId: string;
+  relX: number;
+  relY: number;
 };
 
 /**
@@ -42,99 +42,99 @@ type EndpointBinding = {
  * Bindings are optional so free endpoints remain supported.
  */
 type ConnectorShape = BaseShape & {
-    x1: number;
-    y1: number;
-    x2: number;
-    y2: number;
-    startBinding?: EndpointBinding;
-    endBinding?: EndpointBinding;
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+  startBinding?: EndpointBinding;
+  endBinding?: EndpointBinding;
 };
 
 // FINAL shape (stored in state)
 export type Shape =
-    | (BaseShape & {
-          type: "rect";
-          x: number;
-          y: number;
-          width: number;
-          height: number;
-      })
-    | (BaseShape & {
-          type: "circle";
-          centerX: number;
-          centerY: number;
-          radiusX: number;
-          radiusY: number;
-      })
-        | (BaseShape & {
-                    type: "rhombus";
-                    x: number;
-                    y: number;
-                    width: number;
-                    height: number;
-            })
-        | (ConnectorShape & {
-                    type: "line";
-            })
-        | (ConnectorShape & {
-                    type: "arrow";
-            })
-    | (BaseShape & {
-        type: "text";
-        x: number;
-        y: number;
-        text: string;
-        fontSize: number;
-        width: number;
-        height: number;
-        parentId?: string;
+  | (BaseShape & {
+      type: "rect";
+      x: number;
+      y: number;
+      width: number;
+      height: number;
     })
-    | (BaseShape & {
-        type: "freehand";
-                points: FreehandPoint[];
-      });
+  | (BaseShape & {
+      type: "circle";
+      centerX: number;
+      centerY: number;
+      radiusX: number;
+      radiusY: number;
+    })
+  | (BaseShape & {
+      type: "rhombus";
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    })
+  | (ConnectorShape & {
+      type: "line";
+    })
+  | (ConnectorShape & {
+      type: "arrow";
+    })
+  | (BaseShape & {
+      type: "text";
+      x: number;
+      y: number;
+      text: string;
+      fontSize: number;
+      width: number;
+      height: number;
+      parentId?: string;
+    })
+  | (BaseShape & {
+      type: "freehand";
+      points: FreehandPoint[];
+    });
 
 // preview shape (NO id)
 export type PreviewShape =
-    | {
-          type: "rect";
-          x: number;
-          y: number;
-          width: number;
-          height: number;
-      }
-    | {
-          type: "circle";
-          centerX: number;
-          centerY: number;
-          radiusX: number;
-          radiusY: number;
-      }
-        | {
-                    type: "rhombus";
-                    x: number;
-                    y: number;
-                    width: number;
-                    height: number;
-            }
-    | {
-          type: "line";
-          x1: number;
-          y1: number;
-          x2: number;
-          y2: number;
-        }
-        | {
-            type: "arrow";
-            x1: number;
-            y1: number;
-            x2: number;
-            y2: number;
-        }
-        | {
-            type: "freehand";
-            points: FreehandPoint[];
-      };
+  | {
+      type: "rect";
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }
+  | {
+      type: "circle";
+      centerX: number;
+      centerY: number;
+      radiusX: number;
+      radiusY: number;
+    }
+  | {
+      type: "rhombus";
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }
+  | {
+      type: "line";
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+    }
+  | {
+      type: "arrow";
+      x1: number;
+      y1: number;
+      x2: number;
+      y2: number;
+    }
+  | {
+      type: "freehand";
+      points: FreehandPoint[];
+    };
 
 /**
  * Handle represents all possible resize control points.
@@ -144,13 +144,13 @@ export type PreviewShape =
  * - connector endpoints (line / arrow)
  */
 export type Handle =
-    | "top-left"
-    | "top-right"
-    | "bottom-left"
-    | "bottom-right"
-    | "left"
-    | "right"
-    | "top"
-    | "bottom"
-    | "start"
-    | "end";
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right"
+  | "left"
+  | "right"
+  | "top"
+  | "bottom"
+  | "start"
+  | "end";

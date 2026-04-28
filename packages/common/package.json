@@ -11,11 +11,13 @@
     "./ws-protocol": "./src/ws-protocol.ts"
   },
   "scripts": {
+    "lint": "eslint .",
     "test": "echo 'No tests configured for common package'",
     "check-types": "tsc --noEmit"
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace: *",
+    "@repo/eslint-config": "workspace: *",
     "@repo/canvas-engine": "workspace: *"
   },
   "keywords": [],

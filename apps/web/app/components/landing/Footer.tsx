@@ -16,7 +16,9 @@ export function Footer() {
             className="flex items-center gap-2"
           >
             <CanvasLogo className="w-8 h-8" />
-            <span className="text-xl font-bold text-gray-900 dark:text-white">Canvas</span>
+            <span className="text-xl font-bold text-gray-900 dark:text-white">
+              Canvas
+            </span>
           </motion.div>
 
           {/* Links */}
@@ -37,7 +39,7 @@ export function Footer() {
                 >
                   {link}
                 </motion.a>
-              )
+              ),
             )}
           </motion.div>
 

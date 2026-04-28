@@ -17,20 +17,20 @@
 
 - Product overview: start with [Product Snapshot](#product-snapshot)
 - Engineering reference:
-    - [Architectural Overview](docs/architecture-overview.md)
-    - [API Reference](docs/api-reference.md)
-    - [Developer Guide](docs/developer-guide.md)
-    - [Codebase Walkthrough](docs/codebase-walkthrough.md)
-    - **Conceptual Deep Dives:**
-        - [Core Concepts (State, Shapes, Rooms)](docs/core-concepts.md)
-        - [Persistence Layer (Storage, Soft Delete, Recovery)](docs/persistence-layer.md)
-        - [Real-time Synchronization (Intent & Trade-offs)](docs/architecture-realtime-sync.md)
-        - [Canvas Engine Performance (Why we decoupled React)](docs/architecture-canvas-engine.md)
-        - [Database Resilience Strategy (Circuit Breakers & Retries)](docs/architecture-db-resilience.md)
-        - [Asynchronous AI Pipeline (Why we use queues)](docs/architecture-ai-pipeline.md)
-        - [Security, Auth & Multi-tenancy (Defensive Layering)](docs/architecture-security-model.md)
-        - [Monorepo & Shared Package Strategy](docs/architecture-monorepo-strategy.md)
-    - [Scaling & Performance](docs/scaling-runbook.md)
+  - [Architectural Overview](docs/architecture-overview.md)
+  - [API Reference](docs/api-reference.md)
+  - [Developer Guide](docs/developer-guide.md)
+  - [Codebase Walkthrough](docs/codebase-walkthrough.md)
+  - **Conceptual Deep Dives:**
+    - [Core Concepts (State, Shapes, Rooms)](docs/core-concepts.md)
+    - [Persistence Layer (Storage, Soft Delete, Recovery)](docs/persistence-layer.md)
+    - [Real-time Synchronization (Intent & Trade-offs)](docs/architecture-realtime-sync.md)
+    - [Canvas Engine Performance (Why we decoupled React)](docs/architecture-canvas-engine.md)
+    - [Database Resilience Strategy (Circuit Breakers & Retries)](docs/architecture-db-resilience.md)
+    - [Asynchronous AI Pipeline (Why we use queues)](docs/architecture-ai-pipeline.md)
+    - [Security, Auth & Multi-tenancy (Defensive Layering)](docs/architecture-security-model.md)
+    - [Monorepo & Shared Package Strategy](docs/architecture-monorepo-strategy.md)
+  - [Scaling & Performance](docs/scaling-runbook.md)
 
 ## Table of Contents
 
@@ -199,26 +199,26 @@ sequenceDiagram
 
 ### Applications
 
-| Path | Purpose |
-| --- | --- |
-| `apps/web` | Next.js frontend (auth, rooms, canvas UI, AI prompt bar, exports) |
+| Path                | Purpose                                                                  |
+| ------------------- | ------------------------------------------------------------------------ |
+| `apps/web`          | Next.js frontend (auth, rooms, canvas UI, AI prompt bar, exports)        |
 | `apps/http-backend` | Express API (auth, room lifecycle, access control, AI job orchestration) |
-| `apps/ws-backend` | WebSocket backend (presence, snapshot sync, cross-node fan-out) |
-| `apps/ai-worker` | Queue consumer that calls Gemini and returns generated shapes |
+| `apps/ws-backend`   | WebSocket backend (presence, snapshot sync, cross-node fan-out)          |
+| `apps/ai-worker`    | Queue consumer that calls Gemini and returns generated shapes            |
 
 ### Core Packages
 
-| Path | Purpose |
-| --- | --- |
-| `packages/canvas-engine` | Shared rendering, geometry, text layout, interaction logic |
-| `packages/common` | Shared zod schemas, API payload contracts, ws protocol types |
-| `packages/db` | Prisma schema, generated client, migrations, docker-compose |
-| `packages/redis-sync` | Redis room version/snapshot primitives and pub/sub sync |
-| `packages/queue-sync` | RabbitMQ durable event and job primitives |
-| `packages/backend-common` | Shared backend config and environment loading |
-| `packages/ui` | Shared UI components |
-| `packages/eslint-config` | Shared lint presets |
-| `packages/typescript-config` | Shared TypeScript base configs |
+| Path                         | Purpose                                                      |
+| ---------------------------- | ------------------------------------------------------------ |
+| `packages/canvas-engine`     | Shared rendering, geometry, text layout, interaction logic   |
+| `packages/common`            | Shared zod schemas, API payload contracts, ws protocol types |
+| `packages/db`                | Prisma schema, generated client, migrations, docker-compose  |
+| `packages/redis-sync`        | Redis room version/snapshot primitives and pub/sub sync      |
+| `packages/queue-sync`        | RabbitMQ durable event and job primitives                    |
+| `packages/backend-common`    | Shared backend config and environment loading                |
+| `packages/ui`                | Shared UI components                                         |
+| `packages/eslint-config`     | Shared lint presets                                          |
+| `packages/typescript-config` | Shared TypeScript base configs                               |
 
 ## Quick Start
 
@@ -316,57 +316,57 @@ Source of truth: `.env.example` at repository root. Keep `.env.example` aligned 
 
 ### Required
 
-| Variable | Used By | Description |
-| --- | --- | --- |
-| `JWT_SECRET` | http-backend, ws-backend, ai-worker config bootstrap | JWT signing and verification secret |
-| `DATABASE_URL` | db package and both backends | PostgreSQL connection string |
-| `PORT` | http-backend | HTTP server port |
-| `REDIS_URL` | ws-backend | Redis authority for room sync |
-| `RABBITMQ_URL` | http-backend, ws-backend, ai-worker | Durable queue/event transport |
-| `INTERNAL_SECRET` | http-backend, ai-worker | Secret for internal AI callback endpoint |
-| `GEMINI_API_KEY` | ai-worker | Gemini API authentication |
+| Variable          | Used By                                              | Description                              |
+| ----------------- | ---------------------------------------------------- | ---------------------------------------- |
+| `JWT_SECRET`      | http-backend, ws-backend, ai-worker config bootstrap | JWT signing and verification secret      |
+| `DATABASE_URL`    | db package and both backends                         | PostgreSQL connection string             |
+| `PORT`            | http-backend                                         | HTTP server port                         |
+| `REDIS_URL`       | ws-backend                                           | Redis authority for room sync            |
+| `RABBITMQ_URL`    | http-backend, ws-backend, ai-worker                  | Durable queue/event transport            |
+| `INTERNAL_SECRET` | http-backend, ai-worker                              | Secret for internal AI callback endpoint |
+| `GEMINI_API_KEY`  | ai-worker                                            | Gemini API authentication                |
 
 ### Auth and Email
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `WEB_APP_URL` | `http://localhost:3000` | Base URL used in auth emails and password reset links |
-| `GMAIL_USER` | none | SMTP sender account |
-| `GMAIL_APP_PASSWORD` | none | Gmail app password used by mail transport |
-| `GMAIL_FROM_EMAIL` | falls back to `GMAIL_USER` | Sender label/email for outgoing auth emails |
+| Variable             | Default                    | Purpose                                               |
+| -------------------- | -------------------------- | ----------------------------------------------------- |
+| `WEB_APP_URL`        | `http://localhost:3000`    | Base URL used in auth emails and password reset links |
+| `GMAIL_USER`         | none                       | SMTP sender account                                   |
+| `GMAIL_APP_PASSWORD` | none                       | Gmail app password used by mail transport             |
+| `GMAIL_FROM_EMAIL`   | falls back to `GMAIL_USER` | Sender label/email for outgoing auth emails           |
 
 ### HTTP and DB resilience
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `HTTP_RATE_LIMIT_WINDOW_MS` | `60000` | HTTP rate-limit window |
-| `HTTP_RATE_LIMIT_MAX_REQUESTS` | `120` | HTTP requests allowed per window |
-| `DB_RETRY_ATTEMPTS` | `3` | Transient DB retry attempts |
-| `DB_RETRY_BASE_DELAY_MS` | `75` | Base delay for exponential backoff |
-| `DB_CIRCUIT_BREAKER_ENABLED` | `true` | Enable fail-fast circuit breaker for DB calls |
-| `DB_CIRCUIT_FAILURE_THRESHOLD` | `5` | Failures in window before opening breaker |
-| `DB_CIRCUIT_WINDOW_MS` | `60000` | Sliding failure window |
-| `DB_CIRCUIT_OPEN_MS` | `30000` | Cooldown while circuit is open |
-| `DB_CIRCUIT_HALF_OPEN_SUCCESS_THRESHOLD` | `2` | Probe successes required to close circuit |
+| Variable                                 | Default | Purpose                                       |
+| ---------------------------------------- | ------- | --------------------------------------------- |
+| `HTTP_RATE_LIMIT_WINDOW_MS`              | `60000` | HTTP rate-limit window                        |
+| `HTTP_RATE_LIMIT_MAX_REQUESTS`           | `120`   | HTTP requests allowed per window              |
+| `DB_RETRY_ATTEMPTS`                      | `3`     | Transient DB retry attempts                   |
+| `DB_RETRY_BASE_DELAY_MS`                 | `75`    | Base delay for exponential backoff            |
+| `DB_CIRCUIT_BREAKER_ENABLED`             | `true`  | Enable fail-fast circuit breaker for DB calls |
+| `DB_CIRCUIT_FAILURE_THRESHOLD`           | `5`     | Failures in window before opening breaker     |
+| `DB_CIRCUIT_WINDOW_MS`                   | `60000` | Sliding failure window                        |
+| `DB_CIRCUIT_OPEN_MS`                     | `30000` | Cooldown while circuit is open                |
+| `DB_CIRCUIT_HALF_OPEN_SUCCESS_THRESHOLD` | `2`     | Probe successes required to close circuit     |
 
 ### Queue and sync tuning
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `RABBITMQ_ROOM_EVENTS_EXCHANGE` | `canvas.room.events` | Durable room event exchange |
-| `RABBITMQ_ROOM_EVENTS_QUEUE_PREFIX` | `canvas.room.events.node` | Per-node durable queue prefix |
-| `RABBITMQ_ROOM_EVENTS_PARTITIONS` | `16` | Room routing partitions |
-| `RABBITMQ_PREFETCH` | `200` | Consumer backpressure tuning |
-| `RABBITMQ_DB_PERSIST_EXCHANGE` | `canvas.room.persist` | Persist job exchange |
-| `RABBITMQ_DB_PERSIST_QUEUE` | `canvas.room.persist.jobs` | Persist job queue |
-| `RABBITMQ_DB_PERSIST_ROUTING_KEY` | `room.persist` | Persist job routing key |
-| `RABBITMQ_AI_GENERATE_EXCHANGE` | `canvas.ai.generate` | AI generation exchange |
-| `RABBITMQ_AI_GENERATE_QUEUE` | `canvas.ai.generate.jobs` | AI generation queue |
-| `RABBITMQ_AI_GENERATE_ROUTING_KEY` | `ai.generate` | AI generation routing key |
-| `WS_MAX_MESSAGE_BYTES` | `524288` | Max accepted websocket payload |
-| `WS_SNAPSHOT_RATE_LIMIT_COUNT` | `30` | Snapshot rate-limit count |
-| `WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS` | `1000` | Snapshot rate-limit window |
-| `WS_METRICS_LOG_INTERVAL_MS` | `30000` | WS metrics logging interval |
+| Variable                            | Default                    | Purpose                        |
+| ----------------------------------- | -------------------------- | ------------------------------ |
+| `RABBITMQ_ROOM_EVENTS_EXCHANGE`     | `canvas.room.events`       | Durable room event exchange    |
+| `RABBITMQ_ROOM_EVENTS_QUEUE_PREFIX` | `canvas.room.events.node`  | Per-node durable queue prefix  |
+| `RABBITMQ_ROOM_EVENTS_PARTITIONS`   | `16`                       | Room routing partitions        |
+| `RABBITMQ_PREFETCH`                 | `200`                      | Consumer backpressure tuning   |
+| `RABBITMQ_DB_PERSIST_EXCHANGE`      | `canvas.room.persist`      | Persist job exchange           |
+| `RABBITMQ_DB_PERSIST_QUEUE`         | `canvas.room.persist.jobs` | Persist job queue              |
+| `RABBITMQ_DB_PERSIST_ROUTING_KEY`   | `room.persist`             | Persist job routing key        |
+| `RABBITMQ_AI_GENERATE_EXCHANGE`     | `canvas.ai.generate`       | AI generation exchange         |
+| `RABBITMQ_AI_GENERATE_QUEUE`        | `canvas.ai.generate.jobs`  | AI generation queue            |
+| `RABBITMQ_AI_GENERATE_ROUTING_KEY`  | `ai.generate`              | AI generation routing key      |
+| `WS_MAX_MESSAGE_BYTES`              | `524288`                   | Max accepted websocket payload |
+| `WS_SNAPSHOT_RATE_LIMIT_COUNT`      | `30`                       | Snapshot rate-limit count      |
+| `WS_SNAPSHOT_RATE_LIMIT_WINDOW_MS`  | `1000`                     | Snapshot rate-limit window     |
+| `WS_METRICS_LOG_INTERVAL_MS`        | `30000`                    | WS metrics logging interval    |
 
 ## API Surface
 
@@ -404,24 +404,24 @@ Base URL: `http://localhost:3001/api/v1`
 
 ### Root scripts
 
-| Command | Description |
-| --- | --- |
-| `pnpm dev` | Run workspace dev tasks through Turborepo |
-| `pnpm build` | Build all apps/packages |
-| `pnpm lint` | Run lint tasks |
-| `pnpm check-types` | Run TypeScript checks |
-| `pnpm format` | Format `.ts`, `.tsx`, `.md` files |
-| `pnpm db:up` | Start PostgreSQL, Redis, RabbitMQ |
-| `pnpm db:down` | Stop local infra |
-| `pnpm db:logs` | Tail infra logs |
+| Command            | Description                               |
+| ------------------ | ----------------------------------------- |
+| `pnpm dev`         | Run workspace dev tasks through Turborepo |
+| `pnpm build`       | Build all apps/packages                   |
+| `pnpm lint`        | Run lint tasks                            |
+| `pnpm check-types` | Run TypeScript checks                     |
+| `pnpm format`      | Format `.ts`, `.tsx`, `.md` files         |
+| `pnpm db:up`       | Start PostgreSQL, Redis, RabbitMQ         |
+| `pnpm db:down`     | Stop local infra                          |
+| `pnpm db:logs`     | Tail infra logs                           |
 
 ### Database package scripts
 
-| Command | Description |
-| --- | --- |
-| `pnpm --filter @repo/db db:generate` | Generate Prisma client |
-| `pnpm --filter @repo/db db:migrate` | Create/apply migrations |
-| `pnpm --filter @repo/db db:push` | Push schema without migration files |
+| Command                              | Description                         |
+| ------------------------------------ | ----------------------------------- |
+| `pnpm --filter @repo/db db:generate` | Generate Prisma client              |
+| `pnpm --filter @repo/db db:migrate`  | Create/apply migrations             |
+| `pnpm --filter @repo/db db:push`     | Push schema without migration files |
 
 ## Observability and Scaling
 

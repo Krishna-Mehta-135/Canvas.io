@@ -8,6 +8,7 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "lint": "eslint .",
     "test": "echo 'No tests configured for redis-sync'",
     "check-types": "tsc --noEmit"
   },
@@ -22,6 +23,7 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace: *",
+    "@repo/eslint-config": "workspace: *",
     "@types/node": "^22.15.3"
   }
 }

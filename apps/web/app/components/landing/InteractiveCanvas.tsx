@@ -20,11 +20,51 @@ interface Connection {
 }
 
 const initialBoxes: Box[] = [
-  { id: "api", label: "API Gateway", x: 60, y: 150, width: 140, height: 50, type: "server" },
-  { id: "rate", label: "Rate Limiter", x: 280, y: 140, width: 140, height: 50, type: "server" },
-  { id: "cache", label: "Redis Cache", x: 500, y: 150, width: 140, height: 50, type: "db" },
-  { id: "backend", label: "Backend API", x: 720, y: 150, width: 140, height: 50, type: "server" },
-  { id: "db", label: "PostgreSQL", x: 500, y: 300, width: 140, height: 50, type: "db" },
+  {
+    id: "api",
+    label: "API Gateway",
+    x: 60,
+    y: 150,
+    width: 140,
+    height: 50,
+    type: "server",
+  },
+  {
+    id: "rate",
+    label: "Rate Limiter",
+    x: 280,
+    y: 140,
+    width: 140,
+    height: 50,
+    type: "server",
+  },
+  {
+    id: "cache",
+    label: "Redis Cache",
+    x: 500,
+    y: 150,
+    width: 140,
+    height: 50,
+    type: "db",
+  },
+  {
+    id: "backend",
+    label: "Backend API",
+    x: 720,
+    y: 150,
+    width: 140,
+    height: 50,
+    type: "server",
+  },
+  {
+    id: "db",
+    label: "PostgreSQL",
+    x: 500,
+    y: 300,
+    width: 140,
+    height: 50,
+    type: "db",
+  },
 ];
 
 const initialConnections: Connection[] = [
@@ -47,37 +87,47 @@ export function InteractiveCanvas() {
     setMounted(true);
   }, []);
 
-  const handleMouseDown = useCallback((id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const box = boxes.find((b) => b.id === id);
-    if (!box) return;
+  const handleMouseDown = useCallback(
+    (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      const box = boxes.find((b) => b.id === id);
+      if (!box) return;
 
-    const rect = canvasRef.current?.getBoundingClientRect();
-    if (!rect) return;
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
 
-    setDragging(id);
-    setSelectedBox(id);
-    setDragOffset({
-      x: e.clientX - rect.left - box.x,
-      y: e.clientY - rect.top - box.y,
-    });
-  }, [boxes]);
+      setDragging(id);
+      setSelectedBox(id);
+      setDragOffset({
+        x: e.clientX - rect.left - box.x,
+        y: e.clientY - rect.top - box.y,
+      });
+    },
+    [boxes],
+  );
 
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!dragging || !canvasRef.current) return;
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent) => {
+      if (!dragging || !canvasRef.current) return;
 
-    const rect = canvasRef.current.getBoundingClientRect();
-    const newX = e.clientX - rect.left - dragOffset.x;
-    const newY = e.clientY - rect.top - dragOffset.y;
+      const rect = canvasRef.current.getBoundingClientRect();
+      const newX = e.clientX - rect.left - dragOffset.x;
+      const newY = e.clientY - rect.top - dragOffset.y;
 
-    setBoxes((prev) =>
-      prev.map((box) =>
-        box.id === dragging
-          ? { ...box, x: Math.max(0, Math.min(1000 - box.width, newX)), y: Math.max(0, Math.min(500 - box.height, newY)) }
-          : box
-      )
-    );
-  }, [dragging, dragOffset]);
+      setBoxes((prev) =>
+        prev.map((box) =>
+          box.id === dragging
+            ? {
+                ...box,
+                x: Math.max(0, Math.min(1000 - box.width, newX)),
+                y: Math.max(0, Math.min(500 - box.height, newY)),
+              }
+            : box,
+        ),
+      );
+    },
+    [dragging, dragOffset],
+  );
 
   const handleMouseUp = useCallback(() => {
     setDragging(null);
@@ -154,7 +204,7 @@ export function InteractiveCanvas() {
       {boxes.map((box, index) => {
         const isSelected = selectedBox === box.id;
         const isAi = box.type === "ai";
-        
+
         return (
           <motion.div
             key={box.id}
@@ -162,8 +212,8 @@ export function InteractiveCanvas() {
               isSelected
                 ? "border-blue-400 bg-white dark:bg-[#1e293b] shadow-blue-500/20"
                 : isAi
-                ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-600 shadow-indigo-500/20"
-                : "border-slate-200 dark:border-slate-700/50 bg-white dark:bg-[#1e293b] hover:border-slate-300 dark:hover:border-slate-600 shadow-slate-200 dark:shadow-black/20"
+                  ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-600 shadow-indigo-500/20"
+                  : "border-slate-200 dark:border-slate-700/50 bg-white dark:bg-[#1e293b] hover:border-slate-300 dark:hover:border-slate-600 shadow-slate-200 dark:shadow-black/20"
             }`}
             style={{
               left: box.x,
@@ -173,15 +223,24 @@ export function InteractiveCanvas() {
             }}
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.8 + index * 0.1, type: "spring", stiffness: 400, damping: 25 }}
+            transition={{
+              delay: 0.8 + index * 0.1,
+              type: "spring",
+              stiffness: 400,
+              damping: 25,
+            }}
             onMouseDown={(e) => handleMouseDown(box.id, e)}
             whileHover={{ scale: dragging ? 1 : 1.02 }}
           >
             {/* Top color bar */}
-            <div className={`h-1.5 w-full ${isAi ? 'bg-indigo-400' : 'bg-slate-300 dark:bg-slate-600'}`} />
-            
+            <div
+              className={`h-1.5 w-full ${isAi ? "bg-indigo-400" : "bg-slate-300 dark:bg-slate-600"}`}
+            />
+
             <div className="flex-1 flex items-center justify-center px-4">
-              <p className={`font-bold text-xs text-center select-none tracking-wide text-slate-800 dark:text-white`}>
+              <p
+                className={`font-bold text-xs text-center select-none tracking-wide text-slate-800 dark:text-white`}
+              >
                 {box.label}
               </p>
             </div>
@@ -291,8 +350,19 @@ function AnimatedCursor({
         ease: "easeInOut",
       }}
     >
-      <svg width="16" height="16" viewBox="0 0 20 20" className="drop-shadow-md text-slate-900 dark:text-white" style={{ transform: "rotate(-15deg)" }}>
-        <path d="M3 2L15 10L10 11L7 17L3 2Z" fill="currentColor" stroke="white" strokeWidth="1" />
+      <svg
+        width="16"
+        height="16"
+        viewBox="0 0 20 20"
+        className="drop-shadow-md text-slate-900 dark:text-white"
+        style={{ transform: "rotate(-15deg)" }}
+      >
+        <path
+          d="M3 2L15 10L10 11L7 17L3 2Z"
+          fill="currentColor"
+          stroke="white"
+          strokeWidth="1"
+        />
       </svg>
       <motion.div
         className={`absolute top-4 left-4 px-2 py-0.5 ${color} text-white text-[10px] font-bold rounded shadow-sm`}

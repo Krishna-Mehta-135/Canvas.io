@@ -11,6 +11,7 @@
     "db:generate": "npx prisma generate",
     "db:push": "npx prisma db push",
     "db:migrate": "npx prisma migrate dev",
+    "lint": "eslint .",
     "test": "echo 'No tests configured for db'",
     "check-types": "tsc --noEmit"
   },
@@ -21,6 +22,7 @@
   },
   "devDependencies": {
     "@repo/typescript-config": "workspace:*",
+    "@repo/eslint-config": "workspace: *",
     "@types/node": "^22.15.3",
     "prisma": "^7.6.0"
   }

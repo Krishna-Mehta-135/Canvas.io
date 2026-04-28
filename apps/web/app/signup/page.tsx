@@ -1,5 +1,5 @@
 import { AuthPage } from "../components/AuthPage";
 
 export default function SignIn() {
-    return <AuthPage isSignIn={false} />
+  return <AuthPage isSignIn={false} />;
 }

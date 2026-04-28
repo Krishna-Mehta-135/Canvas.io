@@ -54,6 +54,9 @@ importers:
       '@types/node':
         specifier: ^22.15.3
         version: 22.15.3
+      eslint:
+        specifier: ^9.39.1
+        version: 9.39.1(jiti@2.6.1)
       ts-node:
         specifier: ^10.9.2
         version: 10.9.2(@types/node@22.15.3)(typescript@5.9.2)
@@ -133,6 +136,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.5
         version: 4.1.5(vitest@4.1.5)
+      eslint:
+        specifier: ^9.39.1
+        version: 9.39.1(jiti@2.6.1)
       supertest:
         specifier: ^7.2.2
         version: 7.2.2
@@ -249,6 +255,9 @@ importers:
       '@types/ws':
         specifier: ^8.18.1
         version: 8.18.1
+      eslint:
+        specifier: ^9.39.1
+        version: 9.39.1(jiti@2.6.1)
 
   packages/backend-common:
     dependencies:
@@ -265,6 +274,9 @@ importers:
       '@types/node':
         specifier: ^22.15.3
         version: 22.15.3
+      eslint:
+        specifier: ^9.39.1
+        version: 9.39.1(jiti@2.6.1)
 
   packages/canvas-engine:
     dependencies:
@@ -284,6 +296,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: ^4.1.5
         version: 4.1.5(vitest@4.1.5)
+      eslint:
+        specifier: ^9.39.1
+        version: 9.39.1(jiti@2.6.1)
       vitest:
         specifier: ^4.1.5
         version: 4.1.5(@types/node@22.15.3)(@vitest/coverage-v8@4.1.5)(vite@8.0.10(@types/node@22.15.3)(jiti@2.6.1))
@@ -303,6 +318,9 @@ importers:
       '@repo/typescript-config':
         specifier: 'workspace: *'
         version: link:../typescript-config
+      eslint:
+        specifier: ^9.39.1
+        version: 9.39.1(jiti@2.6.1)
 
   packages/db:
     dependencies:
@@ -398,6 +416,9 @@ importers:
       '@types/node':
         specifier: ^22.15.3
         version: 22.15.3
+      eslint:
+        specifier: ^9.39.1
+        version: 9.39.1(jiti@2.6.1)
 
   packages/redis-sync:
     dependencies:
@@ -423,6 +444,9 @@ importers:
       '@types/node':
         specifier: ^22.15.3
         version: 22.15.3
+      eslint:
+        specifier: ^9.39.1
+        version: 9.39.1(jiti@2.6.1)
 
   packages/typescript-config: {}
 

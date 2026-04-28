@@ -22,8 +22,9 @@
     "ioredis": "^5.10.1"
   },
   "devDependencies": {
-    "@repo/typescript-config": "workspace: *",
     "@repo/eslint-config": "workspace: *",
-    "@types/node": "^22.15.3"
+    "@repo/typescript-config": "workspace: *",
+    "@types/node": "^22.15.3",
+    "eslint": "^9.39.1"
   }
 }

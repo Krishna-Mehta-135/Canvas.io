@@ -16,9 +16,10 @@
     "check-types": "tsc --noEmit"
   },
   "devDependencies": {
-    "@repo/typescript-config": "workspace: *",
+    "@repo/canvas-engine": "workspace: *",
     "@repo/eslint-config": "workspace: *",
-    "@repo/canvas-engine": "workspace: *"
+    "@repo/typescript-config": "workspace: *",
+    "eslint": "^9.39.1"
   },
   "keywords": [],
   "author": "",

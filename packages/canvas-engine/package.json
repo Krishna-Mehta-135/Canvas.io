@@ -19,9 +19,10 @@
   "license": "ISC",
   "packageManager": "pnpm@10.30.1",
   "devDependencies": {
-    "@repo/typescript-config": "workspace: *",
     "@repo/eslint-config": "workspace: *",
+    "@repo/typescript-config": "workspace: *",
     "@vitest/coverage-v8": "^4.1.5",
+    "eslint": "^9.39.1",
     "vitest": "^4.1.5"
   },
   "dependencies": {

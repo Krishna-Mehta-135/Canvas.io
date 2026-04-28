@@ -23,12 +23,13 @@
     "@repo/backend-common": "workspace: *",
     "@repo/canvas-engine": "workspace: *",
     "@repo/common": "workspace: *",
-    "@repo/eslint-config": "workspace: *",
     "@repo/db": "workspace: *",
+    "@repo/eslint-config": "workspace: *",
     "@repo/queue-sync": "workspace: *",
     "@repo/redis-sync": "workspace: *",
     "@repo/typescript-config": "workspace:*",
     "@types/jsonwebtoken": "^9.0.10",
-    "@types/ws": "^8.18.1"
+    "@types/ws": "^8.18.1",
+    "eslint": "^9.39.1"
   }
 }

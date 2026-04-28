@@ -23,9 +23,10 @@
     "zod": "^4.1.11"
   },
   "devDependencies": {
-    "@repo/typescript-config": "workspace: *",
     "@repo/eslint-config": "workspace: *",
+    "@repo/typescript-config": "workspace: *",
     "@types/amqplib": "^0.10.7",
-    "@types/node": "^22.15.3"
+    "@types/node": "^22.15.3",
+    "eslint": "^9.39.1"
   }
 }

@@ -5,6 +5,9 @@ export default defineConfig({
   test: {
     environment: "node",
     globals: true,
+    env: {
+      JWT_SECRET: "test-jwt-secret-key-1234567890",
+    },
     exclude: [
       "**/node_modules/**",
       "**/dist/**",

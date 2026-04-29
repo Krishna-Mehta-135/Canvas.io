@@ -37,6 +37,11 @@ const PersistedChatMessageSchema = z.object({
 
 const ActionIdSchema = z.string().min(8).max(128);
 
+const CanvasCrdtMetadataSchema = z.object({
+  clock: z.number().int().nonnegative(),
+  clientId: z.string().min(1).max(200),
+});
+
 /**
  * Cursor position shared between collaborators for presence rendering.
  */
@@ -88,6 +93,11 @@ export type WsMessage =
       roomId: number;
       version: number;
       shapes: Shape[];
+      deletedShapeIds?: string[];
+      deletionMeta?: {
+        clock: number;
+        clientId: string;
+      } | null;
     }
   | {
       type: "canvas_snapshot_broadcast";
@@ -96,6 +106,11 @@ export type WsMessage =
       shapes: Shape[];
       senderId: string;
       actionId?: string;
+      deletedShapeIds?: string[];
+      deletionMeta?: {
+        clock: number;
+        clientId: string;
+      } | null;
     }
   | {
       type: "canvas_snapshot_ack";
@@ -162,6 +177,11 @@ export type ServerMessage =
       shapes: Shape[];
       senderId: string;
       actionId?: string;
+      deletedShapeIds?: string[];
+      deletionMeta?: {
+        clock: number;
+        clientId: string;
+      } | null;
     }
   | {
       type: "canvas_snapshot_ack";
@@ -222,6 +242,8 @@ export const CanvasSnapshotMessageSchema = z.object({
   roomId: z.number().int().positive(),
   version: z.number().int().min(0),
   shapes: z.array(CanvasShapeSchema).max(5000),
+  deletedShapeIds: z.array(z.string().min(1).max(200)).max(5000).optional(),
+  deletionMeta: CanvasCrdtMetadataSchema.nullable().optional(),
 });
 
 export const UpdatePresenceMessageSchema = z.object({
@@ -293,6 +315,11 @@ export type RoomSnapshotBroadcastEvent = {
   version: number;
   shapes: Shape[];
   senderId?: string;
+  deletedShapeIds?: string[];
+  deletionMeta?: {
+    clock: number;
+    clientId: string;
+  } | null;
   originNodeId: string;
   actionId: string;
   publishedAtMs: number;
@@ -304,6 +331,8 @@ export const RoomSnapshotBroadcastEventSchema = z.object({
   version: z.number().int().min(1),
   shapes: z.array(CanvasShapeSchema).max(5000),
   senderId: z.string().min(1).max(200).optional(),
+  deletedShapeIds: z.array(z.string().min(1).max(200)).max(5000).optional(),
+  deletionMeta: CanvasCrdtMetadataSchema.nullable().optional(),
   originNodeId: z.string().min(1).max(200),
   actionId: ActionIdSchema,
   publishedAtMs: z.number().int().nonnegative(),

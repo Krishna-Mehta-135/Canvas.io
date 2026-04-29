@@ -41,6 +41,11 @@ export type RedisRoomEvent = {
   version: number;
   shapes: Shape[];
   senderId?: string;
+  deletedShapeIds?: string[];
+  deletionMeta?: {
+    clock: number;
+    clientId: string;
+  } | null;
   actionId: string;
   publishedAtMs: number;
   type: "canvas_snapshot_broadcast";
@@ -157,7 +162,14 @@ export async function commitRoomSnapshot(
   roomId: number,
   expectedVersion: number,
   snapshot: Shape[],
-  event: Pick<RedisRoomEvent, "originNodeId" | "senderId" | "actionId">,
+  event: Pick<
+    RedisRoomEvent,
+    | "originNodeId"
+    | "senderId"
+    | "actionId"
+    | "deletedShapeIds"
+    | "deletionMeta"
+  >,
 ) {
   await ensureReady();
 
@@ -178,6 +190,8 @@ export async function commitRoomSnapshot(
       roomId,
       originNodeId: event.originNodeId,
       senderId: event.senderId,
+      deletedShapeIds: event.deletedShapeIds,
+      deletionMeta: event.deletionMeta,
       actionId: event.actionId,
       publishedAtMs: Date.now(),
       type: "canvas_snapshot_broadcast",

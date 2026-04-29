@@ -39,6 +39,12 @@ Canvas.io is a real-time collaborative whiteboard application built using a Turb
 - **UI Components:** Use and extend components in `packages/ui` for shared interface elements.
 - **State Management:** Canvas state is managed via the `canvas-engine`'s internal store.
 
+### 4. Next.js App Router (Frontend)
+
+- **Suspense for Client Components:** Any client component using `useSearchParams()` MUST be wrapped in a `<Suspense>` boundary. 
+  - **Reason:** `useSearchParams()` triggers a "Client-side Rendering (CSR) bailout" during static generation. Without a `Suspense` boundary, Next.js attempts to de-optimize the entire page to dynamic rendering at build time; if the page is being pre-rendered as static, this causes the build to fail.
+- **Dynamic Routes:** Ensure dynamic segments (e.g., `[roomId]`) are correctly handled and do not accidentally trigger de-optimization unless intended.
+
 ## Key Commands
 
 | Command                             | Description                                       |
@@ -64,3 +70,24 @@ Canvas.io is a real-time collaborative whiteboard application built using a Turb
 
 - **No Credentials:** Never log or commit secrets. Use the root `.env` for local development.
 - **Durable Persistence:** Ensure that RabbitMQ persistence jobs are never bypassed, as they are critical for long-term data integrity.
+
+## CI/CD & Build Resilience (Lessons Learned)
+
+The project CI/CD pipeline is strict. Keep these mandates in mind to avoid common pipeline failures:
+
+### 1. Prisma & Node Version Compatibility
+- **Node 20+ is Required:** Avoid using Node 18 for CI or development. Modern Prisma CLI tools (v7+) utilize ES Modules that cause `ERR_REQUIRE_ESM` crashes in Node 18's CommonJS-centric environment.
+- **Explicit Prisma Generation:** Do NOT use `postinstall` hooks in `packages/db/package.json` for `prisma generate`. This makes `pnpm install` fragile and prone to ESM/CJS interop crashes. 
+- **CI Workflow:** Always run `pnpm --filter @repo/db db:generate` as an explicit step *after* `pnpm install` in your GitHub Actions.
+
+### 2. Dependency Integrity
+- **Local Dev Tools:** Never assume a global tool is available in CI. If a package has a `lint` script calling `eslint`, then `eslint` MUST be listed in that package's `devDependencies`.
+- **Strict pnpm:** In a workspace, `pnpm` will not "hoist" binary links for you if they aren't declared in the local `package.json`. If you see `eslint: not found` in CI, check the local `devDependencies`.
+
+### 3. Test Environment Stability (Vitest)
+- **Exclude Build Artifacts:** Always ensure `vitest.config.ts` has an `exclude` list that includes `dist/**` and `coverage/**`. If omitted, Vitest may attempt to run compiled `.js` files or coverage reports, leading to duplicate test runs or CommonJS/ESM module errors.
+- **Injected Secrets:** Backend configurations (like `packages/backend-common/config.ts`) often throw errors if `JWT_SECRET` is undefined. Since CI has no `.env` file, you must inject dummy secrets into the `test.env` section of your `vitest.config.ts`.
+
+### 4. Next.js Build Constraints
+- **Suspense Boundaries:** Any Client Component that utilizes `useSearchParams()` MUST be wrapped in a `<Suspense>` boundary.
+- **Prerender Failure:** Failing to do so will cause the static export / production build to crash with a `missing-suspense-with-csr-bailout` error during the `Generating static pages` phase.

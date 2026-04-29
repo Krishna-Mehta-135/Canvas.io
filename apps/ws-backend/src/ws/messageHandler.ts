@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import { RawData } from "ws";
 import type { Shape } from "@repo/canvas-engine";
 import { ClientWsMessageSchema } from "@repo/common/ws-protocol";
-import type { PersistedChatMessage, ServerMessage } from "@repo/common";
+import {
+  mergeCanvasCrdtSnapshot,
+  type CanvasCrdtDeletion,
+  type PersistedChatMessage,
+  type ServerMessage,
+} from "@repo/common";
 import { prismaClient } from "@repo/db/client";
 import type { AuthenticatedWebSocket } from "./types.js";
 import { publishDurableRoomEvent } from "@repo/queue-sync";
@@ -19,6 +24,7 @@ import {
   cacheRoomSyncState,
   enqueueRoomPersist,
   initializeRoomSync,
+  roomCrdtTombstones,
   roomSyncState,
 } from "./roomSync.js";
 import { commitRoomSnapshot, NODE_ID } from "@repo/redis-sync";
@@ -314,7 +320,7 @@ export async function handleSocketMessage(
   }
 
   if (parsed.type === "canvas_snapshot") {
-    const { roomId, version, shapes } = parsed;
+    const { roomId, shapes } = parsed;
     const snapshotStartedAtMs = Date.now();
     const actionId = randomUUID();
 
@@ -378,14 +384,41 @@ export async function handleSocketMessage(
       shapeIds.add(shape.id);
     }
 
+    const currentRoomState =
+      roomSyncState.get(roomId) ?? (await initializeRoomSync(roomId));
+    const deletionMeta = parsed.deletionMeta ?? null;
+    const deletions: CanvasCrdtDeletion[] =
+      deletionMeta && Array.isArray(parsed.deletedShapeIds)
+        ? parsed.deletedShapeIds.map((id) => ({
+            id,
+            meta: deletionMeta,
+          }))
+        : [];
+    const mergeResult = mergeCanvasCrdtSnapshot(
+      currentRoomState.shapes,
+      typedShapes,
+      deletions,
+      roomCrdtTombstones.get(roomId),
+    );
+    roomCrdtTombstones.set(roomId, mergeResult.tombstones);
+
     // The commit is atomic in Redis: version bump, snapshot replacement, and
-    // cross-node publish all happen as one room transition.
+    // cross-node publish all happen as one room transition. CRDT merge uses
+    // the latest room version as its base so stale clients can still contribute
+    // non-conflicting shape updates instead of being rejected outright.
     const commitStartedAtMs = Date.now();
-    const nextVersion = await commitRoomSnapshot(roomId, version, typedShapes, {
-      originNodeId: NODE_ID,
-      senderId: userId,
-      actionId,
-    });
+    const nextVersion = await commitRoomSnapshot(
+      roomId,
+      currentRoomState.version,
+      mergeResult.shapes,
+      {
+        originNodeId: NODE_ID,
+        senderId: userId,
+        actionId,
+        deletedShapeIds: parsed.deletedShapeIds,
+        deletionMeta: parsed.deletionMeta,
+      },
+    );
 
     if (!nextVersion) {
       recordSnapshotCommitFailure();
@@ -395,7 +428,7 @@ export async function handleSocketMessage(
       ws.send(
         JSON.stringify({
           type: "sync_error",
-          reason: `Version mismatch: client has ${version}, server has ${roomState.version}`,
+          reason: `Version mismatch: server has ${roomState.version}`,
         } as ServerMessage),
       );
 
@@ -417,11 +450,11 @@ export async function handleSocketMessage(
     const processLatencyMs = Math.max(0, Date.now() - snapshotStartedAtMs);
     recordSnapshotCommitted(commitLatencyMs, processLatencyMs);
 
-    void enqueueRoomPersist(roomId, nextVersion, typedShapes);
+    void enqueueRoomPersist(roomId, nextVersion, mergeResult.shapes);
     cacheRoomSyncState({
       roomId,
       version: nextVersion,
-      shapes: typedShapes,
+      shapes: mergeResult.shapes,
     });
 
     // Ack sender with new authoritative version only to avoid
@@ -438,9 +471,11 @@ export async function handleSocketMessage(
       type: "canvas_snapshot_broadcast",
       roomId,
       version: nextVersion,
-      shapes: typedShapes,
+      shapes: mergeResult.shapes,
       senderId: userId,
       actionId,
+      deletedShapeIds: parsed.deletedShapeIds,
+      deletionMeta: parsed.deletionMeta,
     };
 
     broadcastToRoom(roomId, broadcastMsg, ws);
@@ -453,10 +488,12 @@ export async function handleSocketMessage(
       type: "canvas_snapshot_broadcast",
       roomId,
       version: nextVersion,
-      shapes: typedShapes,
+      shapes: mergeResult.shapes,
       senderId: userId,
       originNodeId: NODE_ID,
       actionId,
+      deletedShapeIds: parsed.deletedShapeIds,
+      deletionMeta: parsed.deletionMeta,
       publishedAtMs: Date.now(),
     }).catch((error) => {
       // Redis Pub/Sub remains available as low-latency fan-out fallback.

@@ -19,6 +19,7 @@ import { handleSocketMessage } from "./ws/messageHandler.js";
 import {
   cacheRoomSyncState,
   persistShapes,
+  roomCrdtTombstones,
   roomSyncState,
 } from "./ws/roomSync.js";
 import { NODE_ID, subscribeRoomEvents } from "@repo/redis-sync";
@@ -136,6 +137,15 @@ async function applyCrossNodeRoomEvent(
     version: event.version,
     shapes: event.shapes,
   });
+  if (event.deletionMeta && event.deletedShapeIds) {
+    const tombstones =
+      roomCrdtTombstones.get(event.roomId) ??
+      new Map<string, { clock: number; clientId: string }>();
+    for (const id of event.deletedShapeIds) {
+      tombstones.set(id, event.deletionMeta);
+    }
+    roomCrdtTombstones.set(event.roomId, tombstones);
+  }
 
   if (source === "rabbitmq") {
     recordDurableEventConsumed();
@@ -155,6 +165,8 @@ async function applyCrossNodeRoomEvent(
     shapes: event.shapes,
     senderId: event.senderId ?? "unknown",
     actionId: event.actionId,
+    deletedShapeIds: event.deletedShapeIds,
+    deletionMeta: event.deletionMeta,
   };
 
   broadcastToRoomAll(event.roomId, message);

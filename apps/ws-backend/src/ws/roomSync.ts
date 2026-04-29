@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { prismaClient } from "@repo/db/client";
 import type { Shape } from "@repo/canvas-engine";
-import type { RoomSyncState } from "@repo/common";
+import type { CanvasCrdtMetadata, RoomSyncState } from "@repo/common";
 import { publishRoomPersistJob } from "@repo/queue-sync";
 import {
   getRoomSnapshot,
@@ -16,6 +16,10 @@ import {
  * Version increments on each accepted snapshot from clients.
  */
 export const roomSyncState = new Map<number, RoomSyncState>();
+export const roomCrdtTombstones = new Map<
+  number,
+  Map<string, CanvasCrdtMetadata>
+>();
 const pendingPersistTimer = new Map<number, ReturnType<typeof setTimeout>>();
 const pendingPersistShapes = new Map<number, Shape[]>();
 const persistInFlight = new Set<number>();

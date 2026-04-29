@@ -27,6 +27,12 @@ import type {
   PersistedChatMessage,
   ClientMessage,
 } from "@repo/common";
+import {
+  getCanvasCrdtMetadata,
+  mergeCanvasCrdtSnapshot,
+  reconcileLocalCanvasCrdtSnapshot,
+  type CanvasCrdtMetadata,
+} from "@repo/common";
 import type { Tool } from "@repo/canvas-engine";
 import { HTTP_BACKEND } from "../config";
 
@@ -54,6 +60,14 @@ type PendingRemoteSnapshot = {
   version: number;
   shapes: Shape[];
   senderId?: string;
+  deletedShapeIds?: string[];
+  deletionMeta?: CanvasCrdtMetadata | null;
+};
+
+type PendingLocalSnapshot = {
+  shapes: Shape[];
+  deletedShapeIds: string[];
+  deletionMeta: CanvasCrdtMetadata | null;
 };
 
 interface UseCanvasSyncOptions {
@@ -159,7 +173,7 @@ export function useCanvasSync({
   const pendingSyncRafRef = useRef<number | null>(null);
   const pendingPresenceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inFlightSnapshotCountRef = useRef(0);
-  const queuedSnapshotRef = useRef<Shape[] | null>(null);
+  const queuedSnapshotRef = useRef<PendingLocalSnapshot | null>(null);
   const snapshotSentAtRef = useRef<number | null>(null);
   const lastSnapshotSentAtRef = useRef(0);
   const optimisticSnapshotVersionRef = useRef(0);
@@ -186,6 +200,12 @@ export function useCanvasSync({
   > | null>(null);
   const localSelectionIdsRef = useRef<string[]>(localSelectionIds);
   const localToolRef = useRef<Tool>(localTool);
+  const crdtClientIdRef = useRef<string>(
+    `client-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`,
+  );
+  const crdtClockRef = useRef(0);
+  const previousCrdtShapesRef = useRef<Shape[]>([]);
+  const crdtTombstonesRef = useRef<Map<string, CanvasCrdtMetadata>>(new Map());
 
   // Rate-limit backoff state.
   const rateLimitBackoffUntilRef = useRef(0);
@@ -202,6 +222,20 @@ export function useCanvasSync({
     isDragBurstActiveRef.current
       ? DRAG_BURST_MAX_IN_FLIGHT
       : WS_MAX_IN_FLIGHT_SNAPSHOTS;
+
+  const nextCrdtClock = useCallback(() => {
+    crdtClockRef.current += 1;
+    return crdtClockRef.current;
+  }, []);
+
+  const observeCrdtClock = useCallback((shapes: Shape[]) => {
+    for (const shape of shapes) {
+      crdtClockRef.current = Math.max(
+        crdtClockRef.current,
+        getCanvasCrdtMetadata(shape).clock,
+      );
+    }
+  }, []);
 
   useEffect(() => {
     localSelectionIdsRef.current = localSelectionIds;
@@ -301,18 +335,44 @@ export function useCanvasSync({
       }
 
       pendingRemoteSnapshotRef.current = null;
+      if (pending.deletedShapeIds && pending.deletionMeta) {
+        const nextTombstones = new Map(crdtTombstonesRef.current);
+        for (const id of pending.deletedShapeIds) {
+          nextTombstones.set(id, pending.deletionMeta);
+        }
+        crdtTombstonesRef.current = nextTombstones;
+      }
+      const hasPendingLocalWork =
+        Boolean(queuedSnapshotRef.current) ||
+        inFlightSnapshotCountRef.current > 0;
+      const nextShapes =
+        hasPendingLocalWork && state
+          ? mergeCanvasCrdtSnapshot(
+              pending.shapes,
+              state.getShapes(),
+              pending.deletedShapeIds && pending.deletionMeta
+                ? pending.deletedShapeIds.map((id) => ({
+                    id,
+                    meta: pending.deletionMeta!,
+                  }))
+                : [],
+              crdtTombstonesRef.current,
+            ).shapes
+          : pending.shapes;
       syncStateRef.current = {
         roomId: pending.roomId,
         version: pending.version,
-        shapes: pending.shapes,
+        shapes: nextShapes,
       };
 
       // Update the live ref BEFORE hydrateShapes fires React subscribers —
       // ensures RemotePresenceLayer reads the correct positions this frame.
-      latestShapesRef.current = pending.shapes;
+      latestShapesRef.current = nextShapes;
+      previousCrdtShapesRef.current = nextShapes;
+      observeCrdtClock(nextShapes);
 
       isApplyingRemoteRef.current = true;
-      state.hydrateShapes(pending.shapes);
+      state.hydrateShapes(nextShapes);
       isApplyingRemoteRef.current = false;
 
       appendTimelineEvent(
@@ -330,7 +390,12 @@ export function useCanvasSync({
       remoteHydrateRafRef.current = null;
       applyLatestRemoteSnapshot();
     });
-  }, [appendTimelineEvent, cancelScheduledRemoteHydrate, state]);
+  }, [
+    appendTimelineEvent,
+    cancelScheduledRemoteHydrate,
+    observeCrdtClock,
+    state,
+  ]);
 
   const WS_BACKEND_URL =
     typeof window !== "undefined"
@@ -367,8 +432,8 @@ export function useCanvasSync({
       return;
     }
 
-    const queuedShapes = queuedSnapshotRef.current;
-    if (!queuedShapes) {
+    const queuedSnapshot = queuedSnapshotRef.current;
+    if (!queuedSnapshot) {
       syncInFlightCounter();
       return;
     }
@@ -382,7 +447,7 @@ export function useCanvasSync({
     lastSnapshotSentAtRef.current = snapshotSentAtRef.current;
     appendTimelineEvent(
       "snapshot_send",
-      `v${messageVersion} (${queuedShapes.length} shapes)`,
+      `v${messageVersion} (${queuedSnapshot.shapes.length} shapes)`,
     );
     syncInFlightCounter();
 
@@ -390,7 +455,9 @@ export function useCanvasSync({
       type: "canvas_snapshot",
       roomId,
       version: messageVersion,
-      shapes: queuedShapes,
+      shapes: queuedSnapshot.shapes,
+      deletedShapeIds: queuedSnapshot.deletedShapeIds,
+      deletionMeta: queuedSnapshot.deletionMeta,
     };
 
     wsRef.current.send(JSON.stringify(message));
@@ -437,7 +504,18 @@ export function useCanvasSync({
   // Queue latest snapshot and send when no snapshot is currently in flight.
   const sendCanvasSnapshot = useCallback(
     (shapes: Shape[]) => {
-      queuedSnapshotRef.current = shapes;
+      const reconciled = reconcileLocalCanvasCrdtSnapshot(
+        previousCrdtShapesRef.current,
+        shapes,
+        crdtClientIdRef.current,
+        nextCrdtClock,
+      );
+      previousCrdtShapesRef.current = reconciled.shapes;
+      queuedSnapshotRef.current = {
+        shapes: reconciled.shapes,
+        deletedShapeIds: reconciled.deletedShapeIds,
+        deletionMeta: reconciled.deletionMeta,
+      };
       syncInFlightCounter();
       touchDragBurst();
       cancelScheduledSnapshotFlush();
@@ -461,6 +539,7 @@ export function useCanvasSync({
     [
       cancelScheduledSnapshotFlush,
       flushQueuedSnapshot,
+      nextCrdtClock,
       scheduleSnapshotFlush,
       syncInFlightCounter,
       touchDragBurst,
@@ -537,6 +616,7 @@ export function useCanvasSync({
 
     setRealtimeChatMessages([]);
 
+    const crdtClientId = crdtClientIdRef.current;
     const ws = new WebSocket(WS_BACKEND_URL);
 
     ws.onopen = () => {
@@ -605,13 +685,17 @@ export function useCanvasSync({
 
           isApplyingRemoteRef.current = true;
           latestShapesRef.current = message.shapes;
+          previousCrdtShapesRef.current = message.shapes;
+          observeCrdtClock(message.shapes);
           state.hydrateShapes(message.shapes);
 
           if (savedLocalShapes) {
             // Re-apply the user's latest local state so the shape snaps back
             // to where they left it — not to the server's stale position.
-            latestShapesRef.current = savedLocalShapes;
-            state.hydrateShapes(savedLocalShapes);
+            latestShapesRef.current = savedLocalShapes.shapes;
+            previousCrdtShapesRef.current = savedLocalShapes.shapes;
+            observeCrdtClock(savedLocalShapes.shapes);
+            state.hydrateShapes(savedLocalShapes.shapes);
           }
 
           isApplyingRemoteRef.current = false;
@@ -632,12 +716,15 @@ export function useCanvasSync({
           // below, so local drag churn remains protected, but remote selection
           // boxes and attached indicators can track the newest geometry every frame.
           latestShapesRef.current = message.shapes;
+          observeCrdtClock(message.shapes);
 
           pendingRemoteSnapshotRef.current = {
             roomId: message.roomId,
             version: message.version,
             shapes: message.shapes,
             senderId: message.senderId,
+            deletedShapeIds: message.deletedShapeIds,
+            deletionMeta: message.deletionMeta,
           };
           scheduleRemoteHydrate();
         } else if (message.type === "canvas_snapshot_ack") {
@@ -713,7 +800,18 @@ export function useCanvasSync({
           if (reasonLower.includes("version mismatch")) {
             if (!queuedSnapshotRef.current && state) {
               // Preserve the current canvas position so it survives the resync.
-              queuedSnapshotRef.current = state.getShapes();
+              const reconciled = reconcileLocalCanvasCrdtSnapshot(
+                previousCrdtShapesRef.current,
+                state.getShapes(),
+                crdtClientIdRef.current,
+                nextCrdtClock,
+              );
+              previousCrdtShapesRef.current = reconciled.shapes;
+              queuedSnapshotRef.current = {
+                shapes: reconciled.shapes,
+                deletedShapeIds: reconciled.deletedShapeIds,
+                deletionMeta: reconciled.deletionMeta,
+              };
             }
             // Cancel any pending flush timer — room_joined will trigger a flush.
             if (pendingSyncRef.current) {
@@ -783,12 +881,19 @@ export function useCanvasSync({
         !isApplyingRemoteRef.current
       ) {
         try {
-          const latestShapes = state.getShapes();
+          const reconciled = reconcileLocalCanvasCrdtSnapshot(
+            previousCrdtShapesRef.current,
+            state.getShapes(),
+            crdtClientId,
+            nextCrdtClock,
+          );
           const message: WsMessage = {
             type: "canvas_snapshot",
             roomId,
             version: syncStateRef.current.version,
-            shapes: latestShapes,
+            shapes: reconciled.shapes,
+            deletedShapeIds: reconciled.deletedShapeIds,
+            deletionMeta: reconciled.deletionMeta,
           };
           ws.send(JSON.stringify(message));
         } catch (error) {
@@ -838,6 +943,8 @@ export function useCanvasSync({
     cancelScheduledRemoteHydrate,
     scheduleRemoteHydrate,
     appendRealtimeChatMessage,
+    nextCrdtClock,
+    observeCrdtClock,
   ]);
 
   return {
@@ -858,6 +965,8 @@ export function useCanvasSync({
       try {
         state.hydrateShapes(shapes);
         latestShapesRef.current = shapes;
+        previousCrdtShapesRef.current = shapes;
+        observeCrdtClock(shapes);
       } finally {
         isApplyingRemoteRef.current = false;
       }

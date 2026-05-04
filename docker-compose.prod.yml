@@ -1,0 +1,117 @@
+# docker-compose.prod.yml — Canvas production stack
+# Run on a single $12 DigitalOcean droplet.
+# Frontend (apps/web) is deployed separately on Vercel.
+# Postgres runs as a container — fine for demo/recruiter use with no real users.
+# RabbitMQ: CloudAMQP free tier (external) — set RABBITMQ_URL in .env
+
+services:
+
+  # ── Infrastructure ────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: canvas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: canvas
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U canvas -d canvas"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+    # Not exposed externally — only reachable by other containers
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Application services ───────────────────────────────────────────────────
+
+  http-backend:
+    image: ghcr.io/${GITHUB_REPO}/canvas-http-backend:latest
+    ports:
+      - "3001:3001"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://canvas:${POSTGRES_PASSWORD}@postgres:5432/canvas
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: ${RABBITMQ_URL:?RABBITMQ_URL is required}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      PORT: 3001
+      GMAIL_USER: ${GMAIL_USER:-}
+      GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
+      GMAIL_FROM_EMAIL: ${GMAIL_FROM_EMAIL:-}
+      WEB_APP_URL: ${WEB_APP_URL:?WEB_APP_URL is required}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET is required}
+      HTTP_RATE_LIMIT_WINDOW_MS: ${HTTP_RATE_LIMIT_WINDOW_MS:-60000}
+      HTTP_RATE_LIMIT_MAX_REQUESTS: ${HTTP_RATE_LIMIT_MAX_REQUESTS:-120}
+      DB_CIRCUIT_BREAKER_ENABLED: ${DB_CIRCUIT_BREAKER_ENABLED:-true}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  ws-backend:
+    image: ghcr.io/${GITHUB_REPO}/canvas-ws-backend:latest
+    ports:
+      - "8080:8080"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://canvas:${POSTGRES_PASSWORD}@postgres:5432/canvas
+      REDIS_URL: redis://redis:6379
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      WS_ENABLE_DURABLE_QUEUE: ${WS_ENABLE_DURABLE_QUEUE:-true}
+      WS_DEBUG_ERRORS: ${WS_DEBUG_ERRORS:-false}
+    depends_on:
+      redis:
+        condition: service_healthy
+      http-backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  ai-worker:
+    image: ghcr.io/${GITHUB_REPO}/canvas-ai-worker:latest
+    environment:
+      NODE_ENV: production
+      RABBITMQ_URL: ${RABBITMQ_URL}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY is required}
+      GEMINI_MODEL_CANDIDATES: ${GEMINI_MODEL_CANDIDATES:-gemini-2.5-flash,gemini-2.5-flash-lite}
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      # ai-worker POSTs results back to http-backend via Docker network
+      HTTP_BACKEND_INTERNAL_URL: http://http-backend:3001
+    depends_on:
+      http-backend:
+        condition: service_healthy
+    restart: unless-stopped
+    # No ports exposed — outbound only (RabbitMQ + Gemini API + http-backend callback)
+
+volumes:
+  postgres_data:
+  redis_data:

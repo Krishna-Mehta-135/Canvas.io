@@ -37,7 +37,8 @@ import {
   startMetricsReporter,
 } from "./ws/metrics.js";
 
-const wss = new WebSocketServer({ port: 8080 });
+const WS_PORT = Number(process.env.WS_PORT ?? 8081);
+const wss = new WebSocketServer({ port: WS_PORT });
 const RABBITMQ_INITIAL_RETRY_DELAY_MS = Number(
   process.env.WS_RABBITMQ_RETRY_INITIAL_MS ?? 2000,
 );
@@ -72,7 +73,7 @@ function safeRabbitMqUrl(rawUrl: string) {
   }
 }
 
-console.log("WebSocket server online on port 8080");
+console.log(`WebSocket server online on port ${WS_PORT}`);
 startMetricsReporter();
 
 const seenActionIds = new Map<string, number>();

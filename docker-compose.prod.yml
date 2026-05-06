@@ -1,117 +1,134 @@
-# docker-compose.prod.yml — Canvas production stack
-# Run on a single $12 DigitalOcean droplet.
-# Frontend (apps/web) is deployed separately on Vercel.
-# Postgres runs as a container — fine for demo/recruiter use with no real users.
-# RabbitMQ: CloudAMQP free tier (external) — set RABBITMQ_URL in .env
+# docker-compose.prod.yml — CanvasSync GCP multi-VM production stack
+#
+# Deployment topology:
+#   VM 1 & VM 2 (e2-small, App VMs):
+#     docker compose -f docker-compose.prod.yml up -d http-backend ws-backend
+#
+#   Worker VM (e2-micro, Worker VM):
+#     docker compose -f docker-compose.prod.yml up -d rabbitmq ai-worker
+#
+# Managed services (not in this file):
+#   - PostgreSQL  → GCP Cloud SQL
+#   - Redis       → GCP Memorystore (shared with keyPrefix "canvas:" isolation)
+#
+# Load Balancer (GCP Global ALB):
+#   canvassync.tech /api/*  → http-backend  (port 3001) on VM 1 & VM 2
+#   canvassync.tech /       → ws-backend    (port 8081) on VM 1 & VM 2
 
 services:
 
-  # ── Infrastructure ────────────────────────────────────────────────────────
-
-  postgres:
-    image: postgres:15-alpine
-    environment:
-      POSTGRES_USER: canvas
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
-      POSTGRES_DB: canvas
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U canvas -d canvas"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-    # Not exposed externally — only reachable by other containers
-
-  redis:
-    image: redis:7-alpine
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-
-  # ── Application services ───────────────────────────────────────────────────
+  # ── App VM services ───────────────────────────────────────────────────────────
+  # Deployed to VM 1 & VM 2 (e2-small).
+  # CI/CD target: deploy-apps job in deploy.yml
 
   http-backend:
     image: ghcr.io/${GITHUB_REPO}/canvas-http-backend:latest
     ports:
-      - "3001:3001"
+      - "3001:3001"   # Port 3001 avoids conflict with Knowdex (3000)
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://canvas:${POSTGRES_PASSWORD}@postgres:5432/canvas
-      REDIS_URL: redis://redis:6379
+      PORT: 3001
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
       RABBITMQ_URL: ${RABBITMQ_URL:?RABBITMQ_URL is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
-      PORT: 3001
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET is required}
+      WEB_APP_URL: ${WEB_APP_URL:?WEB_APP_URL is required}
       GMAIL_USER: ${GMAIL_USER:-}
       GMAIL_APP_PASSWORD: ${GMAIL_APP_PASSWORD:-}
       GMAIL_FROM_EMAIL: ${GMAIL_FROM_EMAIL:-}
-      WEB_APP_URL: ${WEB_APP_URL:?WEB_APP_URL is required}
-      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET is required}
       HTTP_RATE_LIMIT_WINDOW_MS: ${HTTP_RATE_LIMIT_WINDOW_MS:-60000}
       HTTP_RATE_LIMIT_MAX_REQUESTS: ${HTTP_RATE_LIMIT_MAX_REQUESTS:-120}
       DB_CIRCUIT_BREAKER_ENABLED: ${DB_CIRCUIT_BREAKER_ENABLED:-true}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      DB_RETRY_ATTEMPTS: ${DB_RETRY_ATTEMPTS:-3}
+      DB_RETRY_BASE_DELAY_MS: ${DB_RETRY_BASE_DELAY_MS:-75}
+      DB_CIRCUIT_FAILURE_THRESHOLD: ${DB_CIRCUIT_FAILURE_THRESHOLD:-5}
+      DB_CIRCUIT_WINDOW_MS: ${DB_CIRCUIT_WINDOW_MS:-60000}
+      DB_CIRCUIT_OPEN_MS: ${DB_CIRCUIT_OPEN_MS:-30000}
+      DB_CIRCUIT_HALF_OPEN_SUCCESS_THRESHOLD: ${DB_CIRCUIT_HALF_OPEN_SUCCESS_THRESHOLD:-2}
+      RABBITMQ_AI_GENERATE_EXCHANGE: ${RABBITMQ_AI_GENERATE_EXCHANGE:-canvas.ai.generate}
+      RABBITMQ_AI_GENERATE_QUEUE: ${RABBITMQ_AI_GENERATE_QUEUE:-canvas.ai.generate.jobs}
+      RABBITMQ_AI_GENERATE_ROUTING_KEY: ${RABBITMQ_AI_GENERATE_ROUTING_KEY:-ai.generate}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_CALLBACK_URL: ${GOOGLE_CALLBACK_URL:-}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:-}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
+      GITHUB_CALLBACK_URL: ${GITHUB_CALLBACK_URL:-}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 30s
     restart: unless-stopped
 
   ws-backend:
     image: ghcr.io/${GITHUB_REPO}/canvas-ws-backend:latest
     ports:
-      - "8080:8080"
+      - "8081:8081"   # Port 8081; LB default rule routes WebSocket traffic here
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://canvas:${POSTGRES_PASSWORD}@postgres:5432/canvas
-      REDIS_URL: redis://redis:6379
+      WS_PORT: 8081
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
       RABBITMQ_URL: ${RABBITMQ_URL}
       JWT_SECRET: ${JWT_SECRET}
       INTERNAL_SECRET: ${INTERNAL_SECRET}
       WS_ENABLE_DURABLE_QUEUE: ${WS_ENABLE_DURABLE_QUEUE:-true}
       WS_DEBUG_ERRORS: ${WS_DEBUG_ERRORS:-false}
-    depends_on:
-      redis:
-        condition: service_healthy
-      http-backend:
-        condition: service_healthy
+      RABBITMQ_AI_GENERATE_EXCHANGE: ${RABBITMQ_AI_GENERATE_EXCHANGE:-canvas.ai.generate}
+      RABBITMQ_AI_GENERATE_QUEUE: ${RABBITMQ_AI_GENERATE_QUEUE:-canvas.ai.generate.jobs}
+      RABBITMQ_AI_GENERATE_ROUTING_KEY: ${RABBITMQ_AI_GENERATE_ROUTING_KEY:-ai.generate}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 20s
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── Worker VM services ────────────────────────────────────────────────────────
+  # Deployed to the free e2-micro Worker VM only.
+  # CI/CD target: deploy-worker job in deploy.yml
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"     # AMQP — consumed by ai-worker (localhost) + App VMs (private IP)
+      - "15672:15672"   # Management UI — restrict to VPC or SSH tunnel in production
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-canvas}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:?RABBITMQ_PASS is required on worker VM}
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     restart: unless-stopped
 
   ai-worker:
     image: ghcr.io/${GITHUB_REPO}/canvas-ai-worker:latest
     environment:
       NODE_ENV: production
-      RABBITMQ_URL: ${RABBITMQ_URL}
+      # On the Worker VM, RabbitMQ runs as a sibling container on the same host.
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-canvas}:${RABBITMQ_PASS}@rabbitmq:5672
+      RABBITMQ_AI_GENERATE_EXCHANGE: ${RABBITMQ_AI_GENERATE_EXCHANGE:-canvas.ai.generate}
+      RABBITMQ_AI_GENERATE_QUEUE: ${RABBITMQ_AI_GENERATE_QUEUE:-canvas.ai.generate.jobs}
+      RABBITMQ_AI_GENERATE_ROUTING_KEY: ${RABBITMQ_AI_GENERATE_ROUTING_KEY:-ai.generate}
       GEMINI_API_KEY: ${GEMINI_API_KEY:?GEMINI_API_KEY is required}
       GEMINI_MODEL_CANDIDATES: ${GEMINI_MODEL_CANDIDATES:-gemini-2.5-flash,gemini-2.5-flash-lite}
-      INTERNAL_SECRET: ${INTERNAL_SECRET}
-      # ai-worker POSTs results back to http-backend via Docker network
-      HTTP_BACKEND_INTERNAL_URL: http://http-backend:3001
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?INTERNAL_SECRET is required}
+      # ai-worker POSTs results back to the http-backend through the load balancer.
+      # The App VMs are not directly reachable from the Worker VM — use the public URL.
+      HTTP_BACKEND_INTERNAL_URL: ${HTTP_BACKEND_INTERNAL_URL:?HTTP_BACKEND_INTERNAL_URL is required}
     depends_on:
-      http-backend:
+      rabbitmq:
         condition: service_healthy
     restart: unless-stopped
-    # No ports exposed — outbound only (RabbitMQ + Gemini API + http-backend callback)
+    # No inbound ports — outbound only (RabbitMQ + Gemini API + http-backend callback)
 
 volumes:
-  postgres_data:
-  redis_data:
+  rabbitmq_data:

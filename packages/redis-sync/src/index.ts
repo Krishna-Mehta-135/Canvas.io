@@ -10,21 +10,31 @@ export const NODE_ID = randomUUID();
 // Redis is the shared authority for room sync state across all WS processes.
 // We keep the protocol contract unchanged and only use Redis internally for
 // versioning, snapshot storage, and cross-node fan-out.
-const ROOM_CHANNEL_PREFIX = "canvas:room";
-const ROOM_VERSION_PREFIX = "canvas:room:version";
-const ROOM_SNAPSHOT_PREFIX = "canvas:room:snapshot";
+//
+// NOTE: All key-based commands automatically receive the "canvas:" prefix via
+// the ioredis `keyPrefix` option below. This isolates Canvas data from any
+// other application (e.g. Knowdex) sharing the same Memorystore instance.
+// IMPORTANT: ioredis does NOT apply keyPrefix to Pub/Sub channel names, so
+// channels are still prefixed manually via ROOM_CHANNEL_PREFIX.
+const ROOM_CHANNEL_PREFIX = "canvas:room"; // Used for Pub/Sub — must stay explicit
+const ROOM_VERSION_PREFIX = "room:version"; // Key prefix applied by ioredis → canvas:room:version:*
+const ROOM_SNAPSHOT_PREFIX = "room:snapshot"; // Key prefix applied by ioredis → canvas:room:snapshot:*
 
 const redisOptions = {
   maxRetriesPerRequest: null,
   enableReadyCheck: true,
   lazyConnect: true,
+  // Isolates all Canvas key-space from other apps sharing the same Redis/Memorystore.
+  // Applied automatically to GET, SET, INCR, WATCH, MULTI, EVAL, etc.
+  keyPrefix: "canvas:",
 };
 
 const publisher = new Redis(REDIS_URL, redisOptions);
 const subscriber = new Redis(REDIS_URL, redisOptions);
 
 // Namespace for HTTP rate-limit keys (separate from room-sync keys).
-const RATE_LIMIT_KEY_PREFIX = "canvas:http:rate-limit";
+// ioredis prepends "canvas:" → final key: canvas:http:rate-limit:*
+const RATE_LIMIT_KEY_PREFIX = "http:rate-limit";
 
 export type RedisRateLimitResult = {
   allowed: boolean;

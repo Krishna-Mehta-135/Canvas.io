@@ -400,12 +400,18 @@ export function useCanvasSync({
   const WS_BACKEND_URL =
     typeof window !== "undefined"
       ? (() => {
+          if (process.env.NEXT_PUBLIC_WS_URL) {
+            return process.env.NEXT_PUBLIC_WS_URL;
+          }
           const backendHttpUrl = new URL(HTTP_BACKEND);
           const wsProtocol =
             backendHttpUrl.protocol === "https:" ? "wss:" : "ws:";
-          return `${wsProtocol}//${backendHttpUrl.hostname}:8080`;
+          // In production (https), the GCP Load Balancer handles the default port (443)
+          // and routes it to 8081. In local dev (http), connect explicitly to 8081.
+          const port = backendHttpUrl.protocol === "https:" ? "" : ":8081";
+          return `${wsProtocol}//${backendHttpUrl.hostname}${port}`;
         })()
-      : "ws://localhost:8080";
+      : "ws://localhost:8081";
 
   const flushQueuedSnapshot = useCallback(() => {
     if (

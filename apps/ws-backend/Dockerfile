@@ -60,5 +60,5 @@ RUN addgroup --system --gid 1001 nodejs && \
     chown -R appuser:nodejs /app
 USER appuser
 
-EXPOSE 8080
+EXPOSE 8081
 CMD ["node", "dist/index.js"]

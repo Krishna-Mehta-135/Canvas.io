@@ -50,7 +50,7 @@ RUN pnpm turbo run build --filter=ws-backend...
 FROM builder AS pruner
 WORKDIR /app
 
-RUN pnpm deploy --filter=ws-backend --prod /pruned/ws-backend
+RUN pnpm deploy --filter=ws-backend --prod --legacy /pruned/ws-backend
 
 # ── Stage 5: runner ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner

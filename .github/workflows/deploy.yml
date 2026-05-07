@@ -39,6 +39,9 @@ jobs:
             dockerfile: apps/ai-worker/Dockerfile
     steps:
       - uses: actions/checkout@v4
+      - name: Derive lowercase image name
+        run: |
+          echo "REPO_LOWER=${GITHUB_REPOSITORY,,}" >> "${GITHUB_ENV}"
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -55,8 +58,8 @@ jobs:
           target: runner
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/${{ matrix.service }}:latest
-            ghcr.io/${{ github.repository }}/${{ matrix.service }}:sha-${{ github.sha }}
+            ghcr.io/${{ env.REPO_LOWER }}/${{ matrix.service }}:latest
+            ghcr.io/${{ env.REPO_LOWER }}/${{ matrix.service }}:sha-${{ github.sha }}
           # 🚨 Bakes production URLs into the Next.js bundle
           build-args: |
             NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}

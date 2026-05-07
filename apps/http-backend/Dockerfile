@@ -15,6 +15,9 @@ COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY packages/backend-common/package.json  ./packages/backend-common/
 COPY packages/common/package.json          ./packages/common/
 COPY packages/db/package.json              ./packages/db/
+COPY packages/queue-sync/package.json      ./packages/queue-sync/
+COPY packages/redis-sync/package.json      ./packages/redis-sync/
+COPY packages/canvas-engine/package.json   ./packages/canvas-engine/
 COPY packages/typescript-config/package.json ./packages/typescript-config/
 COPY packages/eslint-config/package.json   ./packages/eslint-config/
 COPY apps/http-backend/package.json        ./apps/http-backend/
@@ -29,6 +32,9 @@ COPY turbo.json ./
 COPY packages/backend-common  ./packages/backend-common
 COPY packages/common          ./packages/common
 COPY packages/db              ./packages/db
+COPY packages/queue-sync      ./packages/queue-sync
+COPY packages/redis-sync      ./packages/redis-sync
+COPY packages/canvas-engine   ./packages/canvas-engine
 COPY packages/typescript-config ./packages/typescript-config
 COPY apps/http-backend        ./apps/http-backend
 

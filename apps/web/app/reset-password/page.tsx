@@ -167,7 +167,11 @@ function ResetPasswordContent() {
 
 export default function ResetPasswordPage() {
   return (
-    <Suspense fallback={<main className="min-h-screen bg-[#eef2f7] dark:bg-[#121212]" />}>
+    <Suspense
+      fallback={
+        <main className="min-h-screen bg-[#eef2f7] dark:bg-[#121212]" />
+      }
+    >
       <ResetPasswordContent />
     </Suspense>
   );

@@ -107,7 +107,17 @@ export function convertToPoints(shape: Shape) {
 
 /* ---------------- NORMALIZE ---------------- */
 
-export function normalize({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: number; y2: number }) {
+export function normalize({
+  x1,
+  y1,
+  x2,
+  y2,
+}: {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}) {
   return {
     x1: Math.min(x1, x2),
     y1: Math.min(y1, y2),
@@ -118,7 +128,10 @@ export function normalize({ x1, y1, x2, y2 }: { x1: number; y1: number; x2: numb
 
 /* ---------------- CONVERT BACK ---------------- */
 
-export function convertBackToShape(shape: Shape, box: { x1: number; y1: number; x2: number; y2: number }) {
+export function convertBackToShape(
+  shape: Shape,
+  box: { x1: number; y1: number; x2: number; y2: number },
+) {
   const { x1, y1, x2, y2 } = box;
 
   if (shape.type === "rect") {

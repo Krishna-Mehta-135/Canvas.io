@@ -313,7 +313,10 @@ describe("Auth Controller", () => {
 
       expect(res.status).toHaveBeenCalledWith(401);
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ success: false, message: "Token has been revoked" }),
+        expect.objectContaining({
+          success: false,
+          message: "Token has been revoked",
+        }),
       );
     });
   });
@@ -371,7 +374,10 @@ describe("Auth Controller", () => {
 
       expect(res.status).toHaveBeenCalledWith(400);
       expect(res.json).toHaveBeenCalledWith(
-        expect.objectContaining({ success: false, message: "Invalid or expired reset token" }),
+        expect.objectContaining({
+          success: false,
+          message: "Invalid or expired reset token",
+        }),
       );
     });
   });

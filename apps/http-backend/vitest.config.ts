@@ -8,11 +8,7 @@ export default defineConfig({
     env: {
       JWT_SECRET: "test-jwt-secret-key-1234567890",
     },
-    exclude: [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/coverage/**"
-    ],
+    exclude: ["**/node_modules/**", "**/dist/**", "**/coverage/**"],
     alias: {
       "@repo/db/client": path.resolve(
         __dirname,

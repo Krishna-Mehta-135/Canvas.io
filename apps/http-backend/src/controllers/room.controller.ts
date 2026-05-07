@@ -877,19 +877,17 @@ const getInviteLink = asyncHandler(async (req, res) => {
 
   const inviteLink = `${req.protocol}://${req.get("host")}${buildCanonicalRoomPath(room)}`;
 
-  res
-    .status(200)
-    .json(
-      new ApiResponse(
-        200,
-        {
-          inviteLink,
-          canonicalPath: buildCanonicalRoomPath(room),
-          roomSlug: room.slug,
-        },
-        "Invite link generated successfully",
-      ),
-    );
+  res.status(200).json(
+    new ApiResponse(
+      200,
+      {
+        inviteLink,
+        canonicalPath: buildCanonicalRoomPath(room),
+        roomSlug: room.slug,
+      },
+      "Invite link generated successfully",
+    ),
+  );
 });
 
 const requestRoomAccess = asyncHandler(async (req, res) => {

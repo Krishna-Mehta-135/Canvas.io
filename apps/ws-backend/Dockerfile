@@ -36,6 +36,11 @@ COPY packages/canvas-engine   ./packages/canvas-engine
 COPY packages/typescript-config ./packages/typescript-config
 COPY apps/ws-backend          ./apps/ws-backend
 
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_WS_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
+
 RUN pnpm turbo run build --filter=ws-backend...
 
 # ── Stage 4: pruner ───────────────────────────────────────────────────────────

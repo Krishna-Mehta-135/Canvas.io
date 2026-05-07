@@ -32,6 +32,11 @@ COPY packages/db              ./packages/db
 COPY packages/typescript-config ./packages/typescript-config
 COPY apps/http-backend        ./apps/http-backend
 
+ARG NEXT_PUBLIC_API_URL
+ARG NEXT_PUBLIC_WS_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
+
 RUN pnpm turbo run build --filter=http-backend...
 
 # ── Stage 4: pruner ───────────────────────────────────────────────────────────

@@ -41,6 +41,9 @@ ARG NEXT_PUBLIC_WS_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 
+RUN pnpm --filter @repo/db db:generate
+RUN pnpm turbo run build --filter=@repo/*
+
 RUN pnpm turbo run build --filter=ws-backend...
 
 # ── Stage 4: pruner ───────────────────────────────────────────────────────────

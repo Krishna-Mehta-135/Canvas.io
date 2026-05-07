@@ -7,7 +7,6 @@ import { roomRouter } from "./routes/room.routes";
 import { rateLimitMiddleware } from "./middlewares/rate-limit.middleware";
 import { receiveAiResult } from "./controllers/room.controller";
 
-
 const app: Express = express();
 
 app.use(

@@ -271,7 +271,11 @@ function onCircuitFailure(error: unknown, wasHalfOpenRequest: boolean) {
  * - common transient network error strings
  */
 function isRetryableDbError(error: unknown) {
-  const err = error as { code?: unknown; message?: unknown; cause?: { code?: unknown } };
+  const err = error as {
+    code?: unknown;
+    message?: unknown;
+    cause?: { code?: unknown };
+  };
   const code = typeof err?.code === "string" ? err.code : undefined;
   if (
     code &&
@@ -385,4 +389,3 @@ function wrapPrismaValue(value: unknown): unknown {
 }
 
 export const prismaClient = wrapPrismaValue(rawPrismaClient) as PrismaClient;
-;

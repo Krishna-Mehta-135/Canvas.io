@@ -103,23 +103,23 @@ jobs:
 
             # Inject all environment variables into a .env file on the VM
             cat <<EOF > .env
-            NODE_ENV="production"
-            GITHUB_REPO="$LOWER_REPO"
-            DATABASE_URL="${{ secrets.DATABASE_URL }}"
-            REDIS_URL="redis://10.190.0.4:6379"
-            RABBITMQ_URL="amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASS }}@10.190.0.4:5672"
-            RABBITMQ_USER="${{ secrets.RABBITMQ_USER }}"
-            RABBITMQ_PASS="${{ secrets.RABBITMQ_PASS }}"
-            JWT_SECRET="${{ secrets.JWT_SECRET }}"
-            INTERNAL_SECRET="${{ secrets.INTERNAL_SECRET }}"
-            GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}"
-            GEMINI_MODEL_CANDIDATES="${{ secrets.GEMINI_MODEL_CANDIDATES }}"
-            GMAIL_USER="${{ secrets.GMAIL_USER }}"
-            GMAIL_APP_PASSWORD="${{ secrets.GMAIL_APP_PASSWORD }}"
-            WEB_APP_URL="${{ secrets.WEB_APP_URL }}"
-            FRONTEND_URL="${{ secrets.WEB_APP_URL }}"
-            NEXT_PUBLIC_API_URL="${{ secrets.NEXT_PUBLIC_API_URL }}"
-            NEXT_PUBLIC_WS_URL="${{ secrets.NEXT_PUBLIC_WS_URL }}"
+            NODE_ENV=production
+            GITHUB_REPO=$LOWER_REPO
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            REDIS_URL=redis://10.190.0.4:6379
+            RABBITMQ_URL=amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASS }}@10.190.0.4:5672
+            RABBITMQ_USER=${{ secrets.RABBITMQ_USER }}
+            RABBITMQ_PASS=${{ secrets.RABBITMQ_PASS }}
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            INTERNAL_SECRET=${{ secrets.INTERNAL_SECRET }}
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+            GEMINI_MODEL_CANDIDATES=${{ secrets.GEMINI_MODEL_CANDIDATES }}
+            GMAIL_USER=${{ secrets.GMAIL_USER }}
+            GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}
+            WEB_APP_URL=${{ secrets.WEB_APP_URL }}
+            FRONTEND_URL=${{ secrets.WEB_APP_URL }}
+            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_WS_URL=${{ secrets.NEXT_PUBLIC_WS_URL }}
             EOF
 
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -159,19 +159,19 @@ jobs:
 
             # Worker VM only needs infrastructure connection secrets
             cat <<EOF > .env
-            NODE_ENV="production"
-            GITHUB_REPO="$LOWER_REPO"
-            DATABASE_URL="${{ secrets.DATABASE_URL }}"
-            REDIS_URL="redis://10.190.0.4:6379"
-            RABBITMQ_URL="amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASS }}@10.190.0.4:5672"
-            RABBITMQ_USER="${{ secrets.RABBITMQ_USER }}"
-            RABBITMQ_PASS="${{ secrets.RABBITMQ_PASS }}"
-            JWT_SECRET="${{ secrets.JWT_SECRET }}"
-            INTERNAL_SECRET="${{ secrets.INTERNAL_SECRET }}"
-            GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}"
-            WEB_APP_URL="${{ secrets.WEB_APP_URL }}"
-            FRONTEND_URL="${{ secrets.WEB_APP_URL }}"
-            HTTP_BACKEND_INTERNAL_URL="${{ secrets.HTTP_BACKEND_INTERNAL_URL }}"
+            NODE_ENV=production
+            GITHUB_REPO=$LOWER_REPO
+            DATABASE_URL=${{ secrets.DATABASE_URL }}
+            REDIS_URL=redis://10.190.0.4:6379
+            RABBITMQ_URL=amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASS }}@10.190.0.4:5672
+            RABBITMQ_USER=${{ secrets.RABBITMQ_USER }}
+            RABBITMQ_PASS=${{ secrets.RABBITMQ_PASS }}
+            JWT_SECRET=${{ secrets.JWT_SECRET }}
+            INTERNAL_SECRET=${{ secrets.INTERNAL_SECRET }}
+            GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+            WEB_APP_URL=${{ secrets.WEB_APP_URL }}
+            FRONTEND_URL=${{ secrets.WEB_APP_URL }}
+            HTTP_BACKEND_INTERNAL_URL=${{ secrets.HTTP_BACKEND_INTERNAL_URL }}
             EOF
 
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin

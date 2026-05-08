@@ -171,7 +171,7 @@ jobs:
             GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
             WEB_APP_URL=${{ secrets.WEB_APP_URL }}
             FRONTEND_URL=${{ secrets.WEB_APP_URL }}
-            HTTP_BACKEND_INTERNAL_URL=${{ secrets.HTTP_BACKEND_INTERNAL_URL }}
+            HTTP_BACKEND_INTERNAL_URL=http://10.190.0.2:3001
             EOF
 
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin

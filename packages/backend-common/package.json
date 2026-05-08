@@ -4,7 +4,10 @@
   "description": "",
   "main": "./dist/index.js",
   "exports": {
-    "./config": "./dist/config.js"
+    "./config": {
+      "types": "./dist/config.d.ts",
+      "default": "./dist/config.js"
+    }
   },
   "scripts": {
     "lint": "eslint .",

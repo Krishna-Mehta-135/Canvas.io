@@ -53,7 +53,8 @@ RUN pnpm turbo run build --filter=http-backend...
 FROM builder AS pruner
 WORKDIR /app
 
-RUN pnpm deploy --filter=http-backend --prod /pruned/http-backend
+RUN pnpm config set inject-workspace-packages true && \
+    pnpm deploy --filter=http-backend --prod /pruned/http-backend
 
 # ── Stage 5: runner ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner

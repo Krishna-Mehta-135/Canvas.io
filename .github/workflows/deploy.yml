@@ -118,6 +118,7 @@ jobs:
             GMAIL_APP_PASSWORD=${{ secrets.GMAIL_APP_PASSWORD }}
             WEB_APP_URL=${{ secrets.WEB_APP_URL }}
             FRONTEND_URL=${{ secrets.WEB_APP_URL }}
+            HTTP_BACKEND_INTERNAL_URL=http://localhost:3001
             NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
             NEXT_PUBLIC_WS_URL=${{ secrets.NEXT_PUBLIC_WS_URL }}
             EOF

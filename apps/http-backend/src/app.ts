@@ -39,6 +39,7 @@ app.use(cookieParser());
 app.post("/internal/ai/result", receiveAiResult);
 
 //Routes
+app.get("/", (req, res) => res.sendStatus(200));
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/room", roomRouter);
 

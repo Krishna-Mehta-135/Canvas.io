@@ -53,7 +53,7 @@ RUN pnpm turbo run build --filter=http-backend...
 FROM builder AS pruner
 WORKDIR /app
 
-RUN pnpm deploy --filter=http-backend --prod --legacy /pruned/http-backend
+RUN pnpm deploy --filter=http-backend --prod /pruned/http-backend
 
 # ── Stage 5: runner ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
@@ -62,11 +62,8 @@ RUN apk add --no-cache libc6-compat curl
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Pruned production node_modules
-COPY --from=pruner  /pruned/http-backend/node_modules  ./node_modules
-# Compiled JS output
-COPY --from=builder /app/apps/http-backend/dist         ./dist
-COPY --from=builder /app/apps/http-backend/package.json ./
+# Copy the pruned app which includes the workspace dependencies
+COPY --from=pruner /pruned/http-backend .
 
 # Non-root user
 RUN addgroup --system --gid 1001 nodejs && \

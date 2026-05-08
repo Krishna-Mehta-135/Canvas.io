@@ -2,14 +2,15 @@
   "name": "@repo/backend-common",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "./dist/index.js",
   "exports": {
-    "./config": "./src/config.ts"
+    "./config": "./dist/config.js"
   },
   "scripts": {
     "lint": "eslint .",
     "test": "echo 'No tests configured for backend-common'",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "build": "tsc"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace: *",
@@ -22,5 +23,6 @@
   "license": "ISC",
   "dependencies": {
     "dotenv": "^17.2.4"
-  }
+  },
+  "types": "./dist/index.d.ts"
 }

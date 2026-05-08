@@ -2,15 +2,16 @@
   "name": "@repo/redis-sync",
   "version": "1.0.0",
   "description": "Shared Redis primitives for room sync and cross-node fan-out",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./dist/index.js"
   },
   "scripts": {
     "lint": "eslint .",
     "test": "echo 'No tests configured for redis-sync'",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "build": "tsc"
   },
   "keywords": [],
   "author": "",

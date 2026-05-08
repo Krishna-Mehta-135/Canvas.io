@@ -11,22 +11,11 @@ const app: Express = express();
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Allow same-machine browser clients across local hostnames and ports.
-      if (!origin) {
-        callback(null, true);
-        return;
-      }
-
-      const allowedOriginPattern =
-        /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
-      if (allowedOriginPattern.test(origin)) {
-        callback(null, true);
-        return;
-      }
-
-      callback(new Error("CORS origin not allowed"));
-    },
+    origin: [
+      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
+      "https://canvassync.tech",
+      /\.vercel\.app$/,
+    ],
     credentials: true,
   }),
 );
@@ -40,6 +29,7 @@ app.post("/internal/ai/result", receiveAiResult);
 
 //Routes
 app.get("/", (req, res) => res.sendStatus(200));
+app.get("/health", (req, res) => res.sendStatus(200));
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/room", roomRouter);
 

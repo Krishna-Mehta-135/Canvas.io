@@ -40,7 +40,7 @@ import {
 
 const WS_PORT = Number(process.env.WS_PORT ?? 8081);
 const server = http.createServer((req, res) => {
-  if (req.method === "GET" && req.url === "/") {
+  if (req.method === "GET" && (req.url === "/" || req.url === "/health")) {
     res.writeHead(200);
     res.end("OK");
     return;

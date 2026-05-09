@@ -171,6 +171,14 @@ const signin = asyncHandler(async (req, res) => {
     throw new ApiError(401, "Invalid credentials");
   }
 
+  if (!user.password) {
+    // Account was created via OAuth — no password is set.
+    throw new ApiError(
+      401,
+      "This account uses social sign-in. Please continue with GitHub or Google.",
+    );
+  }
+
   const isMatch = await comparePassword(password, user.password);
   if (!isMatch) {
     throw new ApiError(401, "Invalid credentials");

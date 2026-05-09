@@ -80,3 +80,19 @@ export const RABBITMQ_AI_GENERATE_ROUTING_KEY: string =
 // Internal secret & URL
 export const INTERNAL_SECRET: string = internalSecret;
 export const HTTP_BACKEND_INTERNAL_URL: string = httpBackendInternalUrl;
+
+// ── OAuth ─────────────────────────────────────────────────────────────────────
+export const GOOGLE_CLIENT_ID: string | undefined =
+  process.env.GOOGLE_CLIENT_ID;
+export const GOOGLE_CLIENT_SECRET: string | undefined =
+  process.env.GOOGLE_CLIENT_SECRET;
+export const GOOGLE_CALLBACK_URL: string =
+  process.env.GOOGLE_CALLBACK_URL ??
+  "http://localhost:3001/api/v1/auth/google/callback";
+
+export const GH_CLIENT_ID: string | undefined = process.env.GH_CLIENT_ID;
+export const GH_CLIENT_SECRET: string | undefined =
+  process.env.GH_CLIENT_SECRET;
+export const GH_CALLBACK_URL: string =
+  process.env.GH_CALLBACK_URL ??
+  "http://localhost:3001/api/v1/auth/github/callback";

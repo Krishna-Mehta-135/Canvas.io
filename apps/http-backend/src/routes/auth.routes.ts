@@ -5,6 +5,12 @@ import { idempotencyMiddleware } from "../middlewares/idempotency.middleware";
 
 import { refreshAccessToken, logout } from "../controllers/auth.controller";
 import { forgotPassword, resetPassword } from "../controllers/auth.controller";
+import {
+  githubInitiate,
+  githubCallback,
+  googleInitiate,
+  googleCallback,
+} from "../controllers/oauth.controller";
 
 const authRouter: Router = express.Router();
 
@@ -22,5 +28,13 @@ authRouter.post("/logout", authenticate, logout);
 authRouter.post("/forgot-password", idempotencyMiddleware, forgotPassword);
 // Complete password reset with token.
 authRouter.post("/reset-password", idempotencyMiddleware, resetPassword);
+
+// ── OAuth ──────────────────────────────────────────────────────────────────────
+// Redirect user to GitHub/Google login page.
+authRouter.get("/github", githubInitiate);
+authRouter.get("/google", googleInitiate);
+// Provider redirects back here with an authorization code.
+authRouter.get("/github/callback", githubCallback);
+authRouter.get("/google/callback", googleCallback);
 
 export { authRouter };

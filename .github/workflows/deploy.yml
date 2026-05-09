@@ -98,6 +98,16 @@ jobs:
             set -euo pipefail
             mkdir -p /opt/canvas && cd /opt/canvas
 
+            # ── Cloud SQL Auth Proxy ──────────────────────────────────────────
+            if ! command -v cloud-sql-proxy &> /dev/null; then
+              sudo curl -o /usr/local/bin/cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.15.2/cloud-sql-proxy.linux.amd64
+              sudo chmod +x /usr/local/bin/cloud-sql-proxy
+            fi
+            if ! systemctl is-active --quiet cloud-sql-proxy; then
+              sudo systemctl start cloud-sql-proxy
+            fi
+            # ─────────────────────────────────────────────────────────────────
+
             # Write the CA cert from secret
             mkdir -p certs
             echo "${{ secrets.DB_SSL_CA_CERT }}" > certs/server-ca.pem
@@ -167,6 +177,16 @@ jobs:
           script: |
             set -euo pipefail
             mkdir -p /opt/canvas && cd /opt/canvas
+
+            # ── Cloud SQL Auth Proxy ──────────────────────────────────────────
+            if ! command -v cloud-sql-proxy &> /dev/null; then
+              sudo curl -o /usr/local/bin/cloud-sql-proxy https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.15.2/cloud-sql-proxy.linux.amd64
+              sudo chmod +x /usr/local/bin/cloud-sql-proxy
+            fi
+            if ! systemctl is-active --quiet cloud-sql-proxy; then
+              sudo systemctl start cloud-sql-proxy
+            fi
+            # ─────────────────────────────────────────────────────────────────
 
             # Write the CA cert from secret
             mkdir -p certs

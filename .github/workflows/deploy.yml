@@ -107,7 +107,7 @@ jobs:
             GITHUB_REPO=$LOWER_REPO
             DATABASE_URL=${{ secrets.DATABASE_URL }}
             REDIS_URL=redis://10.190.0.4:6379
-            RABBITMQ_URL=amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASS }}@10.190.0.4:5672
+            RABBITMQ_URL=${{ secrets.RABBITMQ_URL }}
             RABBITMQ_USER=${{ secrets.RABBITMQ_USER }}
             RABBITMQ_PASS=${{ secrets.RABBITMQ_PASS }}
             JWT_SECRET=${{ secrets.JWT_SECRET }}
@@ -164,7 +164,7 @@ jobs:
             GITHUB_REPO=$LOWER_REPO
             DATABASE_URL=${{ secrets.DATABASE_URL }}
             REDIS_URL=redis://10.190.0.4:6379
-            RABBITMQ_URL=amqp://${{ secrets.RABBITMQ_USER }}:${{ secrets.RABBITMQ_PASS }}@10.190.0.4:5672
+            RABBITMQ_URL=${{ secrets.RABBITMQ_URL }}
             RABBITMQ_USER=${{ secrets.RABBITMQ_USER }}
             RABBITMQ_PASS=${{ secrets.RABBITMQ_PASS }}
             JWT_SECRET=${{ secrets.JWT_SECRET }}

@@ -128,6 +128,7 @@ jobs:
             GH_CLIENT_ID=${{ secrets.GH_CLIENT_ID }}
             GH_CLIENT_SECRET=${{ secrets.GH_CLIENT_SECRET }}
             GH_CALLBACK_URL=${{ secrets.GH_CALLBACK_URL }}
+            COOKIE_DOMAIN=${{ secrets.COOKIE_DOMAIN }}
             EOF
 
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -181,6 +182,7 @@ jobs:
             FRONTEND_URL=${{ secrets.WEB_APP_URL }}
             HTTP_BACKEND_INTERNAL_URL=http://10.190.0.2:3001
             ALLOWED_ORIGINS=${{ secrets.ALLOWED_ORIGINS }}
+            COOKIE_DOMAIN=${{ secrets.COOKIE_DOMAIN }}
             EOF
 
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin

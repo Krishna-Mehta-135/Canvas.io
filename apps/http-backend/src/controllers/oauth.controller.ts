@@ -26,20 +26,12 @@ import {
   generateAccessToken,
   generateRefreshToken,
 } from "../utils/token";
+import { getCookieOptions } from "../utils/cookie";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 const FRONTEND_URL =
   process.env.WEB_APP_URL ?? "http://localhost:3000";
-
-function cookieOptions(maxAgeMs: number) {
-  return {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax" as const,
-    maxAge: maxAgeMs,
-  };
-}
 
 function errorRedirect(res: Response, slug: string) {
   return res.redirect(`${FRONTEND_URL}/signin?error=${slug}`);
@@ -168,8 +160,8 @@ async function finalizeOAuth(
     data: { refreshTokenExp: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
   });
 
-  res.cookie("accessToken", accessToken, cookieOptions(15 * 60 * 1000));
-  res.cookie("refreshToken", refreshToken, cookieOptions(7 * 24 * 60 * 60 * 1000));
+  res.cookie("accessToken", accessToken, getCookieOptions(15 * 60 * 1000));
+  res.cookie("refreshToken", refreshToken, getCookieOptions(7 * 24 * 60 * 60 * 1000));
 
   return res.redirect(redirectTarget);
 }

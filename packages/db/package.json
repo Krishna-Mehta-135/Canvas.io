@@ -2,10 +2,13 @@
   "name": "@repo/db",
   "version": "1.0.0",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
   "exports": {
-    "./client": "./src/index.ts"
+    "./client": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
   },
   "scripts": {
     "db:generate": "npx prisma generate",
@@ -13,7 +16,8 @@
     "db:migrate": "npx prisma migrate dev",
     "lint": "eslint .",
     "test": "echo 'No tests configured for db'",
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "build": "tsc"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

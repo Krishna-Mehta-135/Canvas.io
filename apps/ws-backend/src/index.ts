@@ -1,4 +1,5 @@
 import "@repo/backend-common/config";
+import http from "http";
 import { WebSocketServer, WebSocket } from "ws";
 import {
   subscribeDurableRoomEvents,
@@ -38,7 +39,16 @@ import {
 } from "./ws/metrics.js";
 
 const WS_PORT = Number(process.env.WS_PORT ?? 8081);
-const wss = new WebSocketServer({ port: WS_PORT });
+const server = http.createServer((req, res) => {
+  if (req.method === "GET" && (req.url === "/" || req.url === "/health")) {
+    res.writeHead(200);
+    res.end("OK");
+    return;
+  }
+  res.writeHead(404);
+  res.end();
+});
+const wss = new WebSocketServer({ server });
 const RABBITMQ_INITIAL_RETRY_DELAY_MS = Number(
   process.env.WS_RABBITMQ_RETRY_INITIAL_MS ?? 2000,
 );
@@ -73,7 +83,9 @@ function safeRabbitMqUrl(rawUrl: string) {
   }
 }
 
-console.log(`WebSocket server online on port ${WS_PORT}`);
+server.listen(WS_PORT, () => {
+  console.log(`WebSocket server online on port ${WS_PORT}`);
+});
 startMetricsReporter();
 
 const seenActionIds = new Map<string, number>();

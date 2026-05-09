@@ -1,69 +1,42 @@
-# ── Stage 1: base ─────────────────────────────────────────────────────────────
+# ── Stage 1: Base ─────────────────────────────────────────────────────────────
 FROM node:20-alpine AS base
-RUN apk add --no-cache libc6-compat
-ENV PNPM_HOME="/pnpm" \
-    PATH="$PNPM_HOME:$PATH"
+RUN apk add --no-cache libc6-compat curl
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@10.30.1 --activate
-
-# ── Stage 2: installer ────────────────────────────────────────────────────────
-FROM base AS installer
 WORKDIR /app
 
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY packages/backend-common/package.json  ./packages/backend-common/
-COPY packages/common/package.json          ./packages/common/
-COPY packages/db/package.json              ./packages/db/
-COPY packages/queue-sync/package.json      ./packages/queue-sync/
-COPY packages/redis-sync/package.json      ./packages/redis-sync/
-COPY packages/canvas-engine/package.json   ./packages/canvas-engine/
-COPY packages/typescript-config/package.json ./packages/typescript-config/
-COPY packages/eslint-config/package.json   ./packages/eslint-config/
-COPY apps/ws-backend/package.json          ./apps/ws-backend/
+# ── Stage 2: Pruner (The Secret Sauce) ────────────────────────────────────────
+FROM base AS pruner
+RUN pnpm add -g turbo
+COPY . .
+# This creates a 'pruned' version of your monorepo with ONLY what ws-backend needs
+RUN turbo prune ws-backend --docker
 
+# ── Stage 3: Builder ──────────────────────────────────────────────────────────
+FROM base AS builder
+COPY --from=pruner /app/out/json/ .
+COPY --from=pruner /app/out/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
-# ── Stage 3: builder ──────────────────────────────────────────────────────────
-FROM installer AS builder
-WORKDIR /app
-
-COPY turbo.json ./
-COPY packages/backend-common  ./packages/backend-common
-COPY packages/common          ./packages/common
-COPY packages/db              ./packages/db
-COPY packages/queue-sync      ./packages/queue-sync
-COPY packages/redis-sync      ./packages/redis-sync
-COPY packages/canvas-engine   ./packages/canvas-engine
-COPY packages/typescript-config ./packages/typescript-config
-COPY apps/ws-backend          ./apps/ws-backend
-
-ARG NEXT_PUBLIC_API_URL
-ARG NEXT_PUBLIC_WS_URL
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
-
+# Copy the actual source code and build
+COPY --from=pruner /app/out/full/ .
+RUN pnpm --filter @repo/db db:generate
 RUN pnpm turbo run build --filter=ws-backend...
 
-# ── Stage 4: pruner ───────────────────────────────────────────────────────────
-FROM builder AS pruner
-WORKDIR /app
-
-RUN pnpm deploy --filter=ws-backend --prod /pruned/ws-backend
-
-# ── Stage 5: runner ───────────────────────────────────────────────────────────
+# ── Stage 4: Runner ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
-RUN apk add --no-cache libc6-compat curl
-
 WORKDIR /app
 ENV NODE_ENV=production
 
-COPY --from=pruner  /pruned/ws-backend/node_modules  ./node_modules
-COPY --from=builder /app/apps/ws-backend/dist         ./dist
-COPY --from=builder /app/apps/ws-backend/package.json ./
+# 🚨 THE FIX: Instead of pnpm deploy, we copy the built folders directly.
+COPY --from=builder /app .
 
+# Non-root user
 RUN addgroup --system --gid 1001 nodejs && \
-    adduser  --system --uid 1001 appuser && \
+    adduser --system --uid 1001 appuser && \
     chown -R appuser:nodejs /app
 USER appuser
 
 EXPOSE 8081
-CMD ["node", "dist/index.js"]
+CMD ["node", "apps/ws-backend/dist/index.js"]

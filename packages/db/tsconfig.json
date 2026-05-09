@@ -1,8 +1,14 @@
 {
-    "extends": "@repo/typescript-config/base.json",
-    "compilerOptions": {
-        "types": ["node"],
-        "rewriteRelativeImportExtensions": true,
-        "allowImportingTsExtensions": true
-    }
+  "extends": "@repo/typescript-config/base.json",
+  "compilerOptions": {
+    "types": [
+      "node"
+    ],
+    "rewriteRelativeImportExtensions": true,
+    "allowImportingTsExtensions": true,
+    "outDir": "dist"
+  },
+  "include": [
+    "src/**/*"
+  ]
 }

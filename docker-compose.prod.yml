@@ -56,7 +56,7 @@ services:
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:-}
       GITHUB_CALLBACK_URL: ${GITHUB_CALLBACK_URL:-}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3001/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -81,7 +81,7 @@ services:
       RABBITMQ_AI_GENERATE_QUEUE: ${RABBITMQ_AI_GENERATE_QUEUE:-canvas.ai.generate.jobs}
       RABBITMQ_AI_GENERATE_ROUTING_KEY: ${RABBITMQ_AI_GENERATE_ROUTING_KEY:-ai.generate}
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8081/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8081/health || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -113,6 +113,8 @@ services:
     image: ghcr.io/${GITHUB_REPO}/canvas-ai-worker:latest
     environment:
       NODE_ENV: production
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+      DATABASE_URL: ${DATABASE_URL}
       # On the Worker VM, RabbitMQ runs as a sibling container on the same host.
       RABBITMQ_URL: amqp://${RABBITMQ_USER:-canvas}:${RABBITMQ_PASS}@rabbitmq:5672
       RABBITMQ_AI_GENERATE_EXCHANGE: ${RABBITMQ_AI_GENERATE_EXCHANGE:-canvas.ai.generate}

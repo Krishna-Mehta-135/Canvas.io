@@ -1,8 +1,8 @@
 # ── Stage 1: base ─────────────────────────────────────────────────────────────
 FROM node:20-alpine AS base
-RUN apk add --no-cache libc6-compat
-ENV PNPM_HOME="/pnpm" \
-    PATH="$PNPM_HOME:$PATH"
+RUN apk add --no-cache libc6-compat curl
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@10.30.1 --activate
 
 # ── Stage 2: installer ────────────────────────────────────────────────────────

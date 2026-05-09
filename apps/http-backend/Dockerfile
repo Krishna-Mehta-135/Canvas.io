@@ -1,69 +1,43 @@
-# ── Stage 1: base ─────────────────────────────────────────────────────────────
+# ── Stage 1: Base ─────────────────────────────────────────────────────────────
 FROM node:20-alpine AS base
-RUN apk add --no-cache libc6-compat
-ENV PNPM_HOME="/pnpm" \
-    PATH="$PNPM_HOME:$PATH"
+RUN apk add --no-cache libc6-compat curl
+ENV PNPM_HOME="/pnpm"
+ENV PATH="$PNPM_HOME:$PATH"
 RUN corepack enable && corepack prepare pnpm@10.30.1 --activate
-
-# ── Stage 2: installer ────────────────────────────────────────────────────────
-# Install full monorepo dep tree so Turbo can build everything.
-FROM base AS installer
 WORKDIR /app
 
-# Manifests first — cache-stable until lock-file changes.
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
-COPY packages/backend-common/package.json  ./packages/backend-common/
-COPY packages/common/package.json          ./packages/common/
-COPY packages/db/package.json              ./packages/db/
-COPY packages/typescript-config/package.json ./packages/typescript-config/
-COPY packages/eslint-config/package.json   ./packages/eslint-config/
-COPY apps/http-backend/package.json        ./apps/http-backend/
+# ── Stage 2: Pruner (The Secret Sauce) ────────────────────────────────────────
+FROM base AS pruner
+RUN pnpm add -g turbo
+COPY . .
+# This creates a 'pruned' version of your monorepo with ONLY what http-backend needs
+RUN turbo prune http-backend --docker
 
+# ── Stage 3: Builder ──────────────────────────────────────────────────────────
+FROM base AS builder
+COPY --from=pruner /app/out/json/ .
+COPY --from=pruner /app/out/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
-# ── Stage 3: builder ──────────────────────────────────────────────────────────
-FROM installer AS builder
-WORKDIR /app
-
-COPY turbo.json ./
-COPY packages/backend-common  ./packages/backend-common
-COPY packages/common          ./packages/common
-COPY packages/db              ./packages/db
-COPY packages/typescript-config ./packages/typescript-config
-COPY apps/http-backend        ./apps/http-backend
-
-ARG NEXT_PUBLIC_API_URL
-ARG NEXT_PUBLIC_WS_URL
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
-
+# Copy the actual source code and build
+COPY --from=pruner /app/out/full/ .
+RUN pnpm --filter @repo/db db:generate
 RUN pnpm turbo run build --filter=http-backend...
 
-# ── Stage 4: pruner ───────────────────────────────────────────────────────────
-# Resolve only production deps for http-backend — no devDeps, no workspace links.
-FROM builder AS pruner
-WORKDIR /app
-
-RUN pnpm deploy --filter=http-backend --prod /pruned/http-backend
-
-# ── Stage 5: runner ───────────────────────────────────────────────────────────
+# ── Stage 4: Runner ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
-RUN apk add --no-cache libc6-compat curl
-
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Pruned production node_modules
-COPY --from=pruner  /pruned/http-backend/node_modules  ./node_modules
-# Compiled JS output
-COPY --from=builder /app/apps/http-backend/dist         ./dist
-COPY --from=builder /app/apps/http-backend/package.json ./
+# 🚨 THE FIX: Instead of pnpm deploy, we copy the built folders directly.
+# This ensures @repo/backend-common/dist is actually there.
+COPY --from=builder /app .
 
 # Non-root user
 RUN addgroup --system --gid 1001 nodejs && \
-    adduser  --system --uid 1001 appuser && \
+    adduser --system --uid 1001 appuser && \
     chown -R appuser:nodejs /app
 USER appuser
 
 EXPOSE 3001
-CMD ["node", "dist/index.js"]
+CMD ["node", "apps/http-backend/dist/index.js"]

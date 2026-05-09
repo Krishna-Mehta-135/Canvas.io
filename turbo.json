@@ -5,6 +5,7 @@
     "CI",
     "NODE_ENV",
     "DATABASE_URL",
+    "DB_SSL_CA",
     "JWT_SECRET",
     "REDIS_URL",
     "RABBITMQ_URL",

@@ -1,3 +1,8 @@
+/* 
+ * File intent: Configure Express application, middleware, and routing structure.
+ * Adding trust proxy to enable accurate IP detection behind reverse proxies 
+ * (like NGINX, HAProxy, AWS ELB, etc) which is important for rate limiting.
+ */
 import express, { Express } from "express";
 import cookieParser from "cookie-parser";
 import cors from "cors";
@@ -8,6 +13,9 @@ import { rateLimitMiddleware } from "./middlewares/rate-limit.middleware";
 import { receiveAiResult } from "./controllers/room.controller";
 
 const app: Express = express();
+
+// Trust reverse proxy to ensure rate limiting identifies the correct origin IP.
+app.set('trust proxy', 1);
 
 app.use(
   cors({

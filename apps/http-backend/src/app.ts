@@ -14,16 +14,41 @@ import { receiveAiResult } from "./controllers/room.controller";
 
 const app: Express = express();
 
-// Trust reverse proxy to ensure rate limiting identifies the correct origin IP.
-app.set('trust proxy', 1);
+// Trust the GCP Load Balancer / Vercel reverse proxy so that OAuth redirect
+// detection and secure-cookie logic see the correct scheme and host.
+app.set("trust proxy", 1);
+
+// ── CORS ──────────────────────────────────────────────────────────────────────
+// ALLOWED_ORIGINS is a comma-separated list injected at runtime.
+// Falls back to localhost patterns for local development.
+const productionOrigins: string[] = (process.env.ALLOWED_ORIGINS ?? "")
+  .split(",")
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const allowedOriginPattern = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
 app.use(
   cors({
-    origin: [
-      /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/,
-      "https://canvassync.tech",
-      /\.vercel\.app$/,
-    ],
+    origin: (origin, callback) => {
+      // Allow same-machine browser clients (dev) and server-to-server calls.
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (allowedOriginPattern.test(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      if (productionOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(new Error("CORS origin not allowed"));
+    },
     credentials: true,
   }),
 );
@@ -36,8 +61,8 @@ app.use(cookieParser());
 app.post("/internal/ai/result", receiveAiResult);
 
 //Routes
-app.get("/", (req, res) => res.sendStatus(200));
-app.get("/health", (req, res) => res.sendStatus(200));
+app.get("/", (_req, res) => res.sendStatus(200));
+app.get("/health", (_req, res) => res.sendStatus(200));
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/room", roomRouter);
 

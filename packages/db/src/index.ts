@@ -13,13 +13,21 @@ import { PrismaClient } from "../prisma/generated/prisma/client.ts";
  * requests and background workers use the same safety rules.
  */
 
+import { readFileSync, existsSync } from "node:fs";
+
 const connectionString = process.env.DATABASE_URL;
 
 if (!connectionString) {
   throw new Error("DATABASE_URL is not defined");
 }
 
-const adapter = new PrismaPg({ connectionString });
+const sslConfig = process.env.DB_SSL_CA
+  ? { ca: readFileSync(process.env.DB_SSL_CA).toString() }
+  : existsSync("/opt/canvas/certs/server-ca.pem")
+    ? { ca: readFileSync("/opt/canvas/certs/server-ca.pem").toString() }
+    : { rejectUnauthorized: false }; // fallback
+
+const adapter = new PrismaPg({ connectionString, ssl: sslConfig });
 
 // Raw Prisma client instance before resilience behavior is layered on.
 const rawPrismaClient = new PrismaClient({ adapter });

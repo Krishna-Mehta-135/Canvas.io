@@ -98,12 +98,17 @@ jobs:
             set -euo pipefail
             mkdir -p /opt/canvas && cd /opt/canvas
 
+            # Write the CA cert from secret
+            mkdir -p certs
+            echo "${{ secrets.DB_SSL_CA_CERT }}" > certs/server-ca.pem
+
             # Force lowercase repo name for Docker images
             LOWER_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
 
             # Inject all environment variables into a .env file on the VM
             cat <<EOF > .env
             NODE_ENV=production
+            NODE_EXTRA_CA_CERTS=/opt/canvas/certs/server-ca.pem
             GITHUB_REPO=$LOWER_REPO
             DATABASE_URL=${{ secrets.DATABASE_URL }}
             REDIS_URL=redis://10.190.0.4:6379
@@ -163,12 +168,17 @@ jobs:
             set -euo pipefail
             mkdir -p /opt/canvas && cd /opt/canvas
 
+            # Write the CA cert from secret
+            mkdir -p certs
+            echo "${{ secrets.DB_SSL_CA_CERT }}" > certs/server-ca.pem
+
             # 🚨 Fix 1: Force lowercase repo name for Docker images
             LOWER_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
 
             # Worker VM only needs infrastructure connection secrets
             cat <<EOF > .env
             NODE_ENV=production
+            NODE_EXTRA_CA_CERTS=/opt/canvas/certs/server-ca.pem
             GITHUB_REPO=$LOWER_REPO
             DATABASE_URL=${{ secrets.DATABASE_URL }}
             REDIS_URL=redis://10.190.0.4:6379

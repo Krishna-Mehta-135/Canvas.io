@@ -34,7 +34,10 @@ export function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-export function getMousePos(canvas: HTMLCanvasElement, e: MouseEvent) {
+export function getMousePos(
+  canvas: HTMLCanvasElement,
+  e: MouseEvent | PointerEvent,
+) {
   const rect = canvas.getBoundingClientRect();
 
   return {

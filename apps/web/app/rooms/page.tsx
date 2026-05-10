@@ -284,13 +284,13 @@ export default function RoomsPage() {
     try {
       await logoutUser();
     } finally {
-      window.location.href = "/signin";
+      window.location.href = "/";
     }
   };
 
   return (
     <main
-      className={`min-h-screen overflow-hidden px-5 py-8 text-slate-900 transition-colors duration-300 sm:px-8 sm:py-12 ${isDark ? "bg-[radial-gradient(circle_at_18%_12%,rgba(59,130,246,0.20),transparent_30%),radial-gradient(circle_at_82%_10%,rgba(139,92,246,0.16),transparent_24%),linear-gradient(180deg,#0f172a_0%,#020617_70%,#020617_100%)] text-white" : "bg-[radial-gradient(circle_at_20%_15%,rgba(59,130,246,0.22),transparent_40%),radial-gradient(circle_at_80%_12%,rgba(16,185,129,0.18),transparent_35%),radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.12),transparent_60%),linear-gradient(180deg,#edf4ff_0%,#ffffff_45%,#f0f7ff_100%)]"}`}
+      className={`min-h-screen overflow-y-auto px-5 py-8 text-slate-900 transition-colors duration-300 sm:px-8 sm:py-12 ${isDark ? "bg-[radial-gradient(circle_at_18%_12%,rgba(59,130,246,0.20),transparent_30%),radial-gradient(circle_at_82%_10%,rgba(139,92,246,0.16),transparent_24%),linear-gradient(180deg,#0f172a_0%,#020617_70%,#020617_100%)] text-white" : "bg-[radial-gradient(circle_at_20%_15%,rgba(59,130,246,0.22),transparent_40%),radial-gradient(circle_at_80%_12%,rgba(16,185,129,0.18),transparent_35%),radial-gradient(circle_at_50%_50%,rgba(99,102,241,0.12),transparent_60%),linear-gradient(180deg,#edf4ff_0%,#ffffff_45%,#f0f7ff_100%)]"}`}
     >
       <section className="relative mx-auto w-full max-w-6xl">
         <div

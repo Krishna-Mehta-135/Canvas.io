@@ -667,7 +667,8 @@ export function attachEvents(
     });
   };
 
-  const handleMouseDown = (e: MouseEvent) => {
+  const handleMouseDown = (e: PointerEvent) => {
+    canvas.setPointerCapture(e.pointerId);
     const screenPoint = getMousePos(canvas, e);
     lastPointer = screenPoint;
     options.onCursorChange?.(screenToWorldPoint(screenPoint, viewport));
@@ -884,7 +885,7 @@ export function attachEvents(
     requestRender();
   };
 
-  const handleMouseMove = (e: MouseEvent) => {
+  const handleMouseMove = (e: PointerEvent) => {
     const screenPoint = getMousePos(canvas, e);
     lastPointer = screenPoint;
     options.onCursorChange?.(screenToWorldPoint(screenPoint, viewport));
@@ -1094,7 +1095,8 @@ export function attachEvents(
     });
   };
 
-  const handleMouseUp = (e: MouseEvent) => {
+  const handleMouseUp = (e: PointerEvent) => {
+    canvas.releasePointerCapture(e.pointerId);
     const screenPoint = getMousePos(canvas, e);
     lastPointer = screenPoint;
     options.onCursorChange?.(screenToWorldPoint(screenPoint, viewport));
@@ -1235,15 +1237,15 @@ export function attachEvents(
     },
   });
 
-  canvas.addEventListener("mousedown", handleMouseDown);
-  canvas.addEventListener("mousemove", handleMouseMove);
-  canvas.addEventListener("mouseup", handleMouseUp);
+  canvas.addEventListener("pointerdown", handleMouseDown);
+  canvas.addEventListener("pointermove", handleMouseMove);
+  canvas.addEventListener("pointerup", handleMouseUp);
   canvas.addEventListener("dblclick", handleDoubleClick);
   const handleMouseLeave = () => {
     lastPointer = null;
     options.onCursorChange?.(null);
   };
-  canvas.addEventListener("mouseleave", handleMouseLeave);
+  canvas.addEventListener("pointerleave", handleMouseLeave);
 
   return {
     deleteSelection,
@@ -1390,11 +1392,11 @@ export function attachEvents(
 
       isDestroyed = true;
       window.removeEventListener("keydown", handleKeyDown);
-      canvas.removeEventListener("mousedown", handleMouseDown);
-      canvas.removeEventListener("mousemove", handleMouseMove);
-      canvas.removeEventListener("mouseup", handleMouseUp);
+      canvas.removeEventListener("pointerdown", handleMouseDown);
+      canvas.removeEventListener("pointermove", handleMouseMove);
+      canvas.removeEventListener("pointerup", handleMouseUp);
       canvas.removeEventListener("dblclick", handleDoubleClick);
-      canvas.removeEventListener("mouseleave", handleMouseLeave);
+      canvas.removeEventListener("pointerleave", handleMouseLeave);
       detachViewportEvents();
       textEditingController.dispose();
     },

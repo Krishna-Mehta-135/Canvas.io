@@ -50,7 +50,7 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} touch-none`}
+        className={`${geistSans.variable} ${geistMono.variable}`}
       >
         <ThemeProvider>
           <GlobalCursor />

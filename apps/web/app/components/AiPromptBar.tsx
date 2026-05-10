@@ -234,14 +234,14 @@ export function AiChatModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    const h = (e: MouseEvent) => {
+    const h = (e: PointerEvent) => {
       if (panelRef.current && !panelRef.current.contains(e.target as Node))
         onClose();
     };
-    const id = setTimeout(() => document.addEventListener("mousedown", h), 150);
+    const id = setTimeout(() => document.addEventListener("pointerdown", h), 150);
     return () => {
       clearTimeout(id);
-      document.removeEventListener("mousedown", h);
+      document.removeEventListener("pointerdown", h);
     };
   }, [isOpen, onClose]);
 

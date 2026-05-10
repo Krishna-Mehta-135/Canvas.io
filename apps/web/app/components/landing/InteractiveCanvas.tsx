@@ -27,7 +27,6 @@ type LayoutConfig = {
   cursors: Array<{
     name: string;
     color: string;
-    path: { x: number; y: number }[];
     delay: number;
   }>;
 };
@@ -93,23 +92,11 @@ const desktopLayout: LayoutConfig = {
     {
       name: "Sarah C.",
       color: "bg-indigo-500",
-      path: [
-        { x: 290, y: 135 },
-        { x: 345, y: 160 },
-        { x: 325, y: 190 },
-        { x: 290, y: 135 },
-      ],
       delay: 0,
     },
     {
       name: "Mike T.",
       color: "bg-emerald-500",
-      path: [
-        { x: 520, y: 305 },
-        { x: 565, y: 328 },
-        { x: 540, y: 352 },
-        { x: 520, y: 305 },
-      ],
       delay: 3,
     },
   ],
@@ -361,7 +348,7 @@ export function InteractiveCanvas() {
   return (
     <div
       ref={canvasRef}
-      className="relative h-full w-full touch-none overflow-hidden rounded-[22px] bg-transparent"
+      className="relative h-full w-full touch-none overflow-hidden rounded-2xl bg-transparent"
       onClick={() => setSelectedBox(null)}
     >
       <svg
@@ -409,7 +396,7 @@ export function InteractiveCanvas() {
         return (
           <motion.div
             key={box.id}
-            className={`absolute z-10 flex cursor-grab touch-none flex-col overflow-hidden rounded-[22px] border shadow-[0_18px_40px_rgba(15,23,42,0.18)] transition-colors active:cursor-grabbing ${
+            className={`absolute z-10 flex cursor-grab touch-none flex-col overflow-hidden rounded-lg border shadow-[0_18px_40px_rgba(15,23,42,0.18)] transition-colors active:cursor-grabbing ${
               isSelected
                 ? "border-blue-400 bg-[#172036] shadow-blue-500/20"
                 : isAi
@@ -497,7 +484,6 @@ export function InteractiveCanvas() {
           layout={layout}
           name={cursor.name}
           color={cursor.color}
-          path={cursor.path}
           delay={cursor.delay}
         />
       ))}
@@ -509,33 +495,60 @@ function AnimatedCursor({
   layout,
   name,
   color,
-  path,
   delay,
 }: {
   layout: LayoutConfig;
   name: string;
   color: string;
-  path: { x: number; y: number }[];
   delay: number;
 }) {
+  const [target, setTarget] = useState({ x: 0, y: 0 });
+  const [opacity, setOpacity] = useState(0);
+
+  useEffect(() => {
+    // Initial random position
+    setTarget({
+      x: Math.random() * layout.width,
+      y: Math.random() * layout.height,
+    });
+
+    const interval = setInterval(() => {
+      // 1. Fade out
+      setOpacity(0);
+
+      setTimeout(() => {
+        // 2. Teleport to new random location
+        setTarget({
+          x: Math.random() * layout.width,
+          y: Math.random() * layout.height,
+        });
+
+        // 3. Fade in and start moving
+        setOpacity(1);
+      }, 1000);
+    }, 6000 + Math.random() * 4000);
+
+    // Initial fade in
+    const initialTimeout = setTimeout(() => setOpacity(1), delay * 1000);
+
+    return () => {
+      clearInterval(interval);
+      clearTimeout(initialTimeout);
+    };
+  }, [layout.height, layout.width, delay]);
+
   return (
     <motion.div
       className="pointer-events-none absolute z-40 hidden sm:block"
-      initial={{
-        x: `${(path[0]!.x / layout.width) * 100}%`,
-        y: `${(path[0]!.y / layout.height) * 100}%`,
-        opacity: 0,
-      }}
       animate={{
-        x: path.map((point) => `${(point.x / layout.width) * 100}%`),
-        y: path.map((point) => `${(point.y / layout.height) * 100}%`),
-        opacity: [0, 1, 1, 1, 0],
+        x: `${(target.x / layout.width) * 100}%`,
+        y: `${(target.y / layout.height) * 100}%`,
+        opacity: opacity,
       }}
       transition={{
-        duration: 8,
-        delay,
-        repeat: Infinity,
-        ease: "easeInOut",
+        x: { duration: 3.5, ease: "easeInOut" },
+        y: { duration: 3.5, ease: "easeInOut" },
+        opacity: { duration: 0.8 },
       }}
     >
       <svg

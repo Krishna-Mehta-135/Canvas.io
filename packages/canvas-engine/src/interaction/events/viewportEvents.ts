@@ -45,12 +45,12 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
     });
   };
 
-  const handleWindowMouseUp = () => {
+  const handleWindowPointerUp = () => {
     if (!isInteractionActive()) {
       return;
     }
 
-    // If the pointer is released outside the canvas, the canvas never receives mouseup.
+    // If the pointer is released outside the canvas, the canvas never receives pointerup.
     // Clear transient interaction state here so selected shapes don't keep tracking the cursor.
     const shouldRepaint = shouldRepaintOnReset();
     resetInteractions();
@@ -178,7 +178,7 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
     requestRender();
   };
 
-  window.addEventListener("mouseup", handleWindowMouseUp);
+  window.addEventListener("pointerup", handleWindowPointerUp);
   window.addEventListener("blur", handleWindowBlur);
   window.addEventListener("keyup", handleWindowKeyUp);
   window.addEventListener("resize", handleWindowResize);
@@ -197,7 +197,7 @@ export function attachViewportEvents(params: AttachViewportEventsParams) {
   });
 
   return () => {
-    window.removeEventListener("mouseup", handleWindowMouseUp);
+    window.removeEventListener("pointerup", handleWindowPointerUp);
     window.removeEventListener("blur", handleWindowBlur);
     window.removeEventListener("keyup", handleWindowKeyUp);
     window.removeEventListener("resize", handleWindowResize);

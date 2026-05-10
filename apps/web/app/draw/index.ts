@@ -32,14 +32,14 @@ export function initDraw(canvas: HTMLCanvasElement, roomId: string) {
   let startX = 0;
   let startY = 0;
 
-  canvas.addEventListener("mousedown", (e) => {
+  canvas.addEventListener("pointerdown", (e) => {
     const rect = canvas.getBoundingClientRect();
     clicked = true;
     startX = e.clientX - rect.left;
     startY = e.clientY - rect.top;
   });
 
-  canvas.addEventListener("mouseup", (e) => {
+  canvas.addEventListener("pointerup", (e) => {
     const rect = canvas.getBoundingClientRect();
     clicked = false;
 
@@ -60,7 +60,7 @@ export function initDraw(canvas: HTMLCanvasElement, roomId: string) {
     clearCanvas(existingShapes, canvas, ctx);
   });
 
-  canvas.addEventListener("mousemove", (e) => {
+  canvas.addEventListener("pointermove", (e) => {
     if (!clicked) return;
 
     const rect = canvas.getBoundingClientRect();

@@ -677,7 +677,8 @@ export function AiTriggerButton({
       >
         ✦
       </span>
-      <span>Generate with AI</span>
+      <span className="hidden sm:inline">Generate with AI</span>
+      <span className="sm:hidden">AI</span>
     </button>
   );
 }

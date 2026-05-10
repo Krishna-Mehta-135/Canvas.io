@@ -2407,9 +2407,23 @@ export default function CanvasPage() {
   const floatingPanelSurface = isDark
     ? "border border-white/10 bg-[#111827]/80 shadow-[0_18px_50px_rgba(2,6,23,0.35)]"
     : "border border-slate-200/80 bg-white/90 shadow-[0_8px_30px_rgba(15,23,42,0.04)] shadow-sm";
+  useEffect(() => {
+    // Lock body scroll for canvas page to prevent unwanted mobile scrolling
+    const originalOverflow = document.body.style.overflow;
+    const originalOverscroll = document.body.style.overscrollBehavior;
+
+    document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
+
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      document.body.style.overscrollBehavior = originalOverscroll;
+    };
+  }, []);
+
   return (
     <div
-      className={`relative h-screen w-screen overflow-hidden ${shellBackground}`}
+      className={`relative h-[100dvh] w-full overflow-hidden overscroll-none ${shellBackground}`}
     >
       <div className={`pointer-events-none absolute inset-0 ${shellGlow}`} />
       <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.22),rgba(255,255,255,0)_28%,rgba(255,255,255,0)_75%,rgba(255,255,255,0.12))] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.05),rgba(255,255,255,0)_24%,rgba(255,255,255,0)_80%,rgba(2,6,23,0.12))]" />
@@ -2430,7 +2444,7 @@ export default function CanvasPage() {
       {/* Workspace Metadata */}
       <div className="pointer-events-none absolute left-2 top-2 z-40 sm:left-4 sm:top-4">
         <div
-          className={`pointer-events-auto my-2 flex max-w-[calc(100vw-5.5rem)] items-center gap-2 rounded-2xl border px-3 py-2 backdrop-blur-2xl sm:max-w-none sm:gap-4 sm:px-4 sm:py-3 ${floatingPanelSurface}`}
+          className={`pointer-events-auto my-2 flex max-w-[calc(100vw-9rem)] items-center gap-2 rounded-2xl border px-3 py-2 backdrop-blur-2xl sm:max-w-none sm:gap-4 sm:px-4 sm:py-3 ${floatingPanelSurface}`}
         >
           <div className="min-w-0 flex flex-col">
             {/* <div className={`mb-1 inline-flex w-fit rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.22em] ${isDark ? "bg-white/5 text-white/55" : "bg-slate-100 text-slate-500"}`}>
@@ -3412,9 +3426,9 @@ export default function CanvasPage() {
 
       {/* Top Center: Main Toolbar */}
       <div
-        className={`absolute left-1/2 top-20 z-10 w-[calc(100vw-1rem)] -translate-x-1/2 rounded-2xl p-2 backdrop-blur-2xl transition-all duration-500 sm:top-4 sm:w-auto sm:p-3 ${topToolbarSurface}`}
+        className={`absolute left-1/2 top-28 z-10 w-[calc(100vw-1rem)] -translate-x-1/2 rounded-2xl p-2 backdrop-blur-2xl transition-all duration-500 sm:top-4 sm:w-auto sm:p-3 ${topToolbarSurface}`}
       >
-        <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto px-1 pb-1 sm:overflow-visible sm:pb-0">
+        <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto scrollbar-none px-1 pb-1 sm:overflow-visible sm:pb-0">
           {TOOLS.map((tool, idx) => {
             const isActive = activeTool === tool.id;
             return (

@@ -17,8 +17,13 @@ import {
 } from "@repo/common/types";
 import { asyncHandler } from "../utils/asyncHandler";
 import { publishAiGenerateJob } from "@repo/queue-sync";
-import { INTERNAL_SECRET } from "@repo/backend-common/config";
 import { randomUUID } from "node:crypto";
+import Redis from "ioredis";
+import { REDIS_URL, INTERNAL_SECRET } from "@repo/backend-common/config";
+
+const redisClient = new Redis(REDIS_URL, {
+  maxRetriesPerRequest: null,
+});
 
 function requireUserId(userId?: string) {
   if (!userId) {
@@ -1122,7 +1127,7 @@ const decideRoomAccessRequest = asyncHandler(async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// In-memory AI job store (single-node dev; upgrade to Redis later if needed)
+// AI job store (Redis-backed for multi-node scalability)
 // ---------------------------------------------------------------------------
 type AiJobStatus = "pending" | "done" | "error";
 
@@ -1134,18 +1139,8 @@ interface AiJobEntry {
   createdAt: number;
 }
 
-const aiJobStore = new Map<string, AiJobEntry>();
-
-// Purge stale jobs older than 10 minutes to prevent unbounded memory growth.
-setInterval(
-  () => {
-    const cutoff = Date.now() - 10 * 60 * 1000;
-    for (const [id, entry] of aiJobStore) {
-      if (entry.createdAt < cutoff) aiJobStore.delete(id);
-    }
-  },
-  5 * 60 * 1000,
-).unref();
+const getAiJobKey = (jobId: string) => `ai:job:${jobId}`;
+const AI_JOB_TTL_SEC = 300; // 5 minutes
 
 // ---------------------------------------------------------------------------
 // AI controller functions
@@ -1174,11 +1169,18 @@ const generateAiCanvas = asyncHandler(async (req, res) => {
   const { prompt } = bodyValidation.data;
   const jobId = randomUUID();
 
-  aiJobStore.set(jobId, {
+  const initialEntry: AiJobEntry = {
     status: "pending",
     roomId,
     createdAt: Date.now(),
-  });
+  };
+
+  await redisClient.set(
+    getAiJobKey(jobId),
+    JSON.stringify(initialEntry),
+    "EX",
+    AI_JOB_TTL_SEC,
+  );
 
   try {
     await publishAiGenerateJob({
@@ -1189,12 +1191,18 @@ const generateAiCanvas = asyncHandler(async (req, res) => {
       enqueuedAtMs: Date.now(),
     });
   } catch {
-    aiJobStore.set(jobId, {
+    const errorEntry: AiJobEntry = {
       status: "error",
       roomId,
       errorMessage: "Failed to enqueue AI job",
       createdAt: Date.now(),
-    });
+    };
+    await redisClient.set(
+      getAiJobKey(jobId),
+      JSON.stringify(errorEntry),
+      "EX",
+      AI_JOB_TTL_SEC,
+    );
     throw new ApiError(
       503,
       "AI generation queue is unavailable. Please try again.",
@@ -1227,10 +1235,12 @@ const getAiGenerateStatus = asyncHandler(async (req, res) => {
     throw new ApiError(403, "Forbidden");
   }
 
-  const entry = aiJobStore.get(jobId);
-  if (!entry) {
+  const rawEntry = await redisClient.get(getAiJobKey(jobId));
+  if (!rawEntry) {
     throw new ApiError(404, "Job not found or expired");
   }
+
+  const entry = JSON.parse(rawEntry) as AiJobEntry;
 
   if (entry.roomId !== roomId) {
     throw new ApiError(403, "Forbidden");
@@ -1267,17 +1277,35 @@ const receiveAiResult = asyncHandler(async (req, res) => {
     throw new ApiError(400, "Missing or invalid jobId");
   }
 
-  const entry = aiJobStore.get(jobId);
-  if (!entry) {
+  const rawEntry = await redisClient.get(getAiJobKey(jobId));
+  if (!rawEntry) {
     return res
       .status(200)
       .json(new ApiResponse(200, null, "Job not found (may have expired)"));
   }
 
+  const entry = JSON.parse(rawEntry) as AiJobEntry;
+
   if (errorMessage) {
-    aiJobStore.set(jobId, { ...entry, status: "error", errorMessage });
+    const nextEntry: AiJobEntry = { ...entry, status: "error", errorMessage };
+    await redisClient.set(
+      getAiJobKey(jobId),
+      JSON.stringify(nextEntry),
+      "EX",
+      AI_JOB_TTL_SEC,
+    );
   } else {
-    aiJobStore.set(jobId, { ...entry, status: "done", shapes: shapes ?? [] });
+    const nextEntry: AiJobEntry = {
+      ...entry,
+      status: "done",
+      shapes: shapes ?? [],
+    };
+    await redisClient.set(
+      getAiJobKey(jobId),
+      JSON.stringify(nextEntry),
+      "EX",
+      AI_JOB_TTL_SEC,
+    );
   }
 
   return res.status(200).json(new ApiResponse(200, null, "AI result received"));

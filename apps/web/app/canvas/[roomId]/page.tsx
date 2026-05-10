@@ -6,6 +6,7 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { AxiosError } from "axios";
 import { jsPDF } from "jspdf";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import {
   attachEvents,
   convertToPoints,
@@ -1140,6 +1141,8 @@ export default function CanvasPage() {
   const [selectedExportFormat, setSelectedExportFormat] =
     useState<ExportFormat>("png");
   const [isSnapEnabled, setIsSnapEnabled] = useState(true);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isInspectorMinimized, setIsInspectorMinimized] = useState(false);
   const [incomingRoomAccessRequests, setIncomingRoomAccessRequests] = useState<
     IncomingAccessRequest[]
   >([]);
@@ -1721,6 +1724,13 @@ export default function CanvasPage() {
           toolRef.current = tool;
           setActiveTool(tool);
         },
+        onInteractionStart: () => {
+          setIsInspectorMinimized(true);
+        },
+        onInteractionEnd: () => {
+          // Stay minimized on mobile to avoid covering the screen again immediately.
+          // The user can expand it manually when they need it.
+        },
         onSelectionChange: (selectedIds) => {
           const hasSelectionChanged = !areStringArraysEqual(
             selectedIdsRef.current,
@@ -1798,6 +1808,13 @@ export default function CanvasPage() {
       }
     };
   }, [roomId, ownerHandleFromQuery]);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 640);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   useEffect(() => {
     if (!roomId || ownerHandleFromQuery.length === 0) {
@@ -3136,12 +3153,40 @@ export default function CanvasPage() {
 
       {selectedCount > 0 && (
         <aside
-          className={`absolute left-4 top-1/2 z-20 w-72 -translate-y-1/2 rounded-2xl p-5 backdrop-blur-2xl transition-all duration-300 ${inspectorSurface}`}
+          className={`absolute z-20 transition-all duration-300 backdrop-blur-2xl ${inspectorSurface} ${
+            isMobile
+              ? `bottom-4 left-1/2 w-[calc(100vw-2rem)] -translate-x-1/2 rounded-[28px] p-4 ${
+                  isInspectorMinimized
+                    ? "h-[54px] overflow-hidden"
+                    : "max-h-[60vh] overflow-y-auto"
+                }`
+              : "left-4 top-1/2 w-72 -translate-y-1/2 rounded-2xl p-5"
+          }`}
         >
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-xs font-bold uppercase tracking-widest opacity-50">
-              Shape Properties
-            </h3>
+          <div
+            className={`mb-4 flex items-center justify-between ${isMobile ? "cursor-pointer select-none" : ""}`}
+            onClick={() =>
+              isMobile && setIsInspectorMinimized(!isInspectorMinimized)
+            }
+          >
+            <div className="flex items-center gap-2">
+              <h3 className="text-xs font-bold uppercase tracking-widest opacity-50">
+                Shape Properties
+              </h3>
+              {isMobile && (
+                <div
+                  className={`rounded-full p-0.5 transition-colors ${
+                    isDark ? "bg-white/10" : "bg-slate-100"
+                  }`}
+                >
+                  {isInspectorMinimized ? (
+                    <ChevronUp className="h-3.5 w-3.5" />
+                  ) : (
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  )}
+                </div>
+              )}
+            </div>
             <span
               className={`rounded px-2 py-0.5 text-[10px] font-bold ${isDark ? "bg-blue-500/20 text-blue-300" : "bg-blue-50 text-blue-600"}`}
             >

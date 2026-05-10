@@ -325,6 +325,7 @@ export function attachEvents(
   let selectionStartY = 0;
   let dragMode: "single" | "multi" | null = null;
   let lastPointer: { x: number; y: number } | null = null;
+  const activePointers = new Map<number, { x: number; y: number }>();
   let isDestroyed = false;
 
   const getActiveTool = () => options.getTool?.() ?? currentTool;
@@ -369,7 +370,17 @@ export function attachEvents(
     emitSelectionChange();
   };
 
+  const isInteractionActive = () =>
+    isPanning ||
+    isErasing ||
+    isFreehandDrawing ||
+    isDrawing ||
+    isDragging ||
+    isSelecting ||
+    isResizing;
+
   const stopTransientInteractions = () => {
+    const wasActive = isInteractionActive();
     isPanning = false;
     isErasing = false;
     isFreehandDrawing = false;
@@ -385,6 +396,10 @@ export function attachEvents(
     connectorTargetHighlightIds = [];
     freehandPoints = [];
     freehandStrokeStyle = undefined;
+
+    if (wasActive) {
+      options.onInteractionEnd?.();
+    }
   };
 
   const collectConnectorTargetHighlights = (params: {
@@ -668,17 +683,33 @@ export function attachEvents(
   };
 
   const handleMouseDown = (e: PointerEvent) => {
+    const wasActiveBefore = isInteractionActive();
+    const result = handleMouseDownInternal(e);
+    if (!wasActiveBefore && isInteractionActive()) {
+      options.onInteractionStart?.();
+    }
+    return result;
+  };
+
+  const handleMouseDownInternal = (e: PointerEvent) => {
     canvas.setPointerCapture(e.pointerId);
     const screenPoint = getMousePos(canvas, e);
+    activePointers.set(e.pointerId, screenPoint);
+
     lastPointer = screenPoint;
     options.onCursorChange?.(screenToWorldPoint(screenPoint, viewport));
     const { x, y } = screenToWorldPoint(screenPoint, viewport);
     const shapes = state.getShapes();
 
-    if (e.button === 1 || spacePressed) {
+    if (e.button === 1 || spacePressed || activePointers.size >= 2) {
       isPanning = true;
-      panStartX = screenPoint.x;
-      panStartY = screenPoint.y;
+
+      const points = Array.from(activePointers.values());
+      const avgX = points.reduce((acc, p) => acc + p.x, 0) / points.length;
+      const avgY = points.reduce((acc, p) => acc + p.y, 0) / points.length;
+
+      panStartX = avgX;
+      panStartY = avgY;
       panOriginX = viewport.x;
       panOriginY = viewport.y;
       canvas.style.cursor = "grabbing";
@@ -887,6 +918,8 @@ export function attachEvents(
 
   const handleMouseMove = (e: PointerEvent) => {
     const screenPoint = getMousePos(canvas, e);
+    activePointers.set(e.pointerId, screenPoint);
+
     lastPointer = screenPoint;
     options.onCursorChange?.(screenToWorldPoint(screenPoint, viewport));
     const { x, y } = screenToWorldPoint(screenPoint, viewport);
@@ -894,10 +927,14 @@ export function attachEvents(
     const shapes = state.getShapes();
 
     if (isPanning) {
+      const points = Array.from(activePointers.values());
+      const avgX = points.reduce((acc, p) => acc + p.x, 0) / points.length;
+      const avgY = points.reduce((acc, p) => acc + p.y, 0) / points.length;
+
       setViewport({
         ...viewport,
-        x: panOriginX + (screenPoint.x - panStartX),
-        y: panOriginY + (screenPoint.y - panStartY),
+        x: panOriginX + (avgX - panStartX),
+        y: panOriginY + (avgY - panStartY),
       });
 
       updateCursor();
@@ -1096,16 +1133,39 @@ export function attachEvents(
   };
 
   const handleMouseUp = (e: PointerEvent) => {
+    const wasActiveBefore = isInteractionActive();
+    const result = handleMouseUpInternal(e);
+    if (wasActiveBefore && !isInteractionActive()) {
+      options.onInteractionEnd?.();
+    }
+    return result;
+  };
+
+  const handleMouseUpInternal = (e: PointerEvent) => {
     canvas.releasePointerCapture(e.pointerId);
+    activePointers.delete(e.pointerId);
+
     const screenPoint = getMousePos(canvas, e);
     lastPointer = screenPoint;
     options.onCursorChange?.(screenToWorldPoint(screenPoint, viewport));
     const { x, y } = screenToWorldPoint(screenPoint, viewport);
 
     if (isPanning) {
-      isPanning = false;
-      connectorTargetHighlightIds = [];
-      updateCursor();
+      if (activePointers.size > 0) {
+        // Still panning with other fingers, reset origin to current average to avoid jumps
+        const points = Array.from(activePointers.values());
+        const avgX = points.reduce((acc, p) => acc + p.x, 0) / points.length;
+        const avgY = points.reduce((acc, p) => acc + p.y, 0) / points.length;
+
+        panStartX = avgX;
+        panStartY = avgY;
+        panOriginX = viewport.x;
+        panOriginY = viewport.y;
+      } else {
+        isPanning = false;
+        connectorTargetHighlightIds = [];
+        updateCursor();
+      }
       return;
     }
 
@@ -1237,14 +1297,24 @@ export function attachEvents(
     },
   });
 
-  canvas.addEventListener("pointerdown", handleMouseDown);
-  canvas.addEventListener("pointermove", handleMouseMove);
-  canvas.addEventListener("pointerup", handleMouseUp);
-  canvas.addEventListener("dblclick", handleDoubleClick);
+  const handlePointerCancel = (e: PointerEvent) => {
+    activePointers.delete(e.pointerId);
+    if (activePointers.size === 0) {
+      stopTransientInteractions();
+      updateCursor();
+    }
+  };
+
   const handleMouseLeave = () => {
     lastPointer = null;
     options.onCursorChange?.(null);
   };
+
+  canvas.addEventListener("pointerdown", handleMouseDown);
+  canvas.addEventListener("pointermove", handleMouseMove);
+  canvas.addEventListener("pointerup", handleMouseUp);
+  canvas.addEventListener("pointercancel", handlePointerCancel);
+  canvas.addEventListener("dblclick", handleDoubleClick);
   canvas.addEventListener("pointerleave", handleMouseLeave);
 
   return {
@@ -1395,6 +1465,7 @@ export function attachEvents(
       canvas.removeEventListener("pointerdown", handleMouseDown);
       canvas.removeEventListener("pointermove", handleMouseMove);
       canvas.removeEventListener("pointerup", handleMouseUp);
+      canvas.removeEventListener("pointercancel", handlePointerCancel);
       canvas.removeEventListener("dblclick", handleDoubleClick);
       canvas.removeEventListener("pointerleave", handleMouseLeave);
       detachViewportEvents();

@@ -49,6 +49,8 @@ export type AttachEventsOptions = {
   onCursorChange?: (cursor: { x: number; y: number } | null) => void;
   initialViewport?: import("../utils").Viewport;
   onViewportChange?: (viewport: import("../utils").Viewport) => void;
+  onInteractionStart?: () => void;
+  onInteractionEnd?: () => void;
 };
 
 /**

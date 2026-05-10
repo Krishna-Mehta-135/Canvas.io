@@ -55,7 +55,9 @@
     "WS_METRICS_LOG_INTERVAL_MS",
     "WS_METRICS_ENABLED",
     "GEMINI_API_KEY",
-    "GEMINI_MODEL_CANDIDATES"
+    "GEMINI_MODEL_CANDIDATES",
+    "ALLOWED_ORIGINS",
+    "WS_PORT"
   ],
   "tasks": {
     "build": {

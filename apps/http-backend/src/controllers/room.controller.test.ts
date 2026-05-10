@@ -33,8 +33,21 @@ vi.mock("@repo/queue-sync", () => ({
   publishAiGenerateJob: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("ioredis", () => {
+  return {
+    default: vi.fn().mockImplementation(function () {
+      return {
+        get: vi.fn(),
+        set: vi.fn(),
+        on: vi.fn(),
+      };
+    }),
+  };
+});
+
 vi.mock("@repo/backend-common/config", () => ({
   INTERNAL_SECRET: "test-secret",
+  REDIS_URL: "redis://localhost:6379",
 }));
 
 describe("Room Controller - createRoom", () => {
@@ -599,34 +612,32 @@ describe("Room Controller - AI functions", () => {
   });
 
   it("should get AI job status", async () => {
-    // Since we can't easily inject into the private map,
-    // we'll rely on the job started in previous successful test if it was same process,
-    // but vitest isolation might prevent that.
-    // Let's call generateAiCanvas first in the same test.
-    req = {
-      params: { roomId: "1" },
-      userId: "user-1",
-      body: { prompt: "generate a cat" },
+    const jobId = "test-job-id";
+    const roomId = 1;
+    req.params = { roomId: String(roomId), jobId };
+    vi.mocked(prismaClient.room.findFirst).mockResolvedValue({ id: roomId } as any);
+
+    const mockJobEntry = {
+      status: "pending",
+      roomId,
+      createdAt: Date.now(),
     };
-    vi.mocked(prismaClient.room.findFirst).mockResolvedValue({ id: 1 } as any);
 
-    // This will populate the jobStore
-    await generateAiCanvas(req as Request, res as Response, next);
-    const mockedJson: any = vi.mocked(res.json);
-    const calls = (mockedJson?.mock?.calls ?? []) as any[];
-    const jobIdCall = calls[0]?.[0] as
-      | { data?: { jobId?: string } }
-      | undefined;
-    const jobId = jobIdCall?.data?.jobId;
-    if (!jobId) throw new Error("jobId not found in response");
+    // Access the mocked instance to setup the return value for 'get'
+    const RedisMock = await import("ioredis");
+    const redisInstance = (RedisMock.default as any).mock.results[0].value;
+    redisInstance.get.mockResolvedValue(JSON.stringify(mockJobEntry));
 
-    req.params = { roomId: "1", jobId };
     await getAiGenerateStatus(req as Request, res as Response, next);
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({
         message: "Job status fetched",
+        data: expect.objectContaining({
+          jobId,
+          status: "pending",
+        }),
       }),
     );
   });

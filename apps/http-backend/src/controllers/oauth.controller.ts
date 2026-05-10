@@ -32,9 +32,43 @@ import { getCookieOptions } from "../utils/cookie";
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
 const FRONTEND_URL = WEB_APP_URL;
+const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1"]);
 
 function errorRedirect(res: Response, slug: string) {
   return res.redirect(`${FRONTEND_URL}/signin?error=${slug}`);
+}
+
+function getRequestOrigin(req: Request): string | null {
+  const forwardedHost = req.get("x-forwarded-host");
+  const host = forwardedHost || req.get("host");
+
+  if (!host) {
+    return null;
+  }
+
+  const protocol = req.get("x-forwarded-proto") || req.protocol;
+
+  return `${protocol}://${host}`;
+}
+
+function getOAuthCallbackUrl(
+  req: Request,
+  provider: "github" | "google",
+): string {
+  const configuredCallback =
+    provider === "github" ? GH_CALLBACK_URL : GOOGLE_CALLBACK_URL;
+  const requestOrigin = getRequestOrigin(req);
+
+  if (!requestOrigin) {
+    return configuredCallback;
+  }
+
+  const requestUrl = new URL(requestOrigin);
+  if (LOCALHOST_HOSTS.has(requestUrl.hostname)) {
+    return configuredCallback;
+  }
+
+  return `${requestOrigin}/api/v1/auth/${provider}/callback`;
 }
 
 /** Derive a unique handle base from an arbitrary display name. */
@@ -172,12 +206,13 @@ export function githubInitiate(req: Request, res: Response) {
   if (!GH_CLIENT_ID) {
     return errorRedirect(res, "oauth_not_configured");
   }
+  const callbackUrl = getOAuthCallbackUrl(req, "github");
   const redirect = (req.query.redirect as string) || "/rooms";
   const state = Buffer.from(JSON.stringify({ redirect })).toString("base64url");
 
   const params = new URLSearchParams({
     client_id: GH_CLIENT_ID,
-    redirect_uri: GH_CALLBACK_URL,
+    redirect_uri: callbackUrl,
     scope: "user:email read:user",
     state,
   });
@@ -189,6 +224,7 @@ export async function githubCallback(req: Request, res: Response) {
   if (!GH_CLIENT_ID || !GH_CLIENT_SECRET) {
     return errorRedirect(res, "oauth_not_configured");
   }
+  const callbackUrl = getOAuthCallbackUrl(req, "github");
 
   const code = req.query.code as string | undefined;
   const rawState = req.query.state as string | undefined;
@@ -219,7 +255,7 @@ export async function githubCallback(req: Request, res: Response) {
         client_id: GH_CLIENT_ID,
         client_secret: GH_CLIENT_SECRET,
         code,
-        redirect_uri: GH_CALLBACK_URL,
+        redirect_uri: callbackUrl,
       },
       { headers: { Accept: "application/json" } },
     );
@@ -280,12 +316,13 @@ export function googleInitiate(req: Request, res: Response) {
   if (!GOOGLE_CLIENT_ID) {
     return errorRedirect(res, "oauth_not_configured");
   }
+  const callbackUrl = getOAuthCallbackUrl(req, "google");
   const redirect = (req.query.redirect as string) || "/rooms";
   const state = Buffer.from(JSON.stringify({ redirect })).toString("base64url");
 
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
-    redirect_uri: GOOGLE_CALLBACK_URL,
+    redirect_uri: callbackUrl,
     response_type: "code",
     scope: "openid email profile",
     access_type: "offline",
@@ -302,6 +339,7 @@ export async function googleCallback(req: Request, res: Response) {
   if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
     return errorRedirect(res, "oauth_not_configured");
   }
+  const callbackUrl = getOAuthCallbackUrl(req, "google");
 
   const code = req.query.code as string | undefined;
   const rawState = req.query.state as string | undefined;
@@ -330,7 +368,7 @@ export async function googleCallback(req: Request, res: Response) {
       code,
       client_id: GOOGLE_CLIENT_ID,
       client_secret: GOOGLE_CLIENT_SECRET,
-      redirect_uri: GOOGLE_CALLBACK_URL,
+      redirect_uri: callbackUrl,
       grant_type: "authorization_code",
     });
 

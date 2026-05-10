@@ -11,7 +11,7 @@ import {
 } from "../utils/token";
 import { getCookieOptions } from "../utils/cookie";
 import jwt from "jsonwebtoken";
-import { JWT_SECRET } from "@repo/backend-common/config";
+import { JWT_SECRET, WEB_APP_URL } from "@repo/backend-common/config";
 import { sendPasswordResetEmail } from "../utils/email";
 
 const AUTH_DEBUG = process.env.AUTH_DEBUG === "true";
@@ -391,8 +391,7 @@ const forgotPassword = asyncHandler(async (req, res) => {
       { expiresIn: "30m" },
     );
 
-    const appBaseUrl = process.env.WEB_APP_URL || "http://localhost:3000";
-    const resetLink = `${appBaseUrl}/reset-password?token=${encodeURIComponent(token)}`;
+    const resetLink = `${WEB_APP_URL}/reset-password?token=${encodeURIComponent(token)}`;
 
     await sendPasswordResetEmail({
       to: user.email,

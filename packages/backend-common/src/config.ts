@@ -98,3 +98,5 @@ export const GH_CALLBACK_URL: string =
   "http://localhost:3001/api/v1/auth/github/callback";
 
 export const COOKIE_DOMAIN: string | undefined = process.env.COOKIE_DOMAIN;
+export const WEB_APP_URL: string =
+  process.env.WEB_APP_URL ?? "http://localhost:3000";

@@ -21,6 +21,7 @@ import {
   GOOGLE_CLIENT_ID,
   GOOGLE_CLIENT_SECRET,
   GOOGLE_CALLBACK_URL,
+  WEB_APP_URL,
 } from "@repo/backend-common/config";
 import {
   generateAccessToken,
@@ -30,8 +31,7 @@ import { getCookieOptions } from "../utils/cookie";
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-const FRONTEND_URL =
-  process.env.WEB_APP_URL ?? "http://localhost:3000";
+const FRONTEND_URL = WEB_APP_URL;
 
 function errorRedirect(res: Response, slug: string) {
   return res.redirect(`${FRONTEND_URL}/signin?error=${slug}`);

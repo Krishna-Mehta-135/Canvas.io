@@ -6,7 +6,13 @@ import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { AxiosError } from "axios";
 import { jsPDF } from "jspdf";
-import { attachEvents, convertToPoints, dispatch } from "@repo/canvas-engine";
+import {
+  attachEvents,
+  convertToPoints,
+  dispatch,
+  getArrowHeadPoints,
+  getConnectorRoutePoints,
+} from "@repo/canvas-engine";
 import { CanvasState } from "@repo/canvas-engine";
 import type { Shape, Tool } from "@repo/canvas-engine";
 import { HTTP_BACKEND } from "../../../config";
@@ -848,11 +854,23 @@ function buildSvgMarkup(shapes: Shape[]) {
       }
 
       if (shape.type === "line") {
-        return `<line x1="${shape.x1}" y1="${shape.y1}" x2="${shape.x2}" y2="${shape.y2}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" stroke-linecap="round" opacity="${opacity}" />`;
+        const points = getConnectorRoutePoints(shape)
+          .map((point) => `${point.x},${point.y}`)
+          .join(" ");
+        return `<polyline points="${points}" fill="none" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" stroke-linecap="round" stroke-linejoin="round" opacity="${opacity}" />`;
       }
 
       if (shape.type === "arrow") {
-        return `<line x1="${shape.x1}" y1="${shape.y1}" x2="${shape.x2}" y2="${shape.y2}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" stroke-linecap="round" marker-end="url(#arrow-head)" opacity="${opacity}" />`;
+        const points = getConnectorRoutePoints(shape)
+          .map((point) => `${point.x},${point.y}`)
+          .join(" ");
+        const arrowHead = getArrowHeadPoints(shape);
+        const headLines = arrowHead
+          ? `<line x1="${arrowHead.tip.x}" y1="${arrowHead.tip.y}" x2="${arrowHead.left.x}" y2="${arrowHead.left.y}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" stroke-linecap="round" opacity="${opacity}" />
+  <line x1="${arrowHead.tip.x}" y1="${arrowHead.tip.y}" x2="${arrowHead.right.x}" y2="${arrowHead.right.y}" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" stroke-linecap="round" opacity="${opacity}" />`
+          : "";
+        return `<polyline points="${points}" fill="none" stroke="${stroke}" stroke-width="${strokeWidth}" stroke-dasharray="${dashArray}" stroke-linecap="round" stroke-linejoin="round" opacity="${opacity}" />
+  ${headLines}`;
       }
 
       if (shape.type === "text") {
@@ -873,7 +891,7 @@ function buildSvgMarkup(shapes: Shape[]) {
     .filter(Boolean)
     .join("\n  ");
 
-  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${Math.ceil(width)}" height="${Math.ceil(height)}">\n  <defs>\n    <marker id="arrow-head" orient="auto" markerWidth="10" markerHeight="7" refX="9" refY="3.5">\n      <polygon points="0 0, 10 3.5, 0 7" fill="#1e1e1e" />\n    </marker>\n  </defs>\n  ${shapeElements}\n</svg>`;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="${viewBox}" width="${Math.ceil(width)}" height="${Math.ceil(height)}">\n  ${shapeElements}\n</svg>`;
 }
 
 function FillStyleTile({

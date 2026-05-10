@@ -19,6 +19,7 @@ Rendering model:
 import { Shape } from "./types";
 import { getTextRenderMetrics } from "./textMetrics";
 import { Viewport, worldToScreenPoint } from "./utils";
+import { getArrowHeadPoints, getConnectorRoutePoints } from "./connectors";
 import rough from "roughjs/bin/rough";
 import type { Options as RoughOptions } from "roughjs/bin/core";
 
@@ -575,29 +576,22 @@ function drawLine(
   ctx.save();
   ctx.globalAlpha = getShapeOpacity(shape);
 
-  if (shouldUseRoughJs(shape)) {
-    const rc = getRoughCanvas(ctx);
-    if (rc) {
-      rc.line(
-        shape.x1,
-        shape.y1,
-        shape.x2,
-        shape.y2,
-        getRoughOptions(shape, viewportScale),
-      );
-      ctx.restore();
-      return;
-    }
-  }
-
   ctx.strokeStyle = shape.stroke || getThemePalette().stroke;
   ctx.lineWidth = getViewportAdjustedStrokeWidth(shape, viewportScale);
   applyStrokeStyle(ctx, shape, viewportScale);
   applyRoughness(ctx, shape);
 
+  const routePoints = getConnectorRoutePoints(shape);
+
   ctx.beginPath();
-  ctx.moveTo(shape.x1, shape.y1);
-  ctx.lineTo(shape.x2, shape.y2);
+  routePoints.forEach((point, index) => {
+    if (index === 0) {
+      ctx.moveTo(point.x, point.y);
+      return;
+    }
+
+    ctx.lineTo(point.x, point.y);
+  });
   ctx.stroke();
   ctx.restore();
 }
@@ -609,33 +603,9 @@ function drawArrow(
 ) {
   ctx.save();
   ctx.globalAlpha = getShapeOpacity(shape);
-
-  const rc = shouldUseRoughJs(shape) ? getRoughCanvas(ctx) : null;
-
-  const dx = shape.x2 - shape.x1;
-  const dy = shape.y2 - shape.y1;
-  const length = Math.hypot(dx, dy);
-
-  if (length <= 0.001) return;
-
-  const ux = dx / length;
-  const uy = dy / length;
-  const headLength = Math.min(18, Math.max(10, length * 0.25));
-  const spread = Math.PI / 7;
-  const cos = Math.cos(spread);
-  const sin = Math.sin(spread);
-
-  // Rotate the unit direction vector around the arrow tip to form arrowhead wings.
-  const leftX = shape.x2 - (ux * cos - uy * sin) * headLength;
-  const leftY = shape.y2 - (uy * cos + ux * sin) * headLength;
-  const rightX = shape.x2 - (ux * cos + uy * sin) * headLength;
-  const rightY = shape.y2 - (uy * cos - ux * sin) * headLength;
-
-  if (rc) {
-    const opts = getRoughOptions(shape, viewportScale);
-    rc.line(shape.x1, shape.y1, shape.x2, shape.y2, opts);
-    rc.line(shape.x2, shape.y2, leftX, leftY, opts);
-    rc.line(shape.x2, shape.y2, rightX, rightY, opts);
+  const routePoints = getConnectorRoutePoints(shape);
+  const arrowHead = getArrowHeadPoints(shape);
+  if (!arrowHead) {
     ctx.restore();
     return;
   }
@@ -646,12 +616,18 @@ function drawArrow(
   applyRoughness(ctx, shape);
 
   ctx.beginPath();
-  ctx.moveTo(shape.x1, shape.y1);
-  ctx.lineTo(shape.x2, shape.y2);
-  ctx.moveTo(shape.x2, shape.y2);
-  ctx.lineTo(leftX, leftY);
-  ctx.moveTo(shape.x2, shape.y2);
-  ctx.lineTo(rightX, rightY);
+  routePoints.forEach((point, index) => {
+    if (index === 0) {
+      ctx.moveTo(point.x, point.y);
+      return;
+    }
+
+    ctx.lineTo(point.x, point.y);
+  });
+  ctx.moveTo(arrowHead.tip.x, arrowHead.tip.y);
+  ctx.lineTo(arrowHead.left.x, arrowHead.left.y);
+  ctx.moveTo(arrowHead.tip.x, arrowHead.tip.y);
+  ctx.lineTo(arrowHead.right.x, arrowHead.right.y);
   ctx.stroke();
   ctx.restore();
 }

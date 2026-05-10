@@ -13,6 +13,7 @@ Used by:
 */
 
 import { Handle, Shape } from "../types";
+import { getConnectorRoutePoints } from "../connectors";
 import { convertToPoints } from "../geometry";
 import { getTextRenderMetrics } from "../textMetrics";
 
@@ -75,26 +76,36 @@ function hitConnector(
   x: number,
   y: number,
 ) {
-  const dx = shape.x2 - shape.x1;
-  const dy = shape.y2 - shape.y1;
+  const routePoints = getConnectorRoutePoints(shape);
 
-  const lenSq = dx * dx + dy * dy;
-  if (lenSq === 0) return false;
+  for (let index = 1; index < routePoints.length; index += 1) {
+    const start = routePoints[index - 1];
+    const end = routePoints[index];
+    if (!start || !end) continue;
 
-  // Project the pointer onto the connector segment (not the infinite line)
-  // so move/hover only activates when cursor is actually over the shape.
-  const t = Math.max(
-    0,
-    Math.min(1, ((x - shape.x1) * dx + (y - shape.y1) * dy) / lenSq),
-  );
-  const projX = shape.x1 + t * dx;
-  const projY = shape.y1 + t * dy;
+    const dx = end.x - start.x;
+    const dy = end.y - start.y;
 
-  const distX = x - projX;
-  const distY = y - projY;
-  const distance = Math.sqrt(distX * distX + distY * distY);
+    const lenSq = dx * dx + dy * dy;
+    if (lenSq === 0) continue;
 
-  return distance < HIT_THRESHOLD;
+    const t = Math.max(
+      0,
+      Math.min(1, ((x - start.x) * dx + (y - start.y) * dy) / lenSq),
+    );
+    const projX = start.x + t * dx;
+    const projY = start.y + t * dy;
+
+    const distX = x - projX;
+    const distY = y - projY;
+    const distance = Math.sqrt(distX * distX + distY * distY);
+
+    if (distance < HIT_THRESHOLD) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function hitText(

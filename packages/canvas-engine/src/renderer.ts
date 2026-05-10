@@ -165,11 +165,11 @@ function getRoughOptions(shape: Shape, viewportScale: number): RoughOptions {
 }
 
 function shouldUseRoughJs(shape: Shape) {
-  return (
-    shape.type === "line" ||
-    shape.type === "arrow" ||
-    getSloppiness(shape) >= ROUGHJS_THRESHOLD
-  );
+  if (shape.type === "line" || shape.type === "arrow") {
+    return false;
+  }
+
+  return getSloppiness(shape) >= ROUGHJS_THRESHOLD;
 }
 
 function getSloppiness(shape: Shape) {
@@ -219,6 +219,12 @@ function applyStrokeStyle(
 }
 
 function applyRoughness(ctx: CanvasRenderingContext2D, shape: Shape) {
+  if (shape.type === "line" || shape.type === "arrow") {
+    ctx.shadowBlur = 0;
+    ctx.shadowColor = "transparent";
+    return;
+  }
+
   const sloppiness = getSloppiness(shape);
   if (sloppiness <= 0) {
     ctx.shadowBlur = 0;

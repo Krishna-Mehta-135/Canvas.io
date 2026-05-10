@@ -19,6 +19,9 @@ interface Connection {
   to: string;
 }
 
+const VIRTUAL_WIDTH = 1000;
+const VIRTUAL_HEIGHT = 500;
+
 const initialBoxes: Box[] = [
   {
     id: "api",
@@ -36,7 +39,7 @@ const initialBoxes: Box[] = [
     y: 140,
     width: 140,
     height: 50,
-    type: "server",
+    type: "ai",
   },
   {
     id: "cache",
@@ -74,6 +77,14 @@ const initialConnections: Connection[] = [
   { from: "cache", to: "db" },
 ];
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function toPercent(value: number, max: number) {
+  return `${(value / max) * 100}%`;
+}
+
 export function InteractiveCanvas() {
   const [boxes, setBoxes] = useState<Box[]>(initialBoxes);
   const [connections] = useState<Connection[]>(initialConnections);
@@ -81,46 +92,30 @@ export function InteractiveCanvas() {
   const [dragging, setDragging] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLDivElement>(null);
+  const pointerIdRef = useRef<number | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const handleMouseDown = useCallback(
-    (id: string, e: React.MouseEvent) => {
-      e.stopPropagation();
-      const box = boxes.find((b) => b.id === id);
-      if (!box) return;
-
-      const rect = canvasRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      setDragging(id);
-      setSelectedBox(id);
-      setDragOffset({
-        x: e.clientX - rect.left - box.x,
-        y: e.clientY - rect.top - box.y,
-      });
-    },
-    [boxes],
-  );
-
-  const handleMouseMove = useCallback(
-    (e: React.MouseEvent) => {
+  const updateDraggedBox = useCallback(
+    (clientX: number, clientY: number) => {
       if (!dragging || !canvasRef.current) return;
 
       const rect = canvasRef.current.getBoundingClientRect();
-      const newX = e.clientX - rect.left - dragOffset.x;
-      const newY = e.clientY - rect.top - dragOffset.y;
+      const scaleX = VIRTUAL_WIDTH / rect.width;
+      const scaleY = VIRTUAL_HEIGHT / rect.height;
+      const newX = (clientX - rect.left) * scaleX - dragOffset.x;
+      const newY = (clientY - rect.top) * scaleY - dragOffset.y;
 
       setBoxes((prev) =>
         prev.map((box) =>
           box.id === dragging
             ? {
                 ...box,
-                x: Math.max(0, Math.min(1000 - box.width, newX)),
-                y: Math.max(0, Math.min(500 - box.height, newY)),
+                x: clamp(newX, 0, VIRTUAL_WIDTH - box.width),
+                y: clamp(newY, 0, VIRTUAL_HEIGHT - box.height),
               }
             : box,
         ),
@@ -129,9 +124,67 @@ export function InteractiveCanvas() {
     [dragging, dragOffset],
   );
 
-  const handleMouseUp = useCallback(() => {
+  const stopDragging = useCallback(() => {
     setDragging(null);
+    pointerIdRef.current = null;
   }, []);
+
+  useEffect(() => {
+    if (!dragging) return;
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (
+        pointerIdRef.current !== null &&
+        event.pointerId !== pointerIdRef.current
+      ) {
+        return;
+      }
+
+      updateDraggedBox(event.clientX, event.clientY);
+    };
+
+    const handlePointerUp = (event: PointerEvent) => {
+      if (
+        pointerIdRef.current !== null &&
+        event.pointerId !== pointerIdRef.current
+      ) {
+        return;
+      }
+
+      stopDragging();
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerUp);
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerUp);
+    };
+  }, [dragging, stopDragging, updateDraggedBox]);
+
+  const handlePointerDown = useCallback(
+    (id: string, event: React.PointerEvent<HTMLDivElement>) => {
+      event.stopPropagation();
+
+      const box = boxes.find((candidate) => candidate.id === id);
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!box || !rect) return;
+
+      pointerIdRef.current = event.pointerId;
+      setDragging(id);
+      setSelectedBox(id);
+      setDragOffset({
+        x: (event.clientX - rect.left) * (VIRTUAL_WIDTH / rect.width) - box.x,
+        y: (event.clientY - rect.top) * (VIRTUAL_HEIGHT / rect.height) - box.y,
+      });
+
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [boxes],
+  );
 
   const getBoxCenter = (box: Box) => ({
     x: box.x + box.width / 2,
@@ -139,25 +192,14 @@ export function InteractiveCanvas() {
   });
 
   const getConnectionPath = (from: string, to: string) => {
-    const fromBox = boxes.find((b) => b.id === from);
-    const toBox = boxes.find((b) => b.id === to);
+    const fromBox = boxes.find((box) => box.id === from);
+    const toBox = boxes.find((box) => box.id === to);
     if (!fromBox || !toBox) return "";
 
     const start = getBoxCenter(fromBox);
     const end = getBoxCenter(toBox);
 
-    const dx = end.x - start.x;
-    const dy = end.y - start.y;
-    const MathAbsDx = Math.abs(dx);
-    const MathAbsDy = Math.abs(dy);
-
-    if (MathAbsDx > MathAbsDy) {
-      const midX = start.x + dx / 2;
-      return `M ${start.x} ${start.y} L ${midX} ${start.y} L ${midX} ${end.y} L ${end.x} ${end.y}`;
-    } else {
-      const midY = start.y + dy / 2;
-      return `M ${start.x} ${start.y} L ${start.x} ${midY} L ${end.x} ${midY} L ${end.x} ${end.y}`;
-    }
+    return `M ${start.x} ${start.y} L ${end.x} ${end.y}`;
   };
 
   if (!mounted) return null;
@@ -165,14 +207,14 @@ export function InteractiveCanvas() {
   return (
     <div
       ref={canvasRef}
-      className="relative w-full h-full bg-transparent overflow-hidden cursor-grab active:cursor-grabbing"
-      onMouseMove={handleMouseMove}
-      onMouseUp={handleMouseUp}
-      onMouseLeave={handleMouseUp}
+      className="relative h-full w-full touch-none overflow-hidden bg-transparent"
       onClick={() => setSelectedBox(null)}
     >
-      {/* SVG for connections */}
-      <svg className="absolute inset-0 w-full h-full pointer-events-none z-0">
+      <svg
+        className="absolute inset-0 h-full w-full pointer-events-none z-0"
+        viewBox={`0 0 ${VIRTUAL_WIDTH} ${VIRTUAL_HEIGHT}`}
+        preserveAspectRatio="xMidYMid meet"
+      >
         <defs>
           <marker
             id="arrowhead-dark"
@@ -185,22 +227,26 @@ export function InteractiveCanvas() {
             <polygon points="0 0, 10 5, 0 10" fill="#94a3b8" />
           </marker>
         </defs>
-        {connections.map((conn, i) => (
+        {connections.map((connection, index) => (
           <motion.path
-            key={`${conn.from}-${conn.to}`}
-            d={getConnectionPath(conn.from, conn.to)}
+            key={`${connection.from}-${connection.to}`}
+            d={getConnectionPath(connection.from, connection.to)}
             stroke="#94a3b8"
-            strokeWidth="2"
+            strokeWidth="2.5"
             fill="none"
+            strokeLinecap="round"
             markerEnd="url(#arrowhead-dark)"
             initial={{ pathLength: 0, opacity: 0 }}
             animate={{ pathLength: 1, opacity: 1 }}
-            transition={{ delay: 1 + i * 0.2, duration: 0.5, ease: "easeOut" }}
+            transition={{
+              delay: 1 + index * 0.2,
+              duration: 0.5,
+              ease: "easeOut",
+            }}
           />
         ))}
       </svg>
 
-      {/* Draggable boxes */}
       {boxes.map((box, index) => {
         const isSelected = selectedBox === box.id;
         const isAi = box.type === "ai";
@@ -208,18 +254,18 @@ export function InteractiveCanvas() {
         return (
           <motion.div
             key={box.id}
-            className={`absolute cursor-move rounded-xl border-2 shadow-xl transition-colors z-10 flex flex-col overflow-hidden ${
+            className={`absolute z-10 flex cursor-grab touch-none flex-col overflow-hidden rounded-xl border-2 shadow-xl transition-colors active:cursor-grabbing ${
               isSelected
-                ? "border-blue-400 bg-white dark:bg-[#1e293b] shadow-blue-500/20"
+                ? "border-blue-400 bg-white shadow-blue-500/20 dark:bg-[#1e293b]"
                 : isAi
-                  ? "border-indigo-400 bg-indigo-50 dark:bg-indigo-600 shadow-indigo-500/20"
-                  : "border-slate-200 dark:border-slate-700/50 bg-white dark:bg-[#1e293b] hover:border-slate-300 dark:hover:border-slate-600 shadow-slate-200 dark:shadow-black/20"
+                  ? "border-indigo-400 bg-indigo-50 shadow-indigo-500/20 dark:bg-indigo-600"
+                  : "border-slate-200 bg-white shadow-slate-200 dark:border-slate-700/50 dark:bg-[#1e293b] dark:shadow-black/20"
             }`}
             style={{
-              left: box.x,
-              top: box.y,
-              width: box.width,
-              height: box.height,
+              left: toPercent(box.x, VIRTUAL_WIDTH),
+              top: toPercent(box.y, VIRTUAL_HEIGHT),
+              width: toPercent(box.width, VIRTUAL_WIDTH),
+              height: toPercent(box.height, VIRTUAL_HEIGHT),
             }}
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -229,23 +275,19 @@ export function InteractiveCanvas() {
               stiffness: 400,
               damping: 25,
             }}
-            onMouseDown={(e) => handleMouseDown(box.id, e)}
+            onPointerDown={(event) => handlePointerDown(box.id, event)}
             whileHover={{ scale: dragging ? 1 : 1.02 }}
           >
-            {/* Top color bar */}
             <div
               className={`h-1.5 w-full ${isAi ? "bg-indigo-400" : "bg-slate-300 dark:bg-slate-600"}`}
             />
 
-            <div className="flex-1 flex items-center justify-center px-4">
-              <p
-                className={`font-bold text-xs text-center select-none tracking-wide text-slate-800 dark:text-white`}
-              >
+            <div className="flex flex-1 items-center justify-center px-3 sm:px-4">
+              <p className="select-none text-center text-[10px] font-bold tracking-wide text-slate-800 dark:text-white sm:text-xs">
                 {box.label}
               </p>
             </div>
 
-            {/* Selection handles */}
             {isSelected && (
               <>
                 {[
@@ -257,10 +299,10 @@ export function InteractiveCanvas() {
                   [50, 100],
                   [0, 50],
                   [100, 50],
-                ].map(([dx, dy], i) => (
+                ].map(([dx, dy], handleIndex) => (
                   <div
-                    key={i}
-                    className="absolute w-2 h-2 bg-blue-400 border border-white dark:border-[#1e293b] rounded-sm pointer-events-none"
+                    key={handleIndex}
+                    className="absolute h-2 w-2 rounded-sm border border-white bg-blue-400 pointer-events-none dark:border-[#1e293b]"
                     style={{
                       left: `${dx}%`,
                       top: `${dy}%`,
@@ -271,32 +313,29 @@ export function InteractiveCanvas() {
               </>
             )}
 
-            {/* AI badge for rate limiter */}
             {isAi && (
               <motion.div
-                className="absolute -top-3 -right-3 w-6 h-6 bg-indigo-500 rounded-md flex items-center justify-center shadow-sm"
+                className="absolute -right-3 -top-3 flex h-6 w-6 items-center justify-center rounded-md bg-indigo-500 shadow-sm"
                 initial={{ opacity: 0, scale: 0 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 1.5, type: "spring" }}
               >
-                <Sparkles className="w-3 h-3 text-white" />
+                <Sparkles className="h-3 w-3 text-white" />
               </motion.div>
             )}
           </motion.div>
         );
       })}
 
-      {/* Floating hint */}
       <motion.div
-        className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-white text-white dark:text-slate-900 px-4 py-2 rounded-lg text-xs font-bold shadow-xl border border-slate-700 dark:border-slate-200 z-50 pointer-events-none"
+        className="pointer-events-none absolute bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-[11px] font-bold text-white shadow-xl dark:border-slate-200 dark:bg-white dark:text-slate-900 sm:bottom-6 sm:px-4 sm:text-xs"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 2.5 }}
       >
-        Try dragging the nodes around
+        Drag nodes around on desktop or touch
       </motion.div>
 
-      {/* Animated cursors */}
       <AnimatedCursor
         name="Sarah C."
         color="bg-indigo-500"
@@ -336,11 +375,11 @@ function AnimatedCursor({
 }) {
   return (
     <motion.div
-      className="absolute pointer-events-none z-40"
-      initial={{ x: path[0]!.x, y: path[0]!.y, opacity: 0 }}
+      className="absolute z-40 hidden pointer-events-none sm:block"
+      initial={{ x: `${(path[0]!.x / VIRTUAL_WIDTH) * 100}%`, y: `${(path[0]!.y / VIRTUAL_HEIGHT) * 100}%`, opacity: 0 }}
       animate={{
-        x: path.map((p) => p.x),
-        y: path.map((p) => p.y),
+        x: path.map((point) => `${(point.x / VIRTUAL_WIDTH) * 100}%`),
+        y: path.map((point) => `${(point.y / VIRTUAL_HEIGHT) * 100}%`),
         opacity: [0, 1, 1, 1, 0],
       }}
       transition={{
@@ -358,20 +397,16 @@ function AnimatedCursor({
         style={{ transform: "rotate(-15deg)" }}
       >
         <path
-          d="M3 2L15 10L10 11L7 17L3 2Z"
+          d="M3 2L15 10L9.5 11.5L11.5 17L9.5 17.8L7.5 12.3L3 15V2Z"
           fill="currentColor"
-          stroke="white"
-          strokeWidth="1"
         />
       </svg>
-      <motion.div
-        className={`absolute top-4 left-4 px-2 py-0.5 ${color} text-white text-[10px] font-bold rounded shadow-sm`}
-        initial={{ opacity: 0, scale: 0.8 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ delay: delay + 0.3 }}
-      >
-        {name}
-      </motion.div>
+      <div className="mt-1 flex items-center gap-2">
+        <div className={`h-2.5 w-2.5 rounded-full ${color}`} />
+        <div className="rounded-md bg-white/90 px-2 py-1 text-[10px] font-semibold text-slate-700 shadow-md dark:bg-slate-900/90 dark:text-white/80">
+          {name}
+        </div>
+      </div>
     </motion.div>
   );
 }

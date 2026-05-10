@@ -165,7 +165,7 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
         initial={{ y: -40, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.5 }}
-        className="relative z-10 mx-auto flex w-full max-w-7xl items-center justify-between px-6 py-5"
+        className="relative z-10 mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-5"
       >
         <Link href="/" className="flex items-center gap-3">
           <CanvasLogo className="w-10 h-10" />
@@ -173,7 +173,7 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
             Canvas.
           </span>
         </Link>
-        <div className="flex items-center gap-4">
+        <div className="flex w-full items-center justify-between gap-4 sm:w-auto sm:justify-end">
           {/* Theme toggle */}
           <motion.button
             onClick={toggleTheme}
@@ -231,7 +231,7 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
       </motion.header>
 
       {/* Main */}
-      <main className="relative z-10 flex flex-1 items-center justify-center px-6 py-12">
+      <main className="relative z-10 flex flex-1 items-center justify-center px-4 py-8 sm:px-6 sm:py-12">
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
@@ -258,10 +258,10 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
             transition={{ delay: 0.15 }}
             className="mb-8"
           >
-            <h1 className="text-4xl font-bold text-gray-900 dark:text-white mb-2 tracking-tight">
+            <h1 className="mb-2 text-3xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-4xl">
               {isSignIn ? "Welcome back" : "Get started"}
             </h1>
-            <p className="text-gray-500 dark:text-white/50 text-base leading-relaxed">
+            <p className="text-sm leading-relaxed text-gray-500 dark:text-white/50 sm:text-base">
               {isSignIn
                 ? "Sign in to continue building on your canvas."
                 : "Join thousands of teams sketching together."}
@@ -273,7 +273,7 @@ export function AuthPage({ isSignIn }: AuthPageProps) {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2 }}
-            className="rounded-4xl border border-slate-200/80 bg-white/88 p-8 shadow-[0_28px_100px_rgba(15,23,42,0.14)] backdrop-blur-2xl dark:border-white/10 dark:bg-white/4 dark:shadow-none"
+            className="rounded-4xl border border-slate-200/80 bg-white/88 p-5 shadow-[0_28px_100px_rgba(15,23,42,0.14)] backdrop-blur-2xl dark:border-white/10 dark:bg-white/4 dark:shadow-none sm:p-8"
           >
             {/* Error */}
             <AnimatePresence>

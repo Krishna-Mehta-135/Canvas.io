@@ -56,6 +56,7 @@ services:
       GH_CLIENT_ID: ${GH_CLIENT_ID:-}
       GH_CLIENT_SECRET: ${GH_CLIENT_SECRET:-}
       GH_CALLBACK_URL: ${GH_CALLBACK_URL:-}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
       NODE_EXTRA_CA_CERTS: ${NODE_EXTRA_CA_CERTS:-}
     volumes:
       - /opt/canvas/certs:/opt/canvas/certs:ro

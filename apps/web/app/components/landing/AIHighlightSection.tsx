@@ -38,7 +38,7 @@ export function AIHighlightSection() {
   return (
     <section
       ref={ref}
-      className="py-24 px-6 relative overflow-hidden bg-white dark:bg-[#070b14]"
+      className="relative overflow-hidden bg-white px-4 py-24 dark:bg-[#070b14] sm:px-6"
     >
       {/* Structural Background Pattern */}
       <div className="absolute inset-0 z-0 bg-[linear-gradient(rgba(0,0,0,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.03)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:32px_32px]" />
@@ -62,7 +62,7 @@ export function AIHighlightSection() {
             </span>
           </motion.div>
 
-          <h2 className="text-4xl md:text-6xl font-black text-slate-900 dark:text-white mb-6 tracking-tight">
+          <h2 className="mb-6 text-4xl font-black tracking-tight text-slate-900 dark:text-white md:text-6xl">
             From prompt to visual
             <br />
             <span className="text-indigo-600 dark:text-indigo-400">
@@ -76,7 +76,7 @@ export function AIHighlightSection() {
         </motion.div>
 
         {/* Transformation Demo */}
-        <div className="grid lg:grid-cols-[1fr_auto_1.5fr] gap-8 items-center max-w-5xl mx-auto">
+        <div className="mx-auto grid max-w-5xl gap-6 items-center lg:grid-cols-[1fr_auto_1.5fr] lg:gap-8">
           {/* Input Side */}
           <motion.div
             initial={{ opacity: 0, x: -30 }}
@@ -110,7 +110,24 @@ export function AIHighlightSection() {
 
           {/* Arrow */}
           <motion.div
-            className="hidden lg:flex items-center justify-center"
+            className="flex items-center justify-center lg:hidden"
+            initial={{ opacity: 0, scale: 0 }}
+            animate={showResult ? { opacity: 1, scale: 1 } : {}}
+            transition={{ duration: 0.5 }}
+          >
+            <motion.div
+              animate={{ y: [0, 8, 0] }}
+              transition={{
+                duration: 1.5,
+                repeat: Infinity,
+                ease: "easeInOut",
+              }}
+            >
+              <ArrowRight className="h-8 w-8 rotate-90 text-indigo-400 dark:text-indigo-600" />
+            </motion.div>
+          </motion.div>
+          <motion.div
+            className="hidden items-center justify-center lg:flex"
             initial={{ opacity: 0, scale: 0 }}
             animate={showResult ? { opacity: 1, scale: 1 } : {}}
             transition={{ duration: 0.5 }}
@@ -144,7 +161,7 @@ export function AIHighlightSection() {
               {/* Structural Generated Diagram */}
               <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-lg p-6 min-h-[240px] relative flex flex-col items-center justify-center gap-8 bg-[linear-gradient(rgba(0,0,0,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.05)_1px,transparent_1px)] dark:bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:16px_16px]">
                 {/* Flow Layout */}
-                <div className="flex items-center gap-8 relative z-10 w-full justify-center">
+                <div className="relative z-10 flex w-full flex-col items-center gap-5 justify-center sm:flex-row sm:gap-8">
                   {/* Client */}
                   <motion.div
                     className="flex flex-col items-center gap-2"
@@ -162,13 +179,13 @@ export function AIHighlightSection() {
 
                   {/* Arrow 1 */}
                   <motion.div
-                    className="w-16 h-0.5 bg-slate-300 dark:bg-slate-600 relative -mt-6"
+                    className="relative h-10 w-0.5 bg-slate-300 dark:bg-slate-600 sm:-mt-6 sm:h-0.5 sm:w-16"
                     initial={{ scaleX: 0 }}
-                    animate={showResult ? { scaleX: 1 } : {}}
+                    animate={showResult ? { scaleX: 1, scaleY: 1 } : {}}
                     transition={{ delay: 0.3 }}
-                    style={{ originX: 0 }}
+                    style={{ originX: 0, originY: 0 }}
                   >
-                    <div className="absolute right-0 -top-1 w-0 h-0 border-t-4 border-b-4 border-l-[6px] border-transparent border-l-slate-300 dark:border-l-slate-600" />
+                    <div className="absolute -bottom-0.5 -left-[5px] h-0 w-0 border-x-4 border-t-[6px] border-x-transparent border-t-slate-300 dark:border-t-slate-600 sm:-right-0 sm:-top-1 sm:left-auto sm:bottom-auto sm:border-b-4 sm:border-l-[6px] sm:border-r-0 sm:border-t-4 sm:border-b-transparent sm:border-l-slate-300 sm:border-t-transparent dark:sm:border-l-slate-600" />
                   </motion.div>
 
                   {/* Server */}
@@ -188,13 +205,13 @@ export function AIHighlightSection() {
 
                   {/* Arrow 2 */}
                   <motion.div
-                    className="w-16 h-0.5 bg-slate-300 dark:bg-slate-600 relative -mt-6"
+                    className="relative h-10 w-0.5 bg-slate-300 dark:bg-slate-600 sm:-mt-6 sm:h-0.5 sm:w-16"
                     initial={{ scaleX: 0 }}
-                    animate={showResult ? { scaleX: 1 } : {}}
+                    animate={showResult ? { scaleX: 1, scaleY: 1 } : {}}
                     transition={{ delay: 0.7 }}
-                    style={{ originX: 0 }}
+                    style={{ originX: 0, originY: 0 }}
                   >
-                    <div className="absolute right-0 -top-1 w-0 h-0 border-t-4 border-b-4 border-l-[6px] border-transparent border-l-slate-300 dark:border-l-slate-600" />
+                    <div className="absolute -bottom-0.5 -left-[5px] h-0 w-0 border-x-4 border-t-[6px] border-x-transparent border-t-slate-300 dark:border-t-slate-600 sm:-right-0 sm:-top-1 sm:left-auto sm:bottom-auto sm:border-b-4 sm:border-l-[6px] sm:border-r-0 sm:border-t-4 sm:border-b-transparent sm:border-l-slate-300 sm:border-t-transparent dark:sm:border-l-slate-600" />
                   </motion.div>
 
                   {/* Database */}

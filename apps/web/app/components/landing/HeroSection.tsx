@@ -43,7 +43,7 @@ export function HeroSection() {
   return (
     <section
       ref={containerRef}
-      className="relative min-h-screen flex items-center justify-center pt-24 pb-12 overflow-hidden"
+      className="relative flex min-h-screen items-center justify-center overflow-hidden pb-12 pt-28 sm:pt-24"
     >
       {/* Dynamic Background Glows */}
       {mounted && (
@@ -108,7 +108,7 @@ export function HeroSection() {
         initial="hidden"
         animate="visible"
         style={{ opacity, y }}
-        className="relative z-10 max-w-5xl mx-auto px-6 text-center flex flex-col items-center"
+        className="relative z-10 mx-auto flex max-w-5xl flex-col items-center px-4 text-center sm:px-6"
       >
         <motion.div variants={itemVariants} className="mb-8">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white/80 dark:bg-white/10 border border-slate-200 dark:border-white/20 shadow-lg backdrop-blur-md">
@@ -121,7 +121,7 @@ export function HeroSection() {
 
         <motion.h1
           variants={itemVariants}
-          className="text-6xl sm:text-7xl md:text-8xl font-black tracking-tight mb-6 text-slate-900 dark:text-white leading-[1.1] md:leading-[1.05]"
+          className="mb-6 text-5xl font-black leading-[1.05] tracking-tight text-slate-900 dark:text-white sm:text-7xl md:text-8xl md:leading-[1.05]"
         >
           Think. Draw. Build
           <br />
@@ -134,7 +134,7 @@ export function HeroSection() {
 
         <motion.p
           variants={itemVariants}
-          className="text-xl md:text-2xl font-medium text-slate-600 dark:text-slate-300 mb-12 max-w-3xl"
+          className="mb-10 max-w-3xl text-base font-medium text-slate-600 dark:text-slate-300 sm:text-xl md:mb-12 md:text-2xl"
         >
           A collaborative infinite canvas with AI built in.
           <br />

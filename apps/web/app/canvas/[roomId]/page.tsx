@@ -2372,8 +2372,6 @@ export default function CanvasPage() {
   const floatingPanelSurface = isDark
     ? "border border-white/10 bg-[#111827]/80 shadow-[0_18px_50px_rgba(2,6,23,0.35)]"
     : "border border-slate-200/80 bg-white/90 shadow-[0_8px_30px_rgba(15,23,42,0.04)] shadow-sm";
-  const toolbarMaxWidth = "fit-content";
-
   return (
     <div
       className={`relative h-screen w-screen overflow-hidden ${shellBackground}`}
@@ -2395,19 +2393,19 @@ export default function CanvasPage() {
       )}
 
       {/* Workspace Metadata */}
-      <div className="pointer-events-none absolute left-4 top-4 z-40">
+      <div className="pointer-events-none absolute left-2 top-2 z-40 sm:left-4 sm:top-4">
         <div
-          className={`pointer-events-auto flex items-center gap-4 rounded-2xl border px-4 py-3 my-2 backdrop-blur-2xl ${floatingPanelSurface}`}
+          className={`pointer-events-auto my-2 flex max-w-[calc(100vw-5.5rem)] items-center gap-2 rounded-2xl border px-3 py-2 backdrop-blur-2xl sm:max-w-none sm:gap-4 sm:px-4 sm:py-3 ${floatingPanelSurface}`}
         >
-          <div className="flex flex-col">
+          <div className="min-w-0 flex flex-col">
             {/* <div className={`mb-1 inline-flex w-fit rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.22em] ${isDark ? "bg-white/5 text-white/55" : "bg-slate-100 text-slate-500"}`}>
                             Canvas
                         </div> */}
-            <div className="text-[15px] font-semibold leading-none tracking-tight">
+            <div className="truncate text-[14px] font-semibold leading-none tracking-tight sm:text-[15px]">
               {canvasTitle}
             </div>
             <div
-              className={`mt-1 text-[10px] ${isDark ? "text-white/45" : "text-slate-500"}`}
+              className={`mt-1 truncate text-[10px] ${isDark ? "text-white/45" : "text-slate-500"}`}
             >
               {participantNames.length > 0
                 ? `${participantNames.length} collaborator${participantNames.length === 1 ? "" : "s"} active${extraParticipantCount > 0 ? `, +${extraParticipantCount} more` : ""}`
@@ -2420,7 +2418,7 @@ export default function CanvasPage() {
           <button
             type="button"
             onClick={handleCopyInvite}
-            className={`rounded-full border px-4 py-2 text-[11px] font-semibold transition-all hover:scale-105 active:scale-95 ${
+            className={`shrink-0 rounded-full border px-3 py-2 text-[11px] font-semibold transition-all hover:scale-105 active:scale-95 sm:px-4 ${
               isDark
                 ? "border-white/20 bg-white/10 text-white hover:bg-white/15"
                 : "border-slate-200 bg-white text-slate-800 shadow-sm hover:border-slate-300 hover:shadow"
@@ -2431,7 +2429,7 @@ export default function CanvasPage() {
         </div>
       </div>
 
-      <div className="pointer-events-none absolute right-4 top-4 z-30">
+      <div className="pointer-events-none absolute right-2 top-2 z-30 sm:right-4 sm:top-4">
         <div className="pointer-events-auto flex items-center gap-2">
           {/* AI Generate button */}
           <div className="relative">
@@ -2598,7 +2596,7 @@ export default function CanvasPage() {
                 onWheel={(event) => {
                   event.stopPropagation();
                 }}
-                className={`absolute right-0 top-14 max-h-[calc(100vh-5.5rem)] w-80 overflow-y-auto overscroll-contain rounded-3xl border p-2 backdrop-blur-2xl ${floatingPanelSurface}`}
+                className={`absolute right-0 top-14 max-h-[calc(100vh-5.5rem)] w-[min(92vw,20rem)] overflow-y-auto overscroll-contain rounded-3xl border p-2 backdrop-blur-2xl sm:w-80 ${floatingPanelSurface}`}
               >
                 <div className="px-2 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide opacity-60">
                   Profile & Account
@@ -3351,10 +3349,9 @@ export default function CanvasPage() {
 
       {/* Top Center: Main Toolbar */}
       <div
-        className={`absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-2xl p-3 backdrop-blur-2xl transition-all duration-500 ${topToolbarSurface}`}
-        style={{ width: toolbarMaxWidth }}
+        className={`absolute left-1/2 top-20 z-10 w-[calc(100vw-1rem)] -translate-x-1/2 rounded-2xl p-2 backdrop-blur-2xl transition-all duration-500 sm:top-4 sm:w-auto sm:p-3 ${topToolbarSurface}`}
       >
-        <div className="flex flex-nowrap items-center gap-1.5 px-1">
+        <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto px-1 pb-1 sm:overflow-visible sm:pb-0">
           {TOOLS.map((tool, idx) => {
             const isActive = activeTool === tool.id;
             return (
@@ -3448,7 +3445,7 @@ export default function CanvasPage() {
         chat={chat}
       />
 
-      <div className="pointer-events-none absolute bottom-4 left-4 z-30">
+      <div className="pointer-events-none absolute bottom-4 left-2 z-30 sm:left-4">
         <div
           className={`pointer-events-auto flex items-center gap-2 rounded-2xl border px-2 py-1.5 backdrop-blur-2xl ${floatingPanelSurface}`}
         >
@@ -3527,7 +3524,7 @@ export default function CanvasPage() {
             event.preventDefault();
             event.stopPropagation();
           }}
-          className={`pointer-events-auto absolute bottom-4 left-4 z-20 max-h-[min(60vh,28rem)] w-80 overflow-y-auto overscroll-contain rounded-3xl border px-3 py-2 text-xs backdrop-blur-2xl ${
+          className={`pointer-events-auto absolute bottom-20 left-2 z-20 max-h-[min(60vh,28rem)] w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-3xl border px-3 py-2 text-xs backdrop-blur-2xl sm:bottom-4 sm:left-4 sm:w-80 ${
             isDark
               ? "border-white/15 bg-[#171717]/92 text-white/90"
               : "border-slate-300/80 bg-white/92 text-slate-700"
@@ -3593,7 +3590,7 @@ export default function CanvasPage() {
         </div>
       )}
 
-      <div className="pointer-events-none absolute right-4 top-20 z-40 flex w-88 flex-col gap-2">
+      <div className="pointer-events-none absolute left-2 right-2 top-36 z-40 flex flex-col gap-2 sm:left-auto sm:right-4 sm:top-20 sm:w-88">
         {toasts.map((toast) => (
           <div
             key={toast.id}

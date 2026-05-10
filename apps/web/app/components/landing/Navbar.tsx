@@ -33,7 +33,7 @@ export function Navbar() {
       animate={{ y: 0, opacity: 1 }}
       transition={{ duration: 0.5, ease: "easeOut" }}
     >
-      <nav className="max-w-7xl mx-auto px-6 h-28 flex items-center justify-between gap-4">
+      <nav className="mx-auto flex h-20 max-w-7xl items-center justify-between gap-4 px-4 sm:h-24 sm:px-6">
         {/* Left: Logo */}
         <div className="shrink-0">
           <motion.div
@@ -43,7 +43,7 @@ export function Navbar() {
           >
             <Link href="/" className="flex items-center gap-3">
               <LogoIcon />
-              <span className="text-[32px] font-black text-slate-900 dark:text-white tracking-tighter">
+              <span className="text-[26px] font-black tracking-tighter text-slate-900 dark:text-white sm:text-[32px]">
                 Canvas.
               </span>
             </Link>
@@ -138,7 +138,7 @@ export function Navbar() {
 
           {/* Mobile hamburger */}
           <motion.button
-            className="md:hidden p-2 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300"
+            className="rounded-xl border border-slate-200 p-2 text-slate-700 dark:border-slate-800 dark:text-slate-300 md:hidden"
             onClick={() => setIsMenuOpen(!isMenuOpen)}
             whileTap={{ scale: 0.9 }}
           >

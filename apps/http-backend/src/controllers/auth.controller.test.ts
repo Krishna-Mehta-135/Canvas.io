@@ -209,8 +209,17 @@ describe("Auth Controller", () => {
   describe("logout", () => {
     it("should clear cookies and increment token version", async () => {
       req = {
-        userId: "user-1",
+        cookies: {
+          accessToken: "valid-token",
+        },
       };
+
+      vi.mocked(tokenUtils.verifyToken).mockReturnValue({
+        userId: "user-1",
+        name: "John",
+        tokenVersion: 1,
+        type: "access",
+      });
 
       await logout(req as Request, res as Response, next);
 
@@ -222,8 +231,29 @@ describe("Auth Controller", () => {
           }),
         }),
       );
-      expect(res.clearCookie).toHaveBeenCalledWith("accessToken");
-      expect(res.clearCookie).toHaveBeenCalledWith("refreshToken");
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        "accessToken",
+        expect.any(Object),
+      );
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        "refreshToken",
+        expect.any(Object),
+      );
+      expect(res.status).toHaveBeenCalledWith(200);
+    });
+
+    it("should clear cookies even if token is missing", async () => {
+      req = {
+        cookies: {},
+      };
+
+      await logout(req as Request, res as Response, next);
+
+      expect(prismaClient.user.update).not.toHaveBeenCalled();
+      expect(res.clearCookie).toHaveBeenCalledWith(
+        "accessToken",
+        expect.any(Object),
+      );
       expect(res.status).toHaveBeenCalledWith(200);
     });
   });

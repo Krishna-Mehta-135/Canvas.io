@@ -32,7 +32,7 @@ authRouter.get("/ws-token", authenticate, getWsToken);
 // Refresh access token using refresh token.
 authRouter.post("/refresh-token", refreshAccessToken);
 // Logout and invalidate all tokens.
-authRouter.post("/logout", authenticate, logout);
+authRouter.post("/logout", logout);
 // Request password reset instructions.
 authRouter.post("/forgot-password", idempotencyMiddleware, forgotPassword);
 // Complete password reset with token.

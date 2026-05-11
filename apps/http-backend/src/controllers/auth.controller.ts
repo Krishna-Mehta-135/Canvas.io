@@ -308,12 +308,7 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
     userTokenVersion,
   );
 
-  res.cookie("accessToken", newAccessToken, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: 15 * 60 * 1000, // 15 minutes
-  });
+  res.cookie("accessToken", newAccessToken, getCookieOptions(15 * 60 * 1000));
 
   authDebug("refresh success", { userId: user.id });
 
@@ -323,29 +318,36 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 });
 
 const logout = asyncHandler(async (req, res) => {
-  const userId = req.userId;
+  const accessToken = req.cookies?.accessToken;
 
-  if (!userId) {
-    authDebug("logout denied: missing authenticated user");
-    throw new ApiError(401, "Unauthorized");
+  // Best-effort session invalidation in the database
+  if (accessToken) {
+    try {
+      const decoded = verifyToken(accessToken);
+      if (decoded.userId && decoded.type === "access") {
+        await prismaClient.user.update({
+          where: { id: decoded.userId },
+          data: {
+            tokenVersion: {
+              increment: 1,
+            },
+            refreshTokenExp: null,
+          },
+        });
+        authDebug("logout: invalidated session in DB", { userId: decoded.userId });
+      }
+    } catch {
+      // Token might be expired or malformed, but we still proceed to clear cookies.
+      authDebug("logout: token invalid, skipping DB invalidation");
+    }
   }
 
-  // Increment token version to invalidate all existing tokens
-  await prismaClient.user.update({
-    where: { id: userId },
-    data: {
-      tokenVersion: {
-        increment: 1,
-      },
-      refreshTokenExp: null,
-    },
-  });
+  // Always clear cookies to ensure frontend state is reset
+  const cookieOptions = getCookieOptions(0);
+  res.clearCookie("accessToken", cookieOptions);
+  res.clearCookie("refreshToken", cookieOptions);
 
-  // Clear cookies
-  res.clearCookie("accessToken");
-  res.clearCookie("refreshToken");
-
-  authDebug("logout success", { userId });
+  authDebug("logout success: cookies cleared");
 
   return res
     .status(200)
@@ -460,8 +462,9 @@ const resetPassword = asyncHandler(async (req, res) => {
     },
   });
 
-  res.clearCookie("accessToken");
-  res.clearCookie("refreshToken");
+  const cookieOptions = getCookieOptions(0);
+  res.clearCookie("accessToken", cookieOptions);
+  res.clearCookie("refreshToken", cookieOptions);
 
   return res
     .status(200)

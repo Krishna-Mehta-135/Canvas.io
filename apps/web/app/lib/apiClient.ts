@@ -9,6 +9,7 @@ const SKIP_REFRESH_PATHS = [
   "/auth/signin",
   "/auth/signup",
   "/auth/refresh-token",
+  "/auth/logout",
 ];
 const AUTH_DEBUG = process.env.NEXT_PUBLIC_AUTH_DEBUG === "true";
 

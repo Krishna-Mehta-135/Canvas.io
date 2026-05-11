@@ -17,6 +17,7 @@ export function getCookieOptions(maxAgeMs: number): CookieOptions {
     secure: isProd,
     // Domain scoping (e.g. '.canvassync.tech') allows subdomains to share the cookie.
     domain: isProd ? COOKIE_DOMAIN : undefined,
+    path: "/",
     maxAge: maxAgeMs,
   };
 }

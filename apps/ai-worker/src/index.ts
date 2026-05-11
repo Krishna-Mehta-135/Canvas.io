@@ -77,12 +77,16 @@ Allowed shape schemas:
 Layout + quality rules:
 - Coordinates: x 100-900, y 80-680.
 - First shape MUST be heading text (title) near y 100-120.
+- Semantic Tool Usage (REQUIRED for Architecture/System diagrams):
+  * Use 'rect' for Services, Servers, Microservices, or large conceptual blocks.
+  * Use 'circle' for Users, Actors, Databases, or external entry points.
+  * Use 'rhombus' for Decision points, Gateways, Load Balancers, or Logic checks.
+  * Combine these tools! Do not use only one node type for a complex system.
 - Generate 1 heading + 9-24 content shapes.
 - Place labels inside/adjacent to nodes; text width must be > 0 (roughly chars*8), height >= 24.
 - Arrows/lines must connect shape edges, not through shape centers.
 - When existing shapes are provided in prompt, place all new shapes in empty space (avoid overlap).
 - Favor rich structure over minimal outputs: include multiple sections/layers, branching where relevant, and enough supporting nodes to make the diagram actionable.
-- Use available canvas tools intentionally: combine rect/circle/rhombus with arrow/line connectors and text labels, instead of only one node style.
 - For architecture/workflow/system prompts, aim for at least 3 tiers (clients, services, data/infra) or equivalent logical groupings.
 
 Color palette:
@@ -559,12 +563,18 @@ async function generateShapesFromPrompt(prompt: string): Promise<unknown[]> {
         );
         const qualityIssue = getQualityIssue(shapes, prompt);
         if (qualityIssue) {
-          previousIssue = qualityIssue;
-          lastError = `Diagram quality check failed (${qualityIssue}) on attempt ${attempt + 1}`;
-          continue;
+          if (attempt < MAX_GENERATION_ATTEMPTS - 1) {
+            previousIssue = qualityIssue;
+            lastError = `Diagram quality check failed (${qualityIssue}) on attempt ${attempt + 1}`;
+            continue;
+          } else {
+            console.warn(
+              `[AI Worker] Quality check failed (${qualityIssue}) on last attempt; returning best-effort result.`,
+            );
+          }
         }
 
-        if (attempt > 0) {
+        if (attempt > 0 && !qualityIssue) {
           console.warn(
             `[AI Worker] Recovered generation after retry ${attempt + 1}`,
           );

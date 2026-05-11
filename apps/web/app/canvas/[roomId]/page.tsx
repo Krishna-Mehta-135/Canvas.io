@@ -1945,7 +1945,7 @@ export default function CanvasPage() {
     try {
       await logoutUser();
     } finally {
-      window.location.href = "/signin";
+      window.location.href = "/";
     }
   };
 

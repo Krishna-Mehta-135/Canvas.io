@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "type": "module",
   "main": "./dist/src/index.js",
-  "types": "./dist/src/index.d.ts",
+  "types": "./src/index.ts",
   "exports": {
     "./client": {
-      "types": "./dist/src/index.d.ts",
+      "types": "./src/index.ts",
       "default": "./dist/src/index.js"
     }
   },

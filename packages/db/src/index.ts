@@ -1,5 +1,5 @@
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../prisma/generated/prisma/client.ts";
+import { PrismaClient } from "./generated/prisma/client.ts";
 
 /**
  * Resilience pipeline for all Prisma calls in this package:
@@ -390,4 +390,4 @@ function wrapPrismaValue(value: unknown): unknown {
 
 export const prismaClient = wrapPrismaValue(rawPrismaClient) as PrismaClient;
 
-export * from "../prisma/generated/prisma/enums.ts";
+export * from "./generated/prisma/enums.ts";

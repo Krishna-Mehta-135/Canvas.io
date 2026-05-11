@@ -1,15 +1,22 @@
 import express, { Router } from "express";
-import { getCurrentUser, signin, signup } from "../controllers/auth.controller";
+import {
+  forgotPassword,
+  getCurrentUser,
+  getWsToken,
+  logout,
+  refreshAccessToken,
+  resetPassword,
+  signin,
+  signup,
+} from "../controllers/auth.controller";
 import { authenticate } from "../middlewares/auth.middleware";
 import { idempotencyMiddleware } from "../middlewares/idempotency.middleware";
 
-import { refreshAccessToken, logout } from "../controllers/auth.controller";
-import { forgotPassword, resetPassword } from "../controllers/auth.controller";
 import {
-  githubInitiate,
   githubCallback,
-  googleInitiate,
+  githubInitiate,
   googleCallback,
+  googleInitiate,
 } from "../controllers/oauth.controller";
 
 const authRouter: Router = express.Router();
@@ -20,6 +27,8 @@ authRouter.post("/signup", idempotencyMiddleware, signup);
 authRouter.post("/signin", idempotencyMiddleware, signin);
 // Primary self-profile endpoint.
 authRouter.get("/current-user", authenticate, getCurrentUser);
+// Generate a short-lived token for WebSocket handshakes.
+authRouter.get("/ws-token", authenticate, getWsToken);
 // Refresh access token using refresh token.
 authRouter.post("/refresh-token", refreshAccessToken);
 // Logout and invalidate all tokens.

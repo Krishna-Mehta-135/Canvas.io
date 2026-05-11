@@ -2444,7 +2444,7 @@ export default function CanvasPage() {
       {/* Workspace Metadata */}
       <div className="pointer-events-none absolute left-2 top-2 z-40 sm:left-4 sm:top-4">
         <div
-          className={`pointer-events-auto my-2 flex max-w-[calc(100vw-9rem)] items-center gap-2 rounded-2xl border px-3 py-2 backdrop-blur-2xl sm:max-w-none sm:gap-4 sm:px-4 sm:py-3 ${floatingPanelSurface}`}
+          className={`pointer-events-auto flex max-w-[calc(100vw-9rem)] items-center gap-2 rounded-2xl border px-3 py-2 backdrop-blur-2xl sm:max-w-none sm:gap-4 sm:px-4 sm:py-3 ${floatingPanelSurface}`}
         >
           <div className="min-w-0 flex flex-col">
             {/* <div className={`mb-1 inline-flex w-fit rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.22em] ${isDark ? "bg-white/5 text-white/55" : "bg-slate-100 text-slate-500"}`}>
@@ -3426,7 +3426,7 @@ export default function CanvasPage() {
 
       {/* Top Center: Main Toolbar */}
       <div
-        className={`absolute left-1/2 top-28 z-10 w-[calc(100vw-1rem)] -translate-x-1/2 rounded-2xl p-2 backdrop-blur-2xl transition-all duration-500 sm:top-4 sm:w-auto sm:p-3 ${topToolbarSurface}`}
+        className={`absolute left-1/2 top-20 z-10 w-[calc(100vw-1rem)] -translate-x-1/2 rounded-2xl p-2 backdrop-blur-2xl transition-all duration-500 sm:top-4 sm:w-auto sm:p-3 ${topToolbarSurface}`}
       >
         <div className="flex flex-nowrap items-center gap-1.5 overflow-x-auto scrollbar-none px-1 pb-1 sm:overflow-visible sm:pb-0">
           {TOOLS.map((tool, idx) => {

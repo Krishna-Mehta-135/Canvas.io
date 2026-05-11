@@ -624,11 +624,26 @@ export function useCanvasSync({
     setRealtimeChatMessages([]);
 
     const crdtClientId = crdtClientIdRef.current;
+    let isCleanedUp = false;
 
     // Ensure accessToken is fresh before opening WS — it expires in 15m and
     // the WS upgrade has no automatic refresh unlike HTTP requests via apiClient.
-    const connectWebSocket = () => {
-      const ws = new WebSocket(WS_BACKEND_URL);
+    const connectWebSocket = async () => {
+      // Get a short-lived WS handshake token — avoids cookie issues on mobile
+      let wsUrl = WS_BACKEND_URL;
+      try {
+        const res = await apiClient.get(`${HTTP_BACKEND}/auth/ws-token`);
+        const token = (res.data as { data?: { token?: string } })?.data?.token;
+        if (token) {
+          wsUrl = `${WS_BACKEND_URL}${WS_BACKEND_URL.includes("?") ? "&" : "?"}token=${token}`;
+        }
+      } catch {
+        // Fall back to cookie-based auth (works on desktop)
+      }
+
+      if (isCleanedUp) return;
+
+      const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 
       ws.onopen = () => {
@@ -900,6 +915,7 @@ export function useCanvasSync({
       .finally(connectWebSocket);
 
     return () => {
+      isCleanedUp = true;
       // Flush latest local snapshot before closing so navigation does not drop edits.
       if (
         isConnectedRef.current &&

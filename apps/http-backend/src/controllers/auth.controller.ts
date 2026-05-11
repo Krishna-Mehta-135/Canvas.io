@@ -471,6 +471,39 @@ const resetPassword = asyncHandler(async (req, res) => {
     .json(new ApiResponse(200, {}, "Password reset successful"));
 });
 
+const getWsToken = asyncHandler(async (req, res) => {
+  const userId = req.userId;
+
+  if (!userId) {
+    throw new ApiError(401, "Unauthorized");
+  }
+
+  const user = await prismaClient.user.findUnique({
+    where: {
+      id: userId,
+    },
+    select: {
+      name: true,
+    },
+  });
+
+  if (!user) {
+    throw new ApiError(404, "User not found");
+  }
+
+  if (!JWT_SECRET) {
+    throw new ApiError(500, "JWT_SECRET is not defined");
+  }
+
+  const token = jwt.sign(
+    { userId, name: user.name, type: "ws-handshake" },
+    JWT_SECRET,
+    { expiresIn: "30s" },
+  );
+
+  return res.json(new ApiResponse(200, { token }, "WS token issued"));
+});
+
 export {
   signup,
   signin,
@@ -479,4 +512,5 @@ export {
   logout,
   forgotPassword,
   resetPassword,
+  getWsToken,
 };

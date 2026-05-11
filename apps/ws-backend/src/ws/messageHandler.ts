@@ -239,7 +239,19 @@ export async function handleSocketMessage(
       return;
     }
 
-    const roomState = await initializeRoomSync(roomId);
+    let roomState;
+    try {
+      roomState = await initializeRoomSync(roomId);
+    } catch (err) {
+      console.error("[WS] initializeRoomSync failed", err);
+      ws.send(
+        JSON.stringify({
+          type: "sync_error",
+          reason: "Server error, try again",
+        } as ServerMessage),
+      );
+      return;
+    }
     const isFirstRoomConnectionForUser = joinActiveRoom(roomId, ws);
 
     if (isFirstRoomConnectionForUser && ws.userId) {

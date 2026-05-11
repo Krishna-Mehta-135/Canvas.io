@@ -34,6 +34,7 @@ import {
   type CanvasCrdtMetadata,
 } from "@repo/common";
 import type { Tool } from "@repo/canvas-engine";
+import { apiClient } from "../app/lib/apiClient";
 import { HTTP_BACKEND } from "../config";
 
 const WS_SYNC_DEBUG = process.env.NEXT_PUBLIC_WS_SYNC_DEBUG === "true";
@@ -623,266 +624,287 @@ export function useCanvasSync({
     setRealtimeChatMessages([]);
 
     const crdtClientId = crdtClientIdRef.current;
-    const ws = new WebSocket(WS_BACKEND_URL);
 
-    ws.onopen = () => {
-      if (WS_SYNC_DEBUG) console.log("[WS] Connected, joining room", roomId);
-      appendTimelineEvent("socket_open", `joining room ${roomId}`);
-      setLastSyncError(null);
-      hasJoinedRoomRef.current = false;
-      isConnectedRef.current = true;
-      setIsConnected(true);
-      const joinMsg: WsMessage = { type: "join_room", roomId };
-      ws.send(JSON.stringify(joinMsg));
-    };
+    // Ensure accessToken is fresh before opening WS — it expires in 15m and
+    // the WS upgrade has no automatic refresh unlike HTTP requests via apiClient.
+    const connectWebSocket = () => {
+      const ws = new WebSocket(WS_BACKEND_URL);
+      wsRef.current = ws;
 
-    ws.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data) as ServerMessage;
+      ws.onopen = () => {
+        if (WS_SYNC_DEBUG) console.log("[WS] Connected, joining room", roomId);
+        appendTimelineEvent("socket_open", `joining room ${roomId}`);
+        setLastSyncError(null);
+        hasJoinedRoomRef.current = false;
+        isConnectedRef.current = true;
+        setIsConnected(true);
+        const joinMsg: WsMessage = { type: "join_room", roomId };
+        ws.send(JSON.stringify(joinMsg));
+      };
 
-        if (message.type === "room_joined") {
-          if (WS_SYNC_DEBUG) {
-            console.log(
-              "[WS] Joined room, version:",
-              message.version,
-              "shapes:",
-              message.shapes.length,
-            );
-          }
-          syncStateRef.current = {
-            roomId: message.roomId,
-            version: message.version,
-            shapes: message.shapes,
-          };
-          optimisticSnapshotVersionRef.current = message.version;
-          hasJoinedRoomRef.current = true;
-          inFlightSnapshotCountRef.current = 0;
-          setCurrentUserId(message.userId);
-          setPresenceState((previous) => {
-            const nextPresenceState: RoomPresenceState = {
-              roomId: message.roomId,
-              connectedUsersCount: message.connectedUsersCount,
-              presences: message.presences,
-            };
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data) as ServerMessage;
 
-            return arePresenceStatesEqual(previous, nextPresenceState)
-              ? previous
-              : nextPresenceState;
-          });
-          setLastSyncError(null);
-          isConnectedRef.current = true;
-          setIsConnected(true);
-          appendTimelineEvent(
-            "room_joined",
-            `v${message.version} (${message.shapes.length} shapes)`,
-          );
-          syncInFlightCounter();
-
-          // Update live ref first, then hydrate.
-          pendingRemoteSnapshotRef.current = null;
-          cancelScheduledRemoteHydrate();
-
-          // If we have a preserved local snapshot (e.g. from a version-mismatch
-          // recovery), we apply the server state first to sync version metadata,
-          // then IMMEDIATELY re-apply the local state so the canvas never shows
-          // the old server position.  isApplyingRemoteRef stays true across both
-          // calls so no sendCanvasSnapshot fires for the intermediate server state.
-          const savedLocalShapes = queuedSnapshotRef.current;
-
-          isApplyingRemoteRef.current = true;
-          latestShapesRef.current = message.shapes;
-          previousCrdtShapesRef.current = message.shapes;
-          observeCrdtClock(message.shapes);
-          state.hydrateShapes(message.shapes);
-
-          if (savedLocalShapes) {
-            // Re-apply the user's latest local state so the shape snaps back
-            // to where they left it — not to the server's stale position.
-            latestShapesRef.current = savedLocalShapes.shapes;
-            previousCrdtShapesRef.current = savedLocalShapes.shapes;
-            observeCrdtClock(savedLocalShapes.shapes);
-            state.hydrateShapes(savedLocalShapes.shapes);
-          }
-
-          isApplyingRemoteRef.current = false;
-
-          flushQueuedSnapshot();
-        } else if (message.type === "canvas_snapshot_broadcast") {
-          if (WS_SYNC_DEBUG) {
-            console.log(
-              "[WS] Received snapshot from",
-              message.senderId,
-              "version:",
-              message.version,
-            );
-          }
-
-          // Keep the live overlay ref current as soon as the snapshot arrives.
-          // The actual CanvasState hydrate still goes through the deferred path
-          // below, so local drag churn remains protected, but remote selection
-          // boxes and attached indicators can track the newest geometry every frame.
-          latestShapesRef.current = message.shapes;
-          observeCrdtClock(message.shapes);
-
-          pendingRemoteSnapshotRef.current = {
-            roomId: message.roomId,
-            version: message.version,
-            shapes: message.shapes,
-            senderId: message.senderId,
-            deletedShapeIds: message.deletedShapeIds,
-            deletionMeta: message.deletionMeta,
-          };
-          scheduleRemoteHydrate();
-        } else if (message.type === "canvas_snapshot_ack") {
-          syncStateRef.current = {
-            roomId: message.roomId,
-            version: message.version,
-            shapes: syncStateRef.current.shapes,
-          };
-          inFlightSnapshotCountRef.current = Math.max(
-            0,
-            inFlightSnapshotCountRef.current - 1,
-          );
-          optimisticSnapshotVersionRef.current = Math.max(
-            optimisticSnapshotVersionRef.current,
-            message.version + 1,
-          );
-          if (snapshotSentAtRef.current !== null) {
-            const latency = Math.max(0, Date.now() - snapshotSentAtRef.current);
-            setWebsocketLatencyMs(latency);
-            appendTimelineEvent(
-              "snapshot_ack",
-              `v${message.version} (${latency}ms)`,
-            );
-            snapshotSentAtRef.current = null;
-          } else {
-            appendTimelineEvent("snapshot_ack", `v${message.version}`);
-          }
-          syncInFlightCounter();
-          setLastSyncError(null);
-          scheduleSnapshotFlush();
-        } else if (message.type === "room_presence_state") {
-          setPresenceState((previous) => {
-            const nextPresenceState: RoomPresenceState = {
-              roomId: message.roomId,
-              connectedUsersCount: message.connectedUsersCount,
-              presences: message.presences,
-            };
-
-            return arePresenceStatesEqual(previous, nextPresenceState)
-              ? previous
-              : nextPresenceState;
-          });
-        } else if (message.type === "chat_message_created") {
-          appendRealtimeChatMessage(message.message);
-        } else if (message.type === "sync_error") {
-          if (WS_SYNC_DEBUG) console.warn("[WS] Sync error:", message.reason);
-          appendTimelineEvent("sync_error", message.reason);
-
-          const reasonLower = message.reason.toLowerCase();
-          const isTransientSyncError =
-            reasonLower.includes("version mismatch") ||
-            reasonLower.includes("rate limit") ||
-            (!hasJoinedRoomRef.current &&
-              (reasonLower.includes("forbidden") ||
-                reasonLower.includes("not active")));
-
-          if (!isTransientSyncError) {
-            setLastSyncError(message.reason);
-          }
-
-          inFlightSnapshotCountRef.current = 0;
-          syncInFlightCounter();
-
-          // Version mismatch: server will push authoritative room_joined.
-          // IMPORTANT: Do NOT null out queuedSnapshotRef here — that would
-          // lose the user's latest local position and cause the shape to
-          // teleport back to wherever the server was when it rejected us.
-          //
-          // Instead, capture the latest local canvas state (if no snapshot is
-          // already queued) and hold it.  When room_joined arrives it resets
-          // optimisticSnapshotVersionRef to the server's version, then
-          // flushQueuedSnapshot() re-sends our latest state with that version.
-          if (reasonLower.includes("version mismatch")) {
-            if (!queuedSnapshotRef.current && state) {
-              // Preserve the current canvas position so it survives the resync.
-              const reconciled = reconcileLocalCanvasCrdtSnapshot(
-                previousCrdtShapesRef.current,
-                state.getShapes(),
-                crdtClientIdRef.current,
-                nextCrdtClock,
+          if (message.type === "room_joined") {
+            if (WS_SYNC_DEBUG) {
+              console.log(
+                "[WS] Joined room, version:",
+                message.version,
+                "shapes:",
+                message.shapes.length,
               );
-              previousCrdtShapesRef.current = reconciled.shapes;
-              queuedSnapshotRef.current = {
-                shapes: reconciled.shapes,
-                deletedShapeIds: reconciled.deletedShapeIds,
-                deletionMeta: reconciled.deletionMeta,
+            }
+            syncStateRef.current = {
+              roomId: message.roomId,
+              version: message.version,
+              shapes: message.shapes,
+            };
+            optimisticSnapshotVersionRef.current = message.version;
+            hasJoinedRoomRef.current = true;
+            inFlightSnapshotCountRef.current = 0;
+            setCurrentUserId(message.userId);
+            setPresenceState((previous) => {
+              const nextPresenceState: RoomPresenceState = {
+                roomId: message.roomId,
+                connectedUsersCount: message.connectedUsersCount,
+                presences: message.presences,
               };
+
+              return arePresenceStatesEqual(previous, nextPresenceState)
+                ? previous
+                : nextPresenceState;
+            });
+            setLastSyncError(null);
+            isConnectedRef.current = true;
+            setIsConnected(true);
+            appendTimelineEvent(
+              "room_joined",
+              `v${message.version} (${message.shapes.length} shapes)`,
+            );
+            syncInFlightCounter();
+
+            // Update live ref first, then hydrate.
+            pendingRemoteSnapshotRef.current = null;
+            cancelScheduledRemoteHydrate();
+
+            // If we have a preserved local snapshot (e.g. from a version-mismatch
+            // recovery), we apply the server state first to sync version metadata,
+            // then IMMEDIATELY re-apply the local state so the canvas never shows
+            // the old server position.  isApplyingRemoteRef stays true across both
+            // calls so no sendCanvasSnapshot fires for the intermediate server state.
+            const savedLocalShapes = queuedSnapshotRef.current;
+
+            isApplyingRemoteRef.current = true;
+            latestShapesRef.current = message.shapes;
+            previousCrdtShapesRef.current = message.shapes;
+            observeCrdtClock(message.shapes);
+            state.hydrateShapes(message.shapes);
+
+            if (savedLocalShapes) {
+              // Re-apply the user's latest local state so the shape snaps back
+              // to where they left it — not to the server's stale position.
+              latestShapesRef.current = savedLocalShapes.shapes;
+              previousCrdtShapesRef.current = savedLocalShapes.shapes;
+              observeCrdtClock(savedLocalShapes.shapes);
+              state.hydrateShapes(savedLocalShapes.shapes);
             }
-            // Cancel any pending flush timer — room_joined will trigger a flush.
-            if (pendingSyncRef.current) {
-              clearTimeout(pendingSyncRef.current);
-              pendingSyncRef.current = null;
+
+            isApplyingRemoteRef.current = false;
+
+            flushQueuedSnapshot();
+          } else if (message.type === "canvas_snapshot_broadcast") {
+            if (WS_SYNC_DEBUG) {
+              console.log(
+                "[WS] Received snapshot from",
+                message.senderId,
+                "version:",
+                message.version,
+              );
             }
-            return;
+
+            // Keep the live overlay ref current as soon as the snapshot arrives.
+            // The actual CanvasState hydrate still goes through the deferred path
+            // below, so local drag churn remains protected, but remote selection
+            // boxes and attached indicators can track the newest geometry every frame.
+            latestShapesRef.current = message.shapes;
+            observeCrdtClock(message.shapes);
+
+            pendingRemoteSnapshotRef.current = {
+              roomId: message.roomId,
+              version: message.version,
+              shapes: message.shapes,
+              senderId: message.senderId,
+              deletedShapeIds: message.deletedShapeIds,
+              deletionMeta: message.deletionMeta,
+            };
+            scheduleRemoteHydrate();
+          } else if (message.type === "canvas_snapshot_ack") {
+            syncStateRef.current = {
+              roomId: message.roomId,
+              version: message.version,
+              shapes: syncStateRef.current.shapes,
+            };
+            inFlightSnapshotCountRef.current = Math.max(
+              0,
+              inFlightSnapshotCountRef.current - 1,
+            );
+            optimisticSnapshotVersionRef.current = Math.max(
+              optimisticSnapshotVersionRef.current,
+              message.version + 1,
+            );
+            if (snapshotSentAtRef.current !== null) {
+              const latency = Math.max(0, Date.now() - snapshotSentAtRef.current);
+              setWebsocketLatencyMs(latency);
+              appendTimelineEvent(
+                "snapshot_ack",
+                `v${message.version} (${latency}ms)`,
+              );
+              snapshotSentAtRef.current = null;
+            } else {
+              appendTimelineEvent("snapshot_ack", `v${message.version}`);
+            }
+            syncInFlightCounter();
+            setLastSyncError(null);
+            scheduleSnapshotFlush();
+          } else if (message.type === "room_presence_state") {
+            setPresenceState((previous) => {
+              const nextPresenceState: RoomPresenceState = {
+                roomId: message.roomId,
+                connectedUsersCount: message.connectedUsersCount,
+                presences: message.presences,
+              };
+
+              return arePresenceStatesEqual(previous, nextPresenceState)
+                ? previous
+                : nextPresenceState;
+            });
+          } else if (message.type === "chat_message_created") {
+            appendRealtimeChatMessage(message.message);
+          } else if (message.type === "sync_error") {
+            if (WS_SYNC_DEBUG) console.warn("[WS] Sync error:", message.reason);
+            appendTimelineEvent("sync_error", message.reason);
+
+            const reasonLower = message.reason.toLowerCase();
+            const isTransientSyncError =
+              reasonLower.includes("version mismatch") ||
+              reasonLower.includes("rate limit") ||
+              (!hasJoinedRoomRef.current &&
+                (reasonLower.includes("forbidden") ||
+                  reasonLower.includes("not active")));
+
+            if (!isTransientSyncError) {
+              setLastSyncError(message.reason);
+            }
+
+            inFlightSnapshotCountRef.current = 0;
+            syncInFlightCounter();
+
+            // Version mismatch: server will push authoritative room_joined.
+            // IMPORTANT: Do NOT null out queuedSnapshotRef here — that would
+            // lose the user's latest local position and cause the shape to
+            // teleport back to wherever the server was when it rejected us.
+            //
+            // Instead, capture the latest local canvas state (if no snapshot is
+            // already queued) and hold it.  When room_joined arrives it resets
+            // optimisticSnapshotVersionRef to the server's version, then
+            // flushQueuedSnapshot() re-sends our latest state with that version.
+            if (reasonLower.includes("version mismatch")) {
+              if (!queuedSnapshotRef.current && state) {
+                // Preserve the current canvas position so it survives the resync.
+                const reconciled = reconcileLocalCanvasCrdtSnapshot(
+                  previousCrdtShapesRef.current,
+                  state.getShapes(),
+                  crdtClientIdRef.current,
+                  nextCrdtClock,
+                );
+                previousCrdtShapesRef.current = reconciled.shapes;
+                queuedSnapshotRef.current = {
+                  shapes: reconciled.shapes,
+                  deletedShapeIds: reconciled.deletedShapeIds,
+                  deletionMeta: reconciled.deletionMeta,
+                };
+              }
+              // Cancel any pending flush timer — room_joined will trigger a flush.
+              if (pendingSyncRef.current) {
+                clearTimeout(pendingSyncRef.current);
+                pendingSyncRef.current = null;
+              }
+              return;
+            }
+
+            // Rate limit: exponential backoff before retrying.
+            if (reasonLower.includes("rate limit")) {
+              const alreadyWaiting =
+                rateLimitBackoffUntilRef.current > 0 &&
+                Date.now() < rateLimitBackoffUntilRef.current;
+              const nextBackoffMs = alreadyWaiting
+                ? Math.min(
+                    (rateLimitBackoffUntilRef.current - Date.now()) * 2,
+                    4000,
+                  )
+                : 250;
+              rateLimitBackoffUntilRef.current = Date.now() + nextBackoffMs;
+
+              if (rateLimitBackoffTimerRef.current) {
+                clearTimeout(rateLimitBackoffTimerRef.current);
+              }
+              rateLimitBackoffTimerRef.current = setTimeout(() => {
+                rateLimitBackoffUntilRef.current = 0;
+                rateLimitBackoffTimerRef.current = null;
+                scheduleSnapshotFlush();
+              }, nextBackoffMs);
+              return;
+            }
+
+            // Other transient errors: retry with next flush.
+            scheduleSnapshotFlush();
           }
-
-          // Rate limit: exponential backoff before retrying.
-          if (reasonLower.includes("rate limit")) {
-            const alreadyWaiting =
-              rateLimitBackoffUntilRef.current > 0 &&
-              Date.now() < rateLimitBackoffUntilRef.current;
-            const nextBackoffMs = alreadyWaiting
-              ? Math.min(
-                  (rateLimitBackoffUntilRef.current - Date.now()) * 2,
-                  4000,
-                )
-              : 250;
-            rateLimitBackoffUntilRef.current = Date.now() + nextBackoffMs;
-
-            if (rateLimitBackoffTimerRef.current) {
-              clearTimeout(rateLimitBackoffTimerRef.current);
-            }
-            rateLimitBackoffTimerRef.current = setTimeout(() => {
-              rateLimitBackoffUntilRef.current = 0;
-              rateLimitBackoffTimerRef.current = null;
-              scheduleSnapshotFlush();
-            }, nextBackoffMs);
-            return;
-          }
-
-          // Other transient errors: retry with next flush.
-          scheduleSnapshotFlush();
+        } catch (err) {
+          if (WS_SYNC_DEBUG) console.error("[WS] Failed to parse message:", err);
         }
-      } catch (err) {
-        if (WS_SYNC_DEBUG) console.error("[WS] Failed to parse message:", err);
-      }
+      };
+
+      ws.onerror = () => {
+        if (WS_SYNC_DEBUG) console.warn("[WS] WebSocket connection error");
+        appendTimelineEvent("socket_error", "websocket connection error");
+        setLastSyncError("WebSocket connection error");
+      };
+
+      ws.onclose = (event) => {
+        if (WS_SYNC_DEBUG) console.log("[WS] Disconnected");
+        appendTimelineEvent("socket_close", event.reason || `code ${event.code}`);
+        if (event.code === 1008) {
+          // Token expired mid-session — refresh silently so the next reconnect
+          // attempt (triggered by the useEffect re-run) succeeds.
+          apiClient
+            .post(`${HTTP_BACKEND}/auth/refresh-token`, {})
+            .catch(() => {
+              // Refresh failed — user session truly expired, redirect to signin.
+              if (typeof window !== "undefined") {
+                window.location.href = "/signin";
+              }
+            });
+          setLastSyncError(event.reason || "WebSocket authentication failed");
+        }
+        hasJoinedRoomRef.current = false;
+        isConnectedRef.current = false;
+        setIsConnected(false);
+      };
     };
 
-    ws.onerror = () => {
-      if (WS_SYNC_DEBUG) console.warn("[WS] WebSocket connection error");
-      appendTimelineEvent("socket_error", "websocket connection error");
-      setLastSyncError("WebSocket connection error");
-    };
-
-    ws.onclose = (event) => {
-      if (WS_SYNC_DEBUG) console.log("[WS] Disconnected");
-      appendTimelineEvent("socket_close", event.reason || `code ${event.code}`);
-      if (event.code === 1008) {
-        setLastSyncError(event.reason || "WebSocket authentication failed");
-      }
-      hasJoinedRoomRef.current = false;
-      isConnectedRef.current = false;
-      setIsConnected(false);
-    };
-
-    wsRef.current = ws;
+    // Refresh token if needed, then connect.
+    apiClient
+      .get(`${HTTP_BACKEND}/auth/current-user`)
+      .catch(() => apiClient.post(`${HTTP_BACKEND}/auth/refresh-token`, {}))
+      .finally(connectWebSocket);
 
     return () => {
       // Flush latest local snapshot before closing so navigation does not drop edits.
       if (
         isConnectedRef.current &&
-        ws.readyState === WebSocket.OPEN &&
+        wsRef.current &&
+        wsRef.current.readyState === WebSocket.OPEN &&
         state &&
         !isApplyingRemoteRef.current
       ) {
@@ -901,7 +923,7 @@ export function useCanvasSync({
             deletedShapeIds: reconciled.deletedShapeIds,
             deletionMeta: reconciled.deletionMeta,
           };
-          ws.send(JSON.stringify(message));
+          wsRef.current.send(JSON.stringify(message));
         } catch (error) {
           if (WS_SYNC_DEBUG)
             console.warn("[WS] Failed to flush snapshot during cleanup", error);
@@ -935,7 +957,8 @@ export function useCanvasSync({
       syncInFlightCounter();
       hasJoinedRoomRef.current = false;
 
-      if (ws.readyState === WebSocket.OPEN) ws.close();
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN)
+        wsRef.current.close();
     };
   }, [
     roomId,

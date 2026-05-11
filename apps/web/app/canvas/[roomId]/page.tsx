@@ -3522,7 +3522,7 @@ export default function CanvasPage() {
         chat={chat}
       />
 
-      <div className="pointer-events-none absolute bottom-4 left-2 z-30 sm:left-4">
+      <div className="pointer-events-none absolute bottom-4 left-2 z-30 hidden sm:block sm:left-4">
         <div
           className={`pointer-events-auto flex items-center gap-2 rounded-2xl border px-2 py-1.5 backdrop-blur-2xl ${floatingPanelSurface}`}
         >

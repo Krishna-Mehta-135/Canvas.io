@@ -389,3 +389,5 @@ function wrapPrismaValue(value: unknown): unknown {
 }
 
 export const prismaClient = wrapPrismaValue(rawPrismaClient) as PrismaClient;
+
+export * from "../prisma/generated/prisma/enums.ts";

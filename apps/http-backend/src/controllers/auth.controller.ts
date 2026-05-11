@@ -37,22 +37,19 @@ function toHandleBase(rawName: string): string {
 
 async function allocateUniqueHandle(name: string): Promise<string> {
   const base = toHandleBase(name);
-  let handle = base;
-  let suffix = 1;
+  const MAX_ATTEMPTS = 10;
 
-  while (true) {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const handle = attempt === 0 ? base : `${base}-${attempt}`;
     const existing = await prismaClient.user.findFirst({
       where: { handle },
       select: { id: true },
     });
-
-    if (!existing) {
-      return handle;
-    }
-
-    handle = `${base}-${suffix}`;
-    suffix += 1;
+    if (!existing) return handle;
   }
+
+  // Fall back to base + random 6-char suffix to guarantee uniqueness
+  return `${base}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
 async function ensureUserHandle(user: {

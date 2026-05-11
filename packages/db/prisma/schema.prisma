@@ -74,16 +74,22 @@ model RoomMember {
   @@unique([roomId, userId])
 }
 
+enum AccessRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model RoomAccessRequest {
-  id             Int      @id @default(autoincrement())
+  id             Int                 @id @default(autoincrement())
   roomId         Int
   requesterId    String
-  status         String   @default("pending")
-  createdAt      DateTime @default(now())
+  status         AccessRequestStatus @default(PENDING)
+  createdAt      DateTime            @default(now())
   respondedAt    DateTime?
   decisionNote   String?
-  room           Room     @relation(fields: [roomId], references: [id])
-  requester      User     @relation(fields: [requesterId], references: [id])
+  room           Room                @relation(fields: [roomId], references: [id])
+  requester      User                @relation(fields: [requesterId], references: [id])
 
   @@index([roomId, status])
   @@unique([roomId, requesterId])

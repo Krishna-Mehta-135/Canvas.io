@@ -27,7 +27,11 @@ import {
   roomCrdtTombstones,
   roomSyncState,
 } from "./roomSync.js";
-import { commitRoomSnapshot, NODE_ID } from "@repo/redis-sync";
+import {
+  commitRoomSnapshot,
+  NODE_ID,
+  publishChatEvent,
+} from "@repo/redis-sync";
 import {
   recordInvalidJsonPayload,
   recordInvalidMessagePayload,
@@ -322,7 +326,7 @@ export async function handleSocketMessage(
     setRoomPresence(roomId, ws.userId, {
       userId: ws.userId,
       userName: ws.userName ?? `User ${ws.userId.slice(0, 6)}`,
-      cursor: null,
+      cursor: parsed.cursor ?? null,
       selectedIds: Array.isArray(selectedIds) ? selectedIds : [],
       tool: typeof parsed.tool === "string" ? parsed.tool : null,
     });
@@ -666,10 +670,26 @@ export async function handleSocketMessage(
 
     if (kind === "direct" && recipientId) {
       broadcastToRoomUsers(roomId, chatMessage, [ws.userId, recipientId]);
+
+      void publishChatEvent(roomId, {
+        type: "chat_message_created",
+        kind,
+        recipientIds: [ws.userId, recipientId],
+        message: mapPersistedChatMessage(createdChat),
+      }).catch((err) =>
+        console.error("[WS] Failed to publish chat event", err),
+      );
       return;
     }
 
     broadcastToRoomAll(roomId, chatMessage);
+
+    void publishChatEvent(roomId, {
+      type: "chat_message_created",
+      kind,
+      recipientIds: null,
+      message: mapPersistedChatMessage(createdChat),
+    }).catch((err) => console.error("[WS] Failed to publish chat event", err));
     return;
   }
 }

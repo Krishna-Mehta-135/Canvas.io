@@ -9,8 +9,10 @@ import { RABBITMQ_URL } from "@repo/backend-common/config";
 import { checkUser } from "./ws/auth.js";
 import {
   activeRooms,
+  applyRemotePresenceState,
   broadcastRoomPresenceState,
   broadcastToRoomAll,
+  broadcastToRoomUsers,
   leaveActiveRoom,
   registerUser,
   removeRoomPresence,
@@ -23,7 +25,12 @@ import {
   roomCrdtTombstones,
   roomSyncState,
 } from "./ws/roomSync.js";
-import { NODE_ID, subscribeRoomEvents } from "@repo/redis-sync";
+import {
+  NODE_ID,
+  subscribeChatEvents,
+  subscribePresenceEvents,
+  subscribeRoomEvents,
+} from "@repo/redis-sync";
 import type { AuthenticatedWebSocket } from "./ws/types.js";
 import type { ServerMessage } from "@repo/common";
 import type { RoomSnapshotBroadcastEvent } from "@repo/common/ws-protocol";
@@ -190,6 +197,32 @@ async function applyCrossNodeRoomEvent(
 // - Redis Pub/Sub fallback for low-latency best-effort fan-out.
 void subscribeRoomEvents(async (event) => {
   await applyCrossNodeRoomEvent(event, "redis");
+});
+
+void subscribePresenceEvents(async (event) => {
+  applyRemotePresenceState(
+    event.roomId,
+    event.presences,
+    event.connectedUsersCount,
+  );
+});
+
+void subscribeChatEvents(async (event) => {
+  if (event.kind === "direct" && event.recipientIds) {
+    broadcastToRoomUsers(
+      event.roomId,
+      {
+        type: "chat_message_created",
+        message: event.message,
+      },
+      event.recipientIds,
+    );
+  } else {
+    broadcastToRoomAll(event.roomId, {
+      type: "chat_message_created",
+      message: event.message,
+    });
+  }
 });
 
 function startDurableRoomEventConsumer() {

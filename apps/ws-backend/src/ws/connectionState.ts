@@ -4,6 +4,7 @@ import type {
   RoomPresenceState,
   ServerMessage,
 } from "@repo/common";
+import { publishPresenceEvent } from "@repo/redis-sync";
 import type { AuthenticatedWebSocket } from "./types.js";
 
 /**
@@ -27,6 +28,12 @@ export const userSockets = new Map<string, Set<AuthenticatedWebSocket>>();
 export const activeRooms = new Map<number, Set<AuthenticatedWebSocket>>();
 const roomParticipants = new Map<number, Map<string, number>>();
 const roomPresences = new Map<number, Map<string, RoomPresence>>();
+
+const pendingPresenceBroadcast = new Map<
+  number,
+  ReturnType<typeof setTimeout>
+>();
+const PRESENCE_BROADCAST_DEBOUNCE_MS = 50;
 
 /**
  * Registers a user socket so connection and room state can be updated later.
@@ -227,8 +234,53 @@ export function getRoomPresenceState(roomId: number): RoomPresenceState {
  * Emits the latest room presence snapshot to all connected clients.
  */
 export function broadcastRoomPresenceState(roomId: number) {
+  const existing = pendingPresenceBroadcast.get(roomId);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(() => {
+    pendingPresenceBroadcast.delete(roomId);
+    const state = getRoomPresenceState(roomId);
+
+    // local broadcast (unchanged)
+    broadcastToRoomAll(roomId, {
+      type: "room_presence_state",
+      ...state,
+    });
+
+    // cross-node publish (new)
+    publishPresenceEvent(roomId, {
+      type: "room_presence_state",
+      connectedUsersCount: state.connectedUsersCount,
+      presences: state.presences,
+    }).catch((err) =>
+      console.error("[WS] Failed to publish presence event", err),
+    );
+  }, PRESENCE_BROADCAST_DEBOUNCE_MS);
+
+  pendingPresenceBroadcast.set(roomId, timer);
+}
+
+/**
+ * Merges remote presences into local state and broadcasts to local sockets.
+ */
+export function applyRemotePresenceState(
+  roomId: number,
+  presences: RoomPresence[],
+  connectedUsersCount: number,
+) {
+  // Merge remote presences into local roomPresences map.
+  for (const presence of presences) {
+    setRoomPresence(roomId, presence.userId, presence);
+  }
+
+  const localCount = roomParticipants.get(roomId)?.size ?? 0;
+  const totalCount = localCount + connectedUsersCount;
+  const mergedPresences = roomPresences.get(roomId);
+
   broadcastToRoomAll(roomId, {
     type: "room_presence_state",
-    ...getRoomPresenceState(roomId),
+    roomId,
+    connectedUsersCount: totalCount,
+    presences: mergedPresences ? [...mergedPresences.values()] : [],
   });
 }

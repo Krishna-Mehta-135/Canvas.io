@@ -1,4 +1,4 @@
-import { prismaClient } from "@repo/db/client";
+import { prismaClient, AccessRequestStatus } from "@repo/db/client";
 import { ApiError } from "../utils/ApiError";
 import { ApiResponse } from "../utils/ApiResponse";
 import {
@@ -18,12 +18,8 @@ import {
 import { asyncHandler } from "../utils/asyncHandler";
 import { publishAiGenerateJob } from "@repo/queue-sync";
 import { randomUUID } from "node:crypto";
-import Redis from "ioredis";
-import { REDIS_URL, INTERNAL_SECRET } from "@repo/backend-common/config";
-
-const redisClient = new Redis(REDIS_URL, {
-  maxRetriesPerRequest: null,
-});
+import { sharedRedisClient as redisClient } from "@repo/redis-sync";
+import { INTERNAL_SECRET } from "@repo/backend-common/config";
 
 function requireUserId(userId?: string) {
   if (!userId) {
@@ -945,7 +941,7 @@ const requestRoomAccess = asyncHandler(async (req, res) => {
         200,
         {
           roomId: room.id,
-          status: "approved",
+          status: AccessRequestStatus.APPROVED.toLowerCase(),
         },
         "You already have access to this room",
       ),
@@ -961,14 +957,17 @@ const requestRoomAccess = asyncHandler(async (req, res) => {
     },
   });
 
-  if (existingRequest && existingRequest.status === "pending") {
+  if (
+    existingRequest &&
+    existingRequest.status === AccessRequestStatus.PENDING
+  ) {
     return res.status(200).json(
       new ApiResponse(
         200,
         {
           requestId: existingRequest.id,
           roomId: room.id,
-          status: existingRequest.status,
+          status: existingRequest.status.toLowerCase(),
         },
         "Access request already pending",
       ),
@@ -981,7 +980,7 @@ const requestRoomAccess = asyncHandler(async (req, res) => {
           id: existingRequest.id,
         },
         data: {
-          status: "pending",
+          status: AccessRequestStatus.PENDING,
           decisionNote: note,
           respondedAt: null,
         },
@@ -990,7 +989,7 @@ const requestRoomAccess = asyncHandler(async (req, res) => {
         data: {
           roomId: room.id,
           requesterId,
-          status: "pending",
+          status: AccessRequestStatus.PENDING,
           decisionNote: note,
         },
       });
@@ -1001,7 +1000,7 @@ const requestRoomAccess = asyncHandler(async (req, res) => {
       {
         requestId: nextRequest.id,
         roomId: room.id,
-        status: nextRequest.status,
+        status: nextRequest.status.toLowerCase(),
       },
       "Access request sent to room owner",
     ),
@@ -1013,7 +1012,7 @@ const listIncomingRoomAccessRequests = asyncHandler(async (req, res) => {
 
   const requests = await prismaClient.roomAccessRequest.findMany({
     where: {
-      status: "pending",
+      status: AccessRequestStatus.PENDING,
       room: {
         adminId: ownerId,
       },
@@ -1081,7 +1080,7 @@ const decideRoomAccessRequest = asyncHandler(async (req, res) => {
     throw new ApiError(403, "Forbidden");
   }
 
-  if (accessRequest.status !== "pending") {
+  if (accessRequest.status !== AccessRequestStatus.PENDING) {
     throw new ApiError(409, "Access request is already resolved");
   }
 
@@ -1091,7 +1090,10 @@ const decideRoomAccessRequest = asyncHandler(async (req, res) => {
         id: accessRequest.id,
       },
       data: {
-        status: action === "approve" ? "approved" : "rejected",
+        status:
+          action === "approve"
+            ? AccessRequestStatus.APPROVED
+            : AccessRequestStatus.REJECTED,
         respondedAt: new Date(),
         decisionNote: note,
       },

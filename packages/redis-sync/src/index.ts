@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import Redis from "ioredis";
 import type { Shape } from "@repo/canvas-engine";
-import type { RoomSyncState } from "@repo/common";
+import type {
+  RoomSyncState,
+  RoomPresence,
+  PersistedChatMessage,
+} from "@repo/common";
 import { RoomSnapshotBroadcastEventSchema } from "@repo/common/ws-protocol";
 import { REDIS_URL } from "@repo/backend-common/config";
 
@@ -17,6 +21,8 @@ export const NODE_ID = randomUUID();
 // IMPORTANT: ioredis does NOT apply keyPrefix to Pub/Sub channel names, so
 // channels are still prefixed manually via ROOM_CHANNEL_PREFIX.
 const ROOM_CHANNEL_PREFIX = "canvas:room"; // Used for Pub/Sub — must stay explicit
+const PRESENCE_CHANNEL_PREFIX = "canvas:presence"; // Used for Pub/Sub — must stay explicit
+const CHAT_CHANNEL_PREFIX = "canvas:chat"; // Used for Pub/Sub — must stay explicit
 const ROOM_VERSION_PREFIX = "room:version"; // Key prefix applied by ioredis → canvas:room:version:*
 const ROOM_SNAPSHOT_PREFIX = "room:snapshot"; // Key prefix applied by ioredis → canvas:room:snapshot:*
 
@@ -61,6 +67,23 @@ export type RedisRoomEvent = {
   type: "canvas_snapshot_broadcast";
 };
 
+export type RedisPresenceEvent = {
+  type: "room_presence_state";
+  roomId: number;
+  originNodeId: string;
+  connectedUsersCount: number;
+  presences: RoomPresence[];
+};
+
+export type RedisChatEvent = {
+  type: "chat_message_created";
+  roomId: number;
+  originNodeId: string;
+  kind: "group" | "direct" | "comment";
+  recipientIds: string[] | null; // null = group broadcast
+  message: PersistedChatMessage;
+};
+
 function roomVersionKey(roomId: number) {
   return `${ROOM_VERSION_PREFIX}:${roomId}`;
 }
@@ -71,6 +94,14 @@ function roomSnapshotKey(roomId: number) {
 
 function roomChannel(roomId: number) {
   return `${ROOM_CHANNEL_PREFIX}:${roomId}`;
+}
+
+function presenceChannel(roomId: number) {
+  return `${PRESENCE_CHANNEL_PREFIX}:${roomId}`;
+}
+
+function chatChannel(roomId: number) {
+  return `${CHAT_CHANNEL_PREFIX}:${roomId}`;
 }
 
 function rateLimitKey(routeKey: string) {
@@ -163,6 +194,36 @@ export async function publishRoomEvent(
   };
 
   await publisher.publish(roomChannel(roomId), JSON.stringify(payload));
+}
+
+export async function publishPresenceEvent(
+  roomId: number,
+  event: Omit<RedisPresenceEvent, "roomId" | "originNodeId">,
+) {
+  await ensureReady();
+
+  const payload: RedisPresenceEvent = {
+    roomId,
+    originNodeId: NODE_ID,
+    ...event,
+  };
+
+  await publisher.publish(presenceChannel(roomId), JSON.stringify(payload));
+}
+
+export async function publishChatEvent(
+  roomId: number,
+  event: Omit<RedisChatEvent, "roomId" | "originNodeId">,
+) {
+  await ensureReady();
+
+  const payload: RedisChatEvent = {
+    roomId,
+    originNodeId: NODE_ID,
+    ...event,
+  };
+
+  await publisher.publish(chatChannel(roomId), JSON.stringify(payload));
 }
 
 // Snapshot commits are atomic at the Redis level: version increment, snapshot
@@ -265,6 +326,68 @@ export async function subscribeRoomEvents(
   );
 }
 
+export async function subscribePresenceEvents(
+  handler: (event: RedisPresenceEvent) => void | Promise<void>,
+) {
+  await ensureReady();
+
+  await subscriber.psubscribe(`${PRESENCE_CHANNEL_PREFIX}:*`);
+  subscriber.on(
+    "pmessage",
+    async (_pattern: string, channel: string, message: string) => {
+      try {
+        if (!channel.startsWith(`${PRESENCE_CHANNEL_PREFIX}:`)) {
+          return;
+        }
+
+        const event = JSON.parse(message) as RedisPresenceEvent;
+
+        if (event.originNodeId === NODE_ID) {
+          return;
+        }
+
+        await handler(event);
+      } catch (error) {
+        console.error("[WS][Redis] Failed to process presence event", {
+          channel,
+          error,
+        });
+      }
+    },
+  );
+}
+
+export async function subscribeChatEvents(
+  handler: (event: RedisChatEvent) => void | Promise<void>,
+) {
+  await ensureReady();
+
+  await subscriber.psubscribe(`${CHAT_CHANNEL_PREFIX}:*`);
+  subscriber.on(
+    "pmessage",
+    async (_pattern: string, channel: string, message: string) => {
+      try {
+        if (!channel.startsWith(`${CHAT_CHANNEL_PREFIX}:`)) {
+          return;
+        }
+
+        const event = JSON.parse(message) as RedisChatEvent;
+
+        if (event.originNodeId === NODE_ID) {
+          return;
+        }
+
+        await handler(event);
+      } catch (error) {
+        console.error("[WS][Redis] Failed to process chat event", {
+          channel,
+          error,
+        });
+      }
+    },
+  );
+}
+
 export async function checkRedisRateLimit(
   routeKey: string,
   limit: number,
@@ -318,3 +441,10 @@ return {current, ttl}
     retryAfterMs: allowed ? 0 : Math.max(0, ttlMs),
   };
 }
+
+/**
+ * Shared Redis client for use across the monorepo (e.g. HTTP backend).
+ *
+ * NOTE: This client includes the "canvas:" keyPrefix.
+ */
+export const sharedRedisClient = publisher;

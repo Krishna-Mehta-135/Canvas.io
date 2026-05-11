@@ -45,46 +45,46 @@ const desktopLayout: LayoutConfig = {
     {
       id: "api",
       label: "API Gateway",
-      x: 50,
-      y: 150,
-      width: 150,
-      height: 58,
+      x: 60,
+      y: 170,
+      width: 160,
+      height: 60,
       type: "server",
     },
     {
       id: "rate",
       label: "Rate Limiter",
-      x: 275,
-      y: 138,
-      width: 158,
-      height: 64,
+      x: 300,
+      y: 160,
+      width: 170,
+      height: 70,
       type: "ai",
     },
     {
       id: "cache",
       label: "Redis Cache",
-      x: 515,
-      y: 150,
-      width: 150,
-      height: 58,
+      x: 550,
+      y: 170,
+      width: 160,
+      height: 60,
       type: "db",
     },
     {
       id: "backend",
       label: "Backend API",
-      x: 750,
-      y: 150,
-      width: 160,
-      height: 58,
+      x: 790,
+      y: 170,
+      width: 170,
+      height: 60,
       type: "server",
     },
     {
       id: "db",
       label: "PostgreSQL",
-      x: 515,
-      y: 305,
-      width: 150,
-      height: 58,
+      x: 550,
+      y: 330,
+      width: 160,
+      height: 60,
       type: "db",
     },
   ],
@@ -176,7 +176,10 @@ function getAnchorPoints(fromBox: Box, toBox: Box) {
   const dx = toCenter.x - fromCenter.x;
   const dy = toCenter.y - fromCenter.y;
 
-  if (Math.abs(dx) >= Math.abs(dy)) {
+  // Prefer horizontal connections for things that are mostly horizontally aligned
+  const horizontalBias = 1.25;
+
+  if (Math.abs(dx) * horizontalBias >= Math.abs(dy)) {
     return {
       start: {
         x: dx >= 0 ? fromBox.x + fromBox.width : fromBox.x,
@@ -354,7 +357,7 @@ export function InteractiveCanvas() {
       <svg
         className="absolute inset-0 z-0 h-full w-full pointer-events-none"
         viewBox={`0 0 ${layout.width} ${layout.height}`}
-        preserveAspectRatio="xMidYMid meet"
+        preserveAspectRatio="none"
       >
         <defs>
           <marker
@@ -525,11 +528,11 @@ function AnimatedCursor({
 
         // 3. Fade in and start moving
         setOpacity(1);
-      }, 1000);
-    }, 6000 + Math.random() * 4000);
+      }, 800);
+    }, 4500 + Math.random() * 3000);
 
     // Initial fade in
-    const initialTimeout = setTimeout(() => setOpacity(1), delay * 1000);
+    const initialTimeout = setTimeout(() => setOpacity(1), (delay + 1) * 1000);
 
     return () => {
       clearInterval(interval);
@@ -540,15 +543,16 @@ function AnimatedCursor({
   return (
     <motion.div
       className="pointer-events-none absolute z-40 hidden sm:block"
+      initial={{ opacity: 0 }}
       animate={{
-        x: `${(target.x / layout.width) * 100}%`,
-        y: `${(target.y / layout.height) * 100}%`,
+        left: `${(target.x / layout.width) * 100}%`,
+        top: `${(target.y / layout.height) * 100}%`,
         opacity: opacity,
       }}
       transition={{
-        x: { duration: 3.5, ease: "easeInOut" },
-        y: { duration: 3.5, ease: "easeInOut" },
-        opacity: { duration: 0.8 },
+        left: { duration: 2.8, ease: "easeInOut" },
+        top: { duration: 2.8, ease: "easeInOut" },
+        opacity: { duration: 0.6 },
       }}
     >
       <svg

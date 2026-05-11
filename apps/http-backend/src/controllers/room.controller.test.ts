@@ -26,6 +26,11 @@ vi.mock("@repo/db/client", async () => {
   const { mockDeep } = await import("vitest-mock-extended");
   return {
     prismaClient: mockDeep<any>(),
+    AccessRequestStatus: {
+      PENDING: "PENDING",
+      APPROVED: "APPROVED",
+      REJECTED: "REJECTED",
+    },
   };
 });
 
@@ -33,17 +38,13 @@ vi.mock("@repo/queue-sync", () => ({
   publishAiGenerateJob: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("ioredis", () => {
-  return {
-    default: vi.fn().mockImplementation(function () {
-      return {
-        get: vi.fn(),
-        set: vi.fn(),
-        on: vi.fn(),
-      };
-    }),
-  };
-});
+vi.mock("@repo/redis-sync", () => ({
+  sharedRedisClient: {
+    get: vi.fn(),
+    set: vi.fn(),
+    on: vi.fn(),
+  },
+}));
 
 vi.mock("@repo/backend-common/config", () => ({
   INTERNAL_SECRET: "test-secret",
@@ -516,7 +517,7 @@ describe("Room Controller - requestRoomAccess", () => {
     );
     vi.mocked(prismaClient.roomAccessRequest.create).mockResolvedValue({
       id: 10,
-      status: "pending",
+      status: "PENDING",
     } as any);
 
     await requestRoomAccess(req as Request, res as Response, next);
@@ -547,7 +548,7 @@ describe("Room Controller - decideRoomAccessRequest", () => {
 
     vi.mocked(prismaClient.roomAccessRequest.findUnique).mockResolvedValue({
       id: 10,
-      status: "pending",
+      status: "PENDING",
       requesterId: "user-requester",
       room: { id: 1, adminId: "owner-id" },
     } as any);
@@ -623,10 +624,9 @@ describe("Room Controller - AI functions", () => {
       createdAt: Date.now(),
     };
 
-    // Access the mocked instance to setup the return value for 'get'
-    const RedisMock = await import("ioredis");
-    const redisInstance = (RedisMock.default as any).mock.results[0].value;
-    redisInstance.get.mockResolvedValue(JSON.stringify(mockJobEntry));
+    // Access the mocked sharedRedisClient to setup the return value for 'get'
+    const { sharedRedisClient } = await import("@repo/redis-sync");
+    vi.mocked(sharedRedisClient.get).mockResolvedValue(JSON.stringify(mockJobEntry));
 
     await getAiGenerateStatus(req as Request, res as Response, next);
 

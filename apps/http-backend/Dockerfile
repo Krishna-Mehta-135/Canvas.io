@@ -40,4 +40,4 @@ RUN addgroup --system --gid 1001 nodejs && \
 USER appuser
 
 EXPOSE 3001
-CMD ["node", "apps/http-backend/dist/index.js"]
+CMD ["sh", "-c", "packages/db/node_modules/.bin/prisma migrate deploy --schema=packages/db/prisma/schema.prisma && node apps/http-backend/dist/index.js"]

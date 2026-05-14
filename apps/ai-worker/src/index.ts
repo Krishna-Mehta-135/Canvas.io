@@ -16,6 +16,7 @@ import { CanvasShapeSchema } from "@repo/common/types";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import axios from "axios";
 import { z } from "zod";
+import { randomUUID } from "node:crypto";
 
 // File intent: Generate robust, complete AI diagrams and recover from malformed/truncated model output.
 
@@ -82,7 +83,9 @@ Layout + quality rules:
   * Use 'circle' for Users, Actors, Databases, or external entry points.
   * Use 'rhombus' for Decision points, Gateways, Load Balancers, or Logic checks.
   * Combine these tools! Do not use only one node type for a complex system.
-- Generate 1 heading + 9-24 content shapes.
+- Generate 1 heading + 10-40 content shapes.
+- Keep text labels concise.
+- JSON: MINIFIED ONLY. No newlines, no extra spaces, no comments. This is critical for fitting large diagrams.
 - Place labels inside/adjacent to nodes; text width must be > 0 (roughly chars*8), height >= 24.
 - Arrows/lines must connect shape edges, not through shape centers.
 - When existing shapes are provided in prompt, place all new shapes in empty space (avoid overlap).
@@ -105,7 +108,7 @@ JSON rules:
 // ---------------------------------------------------------------------------
 // Build the Gemini model using getGenerativeModel
 // ---------------------------------------------------------------------------
-const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY!);
 
 const modelCache = new Map<
   string,
@@ -123,7 +126,7 @@ function getModel(modelName: string) {
     systemInstruction: SYSTEM_INSTRUCTION,
     generationConfig: {
       temperature: 0.3,
-      maxOutputTokens: 8192,
+      maxOutputTokens: 12288,
       responseMimeType: "application/json",
     },
   });
@@ -150,258 +153,156 @@ function parseRetryAfterMs(message: string): number | null {
   return Math.ceil(seconds * 1000);
 }
 
-function summarizeQuotaError(rawMessage: string) {
-  const retryAfterMs = parseRetryAfterMs(rawMessage);
-  const retryText = retryAfterMs
-    ? ` Please retry in about ${Math.max(1, Math.ceil(retryAfterMs / 1000))}s.`
-    : " Please retry later or switch to a paid Gemini plan.";
-
+function summarizeQuotaError(message: string) {
+  const retryAfterMs = parseRetryAfterMs(message);
+  const timeHint = retryAfterMs
+    ? ` (retry after ${Math.ceil(retryAfterMs / 1000)}s)`
+    : "";
   return {
     retryAfterMs,
-    userMessage: `AI provider quota is currently exceeded.${retryText}`,
+    userMessage: `Gemini API rate limit exceeded${timeHint}. Using fallback if available.`,
   };
 }
 
-function isRateLimitError(message: string) {
-  return /429\s+Too\s+Many\s+Requests|quota exceeded|rate limit/i.test(message);
+function isRateLimitError(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("429") ||
+    m.includes("quota") ||
+    m.includes("rate limit") ||
+    m.includes("resource_exhausted")
+  );
 }
 
 // ---------------------------------------------------------------------------
-// UUID generator (RFC 4122 v4)
+// Helpers for prompt parsing and layout
 // ---------------------------------------------------------------------------
-function uuidv4(): string {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
 
-type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
-
-function shapeBounds(shape: Record<string, unknown>): Bounds | null {
-  // Accept compact occupancy regions from prompt context directly.
-  const minX = Number(shape.minX);
-  const minY = Number(shape.minY);
-  const maxX = Number(shape.maxX);
-  const maxY = Number(shape.maxY);
-  if ([minX, minY, maxX, maxY].every(Number.isFinite)) {
-    return { minX, minY, maxX, maxY };
-  }
-
-  const type = shape.type;
-  if (type === "rect" || type === "rhombus") {
-    const x = Number(shape.x);
-    const y = Number(shape.y);
-    const w = Number(shape.width);
-    const h = Number(shape.height);
-    if ([x, y, w, h].some((v) => !Number.isFinite(v))) return null;
-    return { minX: x, minY: y, maxX: x + w, maxY: y + h };
-  }
-
-  if (type === "circle") {
-    const cx = Number(shape.centerX);
-    const cy = Number(shape.centerY);
-    const rx = Number(shape.radiusX);
-    const ry = Number(shape.radiusY);
-    if ([cx, cy, rx, ry].some((v) => !Number.isFinite(v))) return null;
-    return { minX: cx - rx, minY: cy - ry, maxX: cx + rx, maxY: cy + ry };
-  }
-
-  if (type === "text") {
-    const x = Number(shape.x);
-    const y = Number(shape.y);
-    const w = Number(shape.width);
-    const h = Number(shape.height);
-    if ([x, y].some((v) => !Number.isFinite(v))) return null;
-    return {
-      minX: x,
-      minY: y,
-      maxX: x + (Number.isFinite(w) && w > 0 ? w : 120),
-      maxY: y + (Number.isFinite(h) && h > 0 ? h : 24),
-    };
-  }
-
-  if (type === "arrow" || type === "line") {
-    const x1 = Number(shape.x1);
-    const y1 = Number(shape.y1);
-    const x2 = Number(shape.x2);
-    const y2 = Number(shape.y2);
-    if ([x1, y1, x2, y2].some((v) => !Number.isFinite(v))) return null;
-    return {
-      minX: Math.min(x1, x2),
-      minY: Math.min(y1, y2),
-      maxX: Math.max(x1, x2),
-      maxY: Math.max(y1, y2),
-    };
-  }
-
-  return null;
-}
-
-function boundsOfShapes(shapes: Array<Record<string, unknown>>): Bounds | null {
-  let acc: Bounds | null = null;
-  for (const shape of shapes) {
-    const b = shapeBounds(shape);
-    if (!b) continue;
-    if (!acc) {
-      acc = { ...b };
-    } else {
-      acc.minX = Math.min(acc.minX, b.minX);
-      acc.minY = Math.min(acc.minY, b.minY);
-      acc.maxX = Math.max(acc.maxX, b.maxX);
-      acc.maxY = Math.max(acc.maxY, b.maxY);
-    }
-  }
-  return acc;
-}
-
-function extractCurrentCanvasShapes(
-  prompt: string,
-): Array<Record<string, unknown>> {
-  const marker = "Current canvas";
-  const markerIdx = prompt.lastIndexOf(marker);
-  if (markerIdx === -1) return [];
-
-  const arrayStart = prompt.indexOf("[", markerIdx);
-  if (arrayStart === -1) return [];
-
-  let depth = 0;
-  let arrayEnd = -1;
-  for (let i = arrayStart; i < prompt.length; i += 1) {
-    const ch = prompt[i];
-    if (ch === "[") depth += 1;
-    if (ch === "]") {
-      depth -= 1;
-      if (depth === 0) {
-        arrayEnd = i;
-        break;
-      }
-    }
-  }
-
-  if (arrayEnd === -1) return [];
-
-  const jsonSlice = prompt.slice(arrayStart, arrayEnd + 1);
+function extractCurrentCanvasShapes(prompt: string): unknown[] {
   try {
-    const parsed = JSON.parse(jsonSlice);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
-      (s): s is Record<string, unknown> => typeof s === "object" && s !== null,
-    );
+    const marker = "Current canvas occupancy regions (";
+    const startIdx = prompt.lastIndexOf(marker);
+    if (startIdx === -1) return [];
+
+    const jsonStart = prompt.indexOf("[", startIdx);
+    if (jsonStart === -1) return [];
+
+    const jsonEnd = prompt.lastIndexOf("]");
+    if (jsonEnd === -1 || jsonEnd < jsonStart) return [];
+
+    return JSON.parse(prompt.substring(jsonStart, jsonEnd + 1));
   } catch {
     return [];
   }
 }
 
-function translateShapes(
-  shapes: Array<Record<string, unknown>>,
-  dx: number,
-  dy: number,
-): Array<Record<string, unknown>> {
-  return shapes.map((shape) => {
-    const next = { ...shape };
-    if (typeof next.x === "number") next.x = next.x + dx;
-    if (typeof next.y === "number") next.y = next.y + dy;
-    if (typeof next.centerX === "number") next.centerX = next.centerX + dx;
-    if (typeof next.centerY === "number") next.centerY = next.centerY + dy;
-    if (typeof next.x1 === "number") next.x1 = next.x1 + dx;
-    if (typeof next.y1 === "number") next.y1 = next.y1 + dy;
-    if (typeof next.x2 === "number") next.x2 = next.x2 + dx;
-    if (typeof next.y2 === "number") next.y2 = next.y2 + dy;
-    return next;
+function getShapesBounds(shapes: unknown[]) {
+  if (shapes.length === 0) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+
+  shapes.forEach((s) => {
+    const shape = s as Record<string, unknown>;
+    // Handle both raw occupancy regions and full shapes
+    const sx1 = Number(shape.minX ?? shape.x ?? shape.centerX ?? 0);
+    const sy1 = Number(shape.minY ?? shape.y ?? shape.centerY ?? 0);
+    const sx2 = Number(
+      shape.maxX ??
+        (shape.width ? sx1 + (shape.width as number) : shape.radiusX ? sx1 + (shape.radiusX as number) : sx1),
+    );
+    const sy2 = Number(
+      shape.maxY ??
+        (shape.height ? sy1 + (shape.height as number) : shape.radiusY ? sy1 + (shape.radiusY as number) : sy1),
+    );
+
+    minX = Math.min(minX, sx1);
+    minY = Math.min(minY, sy1);
+    maxX = Math.max(maxX, sx2);
+    maxY = Math.max(maxY, sy2);
+  });
+
+  return { minX, minY, maxX, maxY };
+}
+
+function translateShapes(shapes: unknown[], dx: number, dy: number): unknown[] {
+  return shapes.map((s) => {
+    const shape = s as Record<string, unknown>;
+    const type = shape.type;
+    if (type === "rect" || type === "rhombus" || type === "text") {
+      return { ...shape, x: (shape.x as number) + dx, y: (shape.y as number) + dy };
+    }
+    if (type === "circle") {
+      return {
+        ...shape,
+        centerX: (shape.centerX as number) + dx,
+        centerY: (shape.centerY as number) + dy,
+      };
+    }
+    if (type === "line" || type === "arrow") {
+      return {
+        ...shape,
+        x1: (shape.x1 as number) + dx,
+        y1: (shape.y1 as number) + dy,
+        x2: (shape.x2 as number) + dx,
+        y2: (shape.y2 as number) + dy,
+      };
+    }
+    return shape;
   });
 }
 
-function intersectsWithPadding(a: Bounds, b: Bounds, padding: number): boolean {
-  return !(
-    a.maxX + padding <= b.minX ||
-    a.minX >= b.maxX + padding ||
-    a.maxY + padding <= b.minY ||
-    a.minY >= b.maxY + padding
-  );
-}
-
-function collidesWithAny(
-  candidate: Bounds,
-  existing: Bounds[],
-  padding: number,
-): boolean {
-  for (const b of existing) {
-    if (intersectsWithPadding(candidate, b, padding)) {
-      return true;
-    }
-  }
-  return false;
+function collidesWithAny(candidate: any, others: any[], padding: number) {
+  return others.some((other) => {
+    return !(
+      candidate.minX > other.maxX + padding ||
+      candidate.maxX < other.minX - padding ||
+      candidate.minY > other.maxY + padding ||
+      candidate.maxY < other.minY - padding
+    );
+  });
 }
 
 function placeGeneratedShapesInEmptyRegion(
-  generated: unknown[],
-  existingFromPrompt: Array<Record<string, unknown>>,
+  generatedRecords: unknown[],
+  existingShapes: unknown[],
 ): unknown[] {
-  if (existingFromPrompt.length === 0) return generated;
+  if (existingShapes.length === 0) return generatedRecords;
 
-  const generatedRecords = generated as Array<Record<string, unknown>>;
-  const existingBounds = boundsOfShapes(existingFromPrompt);
-  const generatedBounds = boundsOfShapes(generatedRecords);
+  const generatedBounds = getShapesBounds(generatedRecords);
+  const existingBounds = getShapesBounds(existingShapes);
+  if (!generatedBounds || !existingBounds) return generatedRecords;
 
-  if (!existingBounds || !generatedBounds) return generated;
+  // Try standard offsets to find a large empty area.
+  const GAP_X = 160;
+  const GAP_Y = 160;
+  const COLLISION_PADDING = 40;
+  const existingShapeBounds = existingShapes.map((s) => {
+    const b = getShapesBounds([s]);
+    return b!;
+  });
 
-  const existingShapeBounds = existingFromPrompt
-    .map((shape) => shapeBounds(shape))
-    .filter((b): b is Bounds => Boolean(b));
-  if (existingShapeBounds.length === 0) return generated;
+  // Strategy: Try Right, then Down, then Bottom-Right.
+  const candidates = [
+    { dx: existingBounds.maxX + GAP_X - generatedBounds.minX, dy: 0 },
+    { dx: 0, dy: existingBounds.maxY + GAP_Y - generatedBounds.minY },
+    {
+      dx: existingBounds.maxX + GAP_X - generatedBounds.minX,
+      dy: existingBounds.maxY + GAP_Y - generatedBounds.minY,
+    },
+  ];
 
-  const GAP_X = 140;
-  const GAP_Y = 110;
-  const COLLISION_PADDING = 36;
+  for (const { dx, dy } of candidates) {
+    const candidate = {
+      minX: generatedBounds.minX + dx,
+      minY: generatedBounds.minY + dy,
+      maxX: generatedBounds.maxX + dx,
+      maxY: generatedBounds.maxY + dy,
+    };
 
-  // First preference: place to the right of existing content.
-  const targetMinX = existingBounds.maxX + GAP_X;
-  const targetMinY = Math.max(80, existingBounds.minY);
-  const preferredDx = targetMinX - generatedBounds.minX;
-  const preferredDy = targetMinY - generatedBounds.minY;
-  const preferredCandidate: Bounds = {
-    minX: generatedBounds.minX + preferredDx,
-    minY: generatedBounds.minY + preferredDy,
-    maxX: generatedBounds.maxX + preferredDx,
-    maxY: generatedBounds.maxY + preferredDy,
-  };
-
-  if (
-    !collidesWithAny(preferredCandidate, existingShapeBounds, COLLISION_PADDING)
-  ) {
-    return translateShapes(generatedRecords, preferredDx, preferredDy);
-  }
-
-  // Fallback scan: find first non-overlapping slot in a deterministic grid.
-  const scanStartX = Math.max(100, existingBounds.minX);
-  const scanStartY = existingBounds.maxY + GAP_Y;
-  const strideX = Math.max(
-    220,
-    generatedBounds.maxX - generatedBounds.minX + GAP_X,
-  );
-  const strideY = Math.max(
-    160,
-    generatedBounds.maxY - generatedBounds.minY + GAP_Y,
-  );
-
-  for (let row = 0; row < 6; row += 1) {
-    for (let col = 0; col < 8; col += 1) {
-      const candidateMinX = scanStartX + col * strideX;
-      const candidateMinY = scanStartY + row * strideY;
-      const dx = candidateMinX - generatedBounds.minX;
-      const dy = candidateMinY - generatedBounds.minY;
-      const candidate: Bounds = {
-        minX: generatedBounds.minX + dx,
-        minY: generatedBounds.minY + dy,
-        maxX: generatedBounds.maxX + dx,
-        maxY: generatedBounds.maxY + dy,
-      };
-
-      if (!collidesWithAny(candidate, existingShapeBounds, COLLISION_PADDING)) {
-        return translateShapes(generatedRecords, dx, dy);
-      }
+    if (!collidesWithAny(candidate, existingShapeBounds, COLLISION_PADDING)) {
+      return translateShapes(generatedRecords, dx, dy);
     }
   }
 
@@ -440,6 +341,32 @@ function extractJsonArrayString(rawText: string): string {
   return stripped.substring(startIdx, endIdx + 1);
 }
 
+/**
+ * If Gemini hits MAX_TOKENS or otherwise truncates the response mid-array,
+ * we can often salvage the earlier shapes by finding the last complete object
+ * and closing the array ourselves.
+ */
+function tryRepairTruncatedJson(rawText: string): string {
+  const text = rawText.trim();
+  const startIdx = text.indexOf("[");
+  if (startIdx === -1) return rawText;
+
+  const arrayContent = text.substring(startIdx);
+
+  // If it already ends with ']', it's not obviously truncated in a way we fix here.
+  if (arrayContent.endsWith("]")) return arrayContent;
+
+  // Find the last closing brace of a complete shape object.
+  const lastBrace = arrayContent.lastIndexOf("}");
+  if (lastBrace === -1) return arrayContent;
+
+  const repaired = arrayContent.substring(0, lastBrace + 1) + "]";
+  console.warn(
+    `[AI Worker] Repaired truncated JSON (salvaged up to last complete object).`,
+  );
+  return repaired;
+}
+
 function validateAndNormalizeShapes(parsed: unknown): unknown[] {
   if (!Array.isArray(parsed)) {
     throw new Error(
@@ -454,7 +381,7 @@ function validateAndNormalizeShapes(parsed: unknown): unknown[] {
     const existingId = typeof s["id"] === "string" ? s["id"] : "";
     const needsId =
       !existingId || existingId.length < 8 || usedIds.has(existingId);
-    const id = needsId ? uuidv4() : existingId;
+    const id = needsId ? randomUUID() : existingId;
     usedIds.add(id);
     return { ...s, id };
   });
@@ -488,6 +415,9 @@ function getQualityIssue(shapes: unknown[], prompt: string): string | null {
   const minimumShapes = architectureLikePrompt ? 10 : 7;
   if (shapeRecords.length < minimumShapes) {
     return "too_few_shapes";
+  }
+  if (shapeRecords.length > 60) {
+    return "too_many_shapes";
   }
   if (textShapes.length === 0 || textShapes[0]?.type !== "text") {
     return "missing_heading";
@@ -531,7 +461,7 @@ function buildAttemptPrompt(
   const issueHint = previousIssue
     ? `Previous attempt issue: ${previousIssue}.`
     : "";
-  return `${basePrompt}\n\nRetry constraints:\n${issueHint}\n- Return compact valid JSON array only (no prose).\n- If the previous response was truncated, be more concise but keep the essential structure.\n- Generate 9-20 content shapes total (plus heading).\n- Ensure first shape is heading text and include connectors for flow/pipeline/architecture prompts.\n- Ensure JSON is complete with closing brackets.`;
+  return `${basePrompt}\n\nRetry constraints:\n${issueHint}\n- Return MINIFIED valid JSON array only (no prose, no whitespace).\n- If the previous response was truncated, focus on the most important 25-35 shapes.\n- Generate 10-40 content shapes total (plus heading).\n- Ensure first shape is heading text and include connectors for flow/pipeline/architecture prompts.\n- Ensure JSON is complete with closing brackets.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -554,13 +484,24 @@ async function generateShapesFromPrompt(prompt: string): Promise<unknown[]> {
 
         // Log truncation/finish reason if available to help debugging
         const candidate = response.candidates?.[0];
+        const isMaxTokens = candidate?.finishReason === "MAX_TOKENS";
         if (candidate?.finishReason && candidate.finishReason !== "STOP") {
           console.warn(
             `[AI Worker] Gemini finishReason: ${candidate.finishReason} for model ${modelName}`,
           );
         }
 
-        const jsonStr = extractJsonArrayString(rawText);
+        let jsonStr: string;
+        try {
+          jsonStr = extractJsonArrayString(rawText);
+        } catch (extractErr) {
+          // If truncated by tokens, try to salvage partial response
+          if (isMaxTokens) {
+            jsonStr = tryRepairTruncatedJson(rawText);
+          } else {
+            throw extractErr;
+          }
+        }
 
         let parsed: unknown;
         try {

@@ -22,6 +22,7 @@ import { ensureAuthenticated, logoutUser } from "../../lib/auth";
 import { useTheme } from "../../components/ThemeToggle";
 import { useCanvasChat } from "../../../hooks/useCanvasChat";
 import { useCanvasSync } from "../../../hooks/useCanvasSync";
+import { useAiGeneration } from "../../../hooks/useAiGeneration";
 import { RemotePresenceLayer } from "../../components/RemotePresenceLayer";
 import { AiChatModal, AiTriggerButton } from "../../components/AiPromptBar";
 import { CanvasMessenger } from "../../components/CanvasMessenger";
@@ -1855,6 +1856,53 @@ export default function CanvasPage() {
     lastSyncError: syncResult.lastSyncError,
   });
 
+  const handleAiShapesGenerated = useCallback((shapes: unknown[]) => {
+    if (!canvasState) return;
+    const themed = sanitizeAiGeneratedShapes(shapes);
+    if (themed.length === 0) {
+      pushToast(
+        "error",
+        "AI generated invalid geometry. Please try a more specific prompt.",
+      );
+      return;
+    }
+    themed.forEach((shape) => {
+      dispatch(canvasState, {
+        type: "ADD_SHAPE",
+        payload: shape,
+      });
+    });
+    controlsRef.current?.rerender();
+    const generatedBounds = getBoundsForShapes(themed);
+    if (generatedBounds) {
+      controlsRef.current?.focusViewportToBounds(generatedBounds, {
+        padding: 140,
+        preserveScale: true,
+        smooth: true,
+        durationMs: 340,
+      });
+    }
+    const droppedCount = shapes.length - themed.length;
+    pushToast(
+      "success",
+      droppedCount > 0
+        ? `✦ AI added ${themed.length} shapes (${droppedCount} invalid skipped)`
+        : `✦ AI added ${themed.length} shapes to your canvas`,
+    );
+  }, [canvasState, pushToast]);
+
+  const handleAiError = useCallback((message: string) => {
+    pushToast("error", message);
+  }, [pushToast]);
+
+  const ai = useAiGeneration({
+    roomId: resolvedRoomId,
+    httpBackend: HTTP_BACKEND,
+    apiClient,
+    onShapesGenerated: handleAiShapesGenerated,
+    onError: handleAiError,
+  });
+
   useEffect(() => {
     if (syncStatusTimerRef.current) {
       clearTimeout(syncStatusTimerRef.current);
@@ -2496,49 +2544,9 @@ export default function CanvasPage() {
                 httpBackend={HTTP_BACKEND}
                 apiClient={apiClient}
                 getCurrentShapes={() => canvasState?.getShapes() ?? []}
-                onShapesGenerated={(shapes) => {
-                  if (!canvasState) return;
-                  // AI now uses high-contrast colors that work in both light and dark modes
-                  // No remapping needed - new palette: Blue #3B82F6, Green #10B981, Amber #F59E0B,
-                  // Violet #8B5CF6, Red #EF4444, Sky #06B6D4, Slate strokes
-                  const themed = sanitizeAiGeneratedShapes(shapes);
-                  if (themed.length === 0) {
-                    pushToast(
-                      "error",
-                      "AI generated invalid geometry. Please try a more specific prompt.",
-                    );
-                    return;
-                  }
-                  themed.forEach((shape) => {
-                    dispatch(canvasState, {
-                      type: "ADD_SHAPE",
-                      payload: shape,
-                    });
-                  });
-                  controlsRef.current?.rerender();
-                  const generatedBounds = getBoundsForShapes(themed);
-                  if (generatedBounds) {
-                    controlsRef.current?.focusViewportToBounds(
-                      generatedBounds,
-                      {
-                        padding: 140,
-                        preserveScale: true,
-                        smooth: true,
-                        durationMs: 340,
-                      },
-                    );
-                  }
-                  const droppedCount = shapes.length - themed.length;
-                  pushToast(
-                    "success",
-                    droppedCount > 0
-                      ? `✦ AI added ${themed.length} shapes (${droppedCount} invalid skipped)`
-                      : `✦ AI added ${themed.length} shapes to your canvas`,
-                  );
-                }}
-                onError={(message) => {
-                  pushToast("error", message);
-                }}
+                messages={ai.messages}
+                isGenerating={ai.isGenerating}
+                onSend={ai.generate}
               />
             )}
           </div>

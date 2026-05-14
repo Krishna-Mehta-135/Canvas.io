@@ -1,13 +1,12 @@
 "use client";
 
 import { useState, useRef, useEffect, KeyboardEvent } from "react";
+import { ChatMessage } from "../../hooks/useAiGeneration";
 
 interface AiChatModalProps {
   roomId: number | null;
   isOpen: boolean;
   onClose: () => void;
-  onShapesGenerated: (shapes: unknown[]) => void;
-  onError: (message: string) => void;
   isDark: boolean;
   httpBackend: string;
   apiClient: {
@@ -15,23 +14,11 @@ interface AiChatModalProps {
     get: (url: string) => Promise<{ data: unknown }>;
   };
   getCurrentShapes: () => unknown[];
+  // Props from useAiGeneration hook
+  messages: ChatMessage[];
+  isGenerating: boolean;
+  onSend: (prompt: string, displayText?: string) => Promise<void>;
 }
-
-interface ChatMessage {
-  id: string;
-  role: "user" | "ai";
-  text: string;
-  isGenerating?: boolean;
-  isError?: boolean;
-  shapeCount?: number;
-  time: string;
-}
-
-const POLL_INTERVAL_MS = 1500;
-const POLL_MAX_ATTEMPTS = 40;
-const AI_CHAT_STORAGE_KEY = "canvas-ai-chat-history";
-const MAX_CANVAS_CONTEXT_CHARS = 8000;
-const MAX_PROMPT_LENGTH = 12000;
 
 type Region = { minX: number; minY: number; maxX: number; maxY: number };
 
@@ -41,13 +28,6 @@ const EXAMPLES = [
   "Database ERD for a blog",
   "CI/CD pipeline diagram",
 ];
-
-function nowTime() {
-  return new Date().toLocaleTimeString([], {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 function asRegion(shape: unknown): Region | null {
   const s = shape as Record<string, unknown>;
@@ -164,58 +144,24 @@ function envelopeRegion(regions: Region[]): Region | null {
 
 // ─── AI Chat Modal ─────────────────────────────────────────────────────────────
 
+const MAX_CANVAS_CONTEXT_CHARS = 8000;
+const MAX_PROMPT_LENGTH = 12000;
+
 export function AiChatModal({
   roomId,
   isOpen,
   onClose,
-  onShapesGenerated,
-  onError,
   isDark,
-  httpBackend,
-  apiClient,
   getCurrentShapes,
+  messages,
+  isGenerating,
+  onSend,
 }: AiChatModalProps) {
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isGenerating, setIsGenerating] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const scrollEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Load messages from localStorage on mount
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      const stored = window.localStorage.getItem(AI_CHAT_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored) as ChatMessage[];
-        setMessages(parsed);
-      }
-    } catch {
-      // Ignore parse errors
-    }
-  }, []);
-
-  // Persist messages to localStorage whenever they change
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    try {
-      window.localStorage.setItem(
-        AI_CHAT_STORAGE_KEY,
-        JSON.stringify(messages),
-      );
-    } catch {
-      // Ignore storage errors
-    }
-  }, [messages]);
-
-  useEffect(
-    () => () => {
-      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
-    },
-    [],
-  );
   useEffect(() => {
     if (isOpen) setTimeout(() => textareaRef.current?.focus(), 80);
   }, [isOpen]);
@@ -244,63 +190,6 @@ export function AiChatModal({
       document.removeEventListener("pointerdown", h);
     };
   }, [isOpen, onClose]);
-
-  const addMsg = (msg: ChatMessage) => setMessages((p) => [...p, msg]);
-  const patchMsg = (id: string, patch: Partial<ChatMessage>) =>
-    setMessages((p) => p.map((m) => (m.id === id ? { ...m, ...patch } : m)));
-
-  const poll = (jobId: string, aiId: string, attempt = 0) => {
-    if (!roomId) return;
-    if (attempt > POLL_MAX_ATTEMPTS) {
-      patchMsg(aiId, {
-        isGenerating: false,
-        isError: true,
-        text: "Timed out — please try again.",
-      });
-      setIsGenerating(false);
-      return;
-    }
-    pollTimerRef.current = setTimeout(async () => {
-      try {
-        const res = await apiClient.get(
-          `${httpBackend}/room/${roomId}/ai/generate/${jobId}`,
-        );
-        const d = (
-          res.data as {
-            data?: {
-              status?: string;
-              shapes?: unknown[];
-              errorMessage?: string;
-            };
-          }
-        )?.data;
-        if (d?.status === "done") {
-          const shapes = d.shapes ?? [];
-          patchMsg(aiId, {
-            isGenerating: false,
-            shapeCount: shapes.length,
-            text: `Done! Added ${shapes.length} shapes to your canvas.`,
-          });
-          onShapesGenerated(shapes);
-          setIsGenerating(false);
-        } else if (d?.status === "error") {
-          const msg = d.errorMessage ?? "Generation failed";
-          patchMsg(aiId, { isGenerating: false, isError: true, text: msg });
-          setIsGenerating(false);
-          onError(msg);
-        } else {
-          poll(jobId, aiId, attempt + 1);
-        }
-      } catch {
-        patchMsg(aiId, {
-          isGenerating: false,
-          isError: true,
-          text: "Network error — please try again.",
-        });
-        setIsGenerating(false);
-      }
-    }, POLL_INTERVAL_MS);
-  };
 
   const handleSend = async () => {
     if (!input.trim() || !roomId || isGenerating) return;
@@ -338,43 +227,7 @@ export function AiChatModal({
       finalPrompt = candidatePrompt;
     }
 
-    const uid = `u-${Date.now()}`;
-    const aid = `ai-${Date.now() + 1}`;
-    addMsg({ id: uid, role: "user", text, time: nowTime() });
-    addMsg({
-      id: aid,
-      role: "ai",
-      text: "Generating…",
-      isGenerating: true,
-      time: nowTime(),
-    });
-    setIsGenerating(true);
-
-    try {
-      const res = await apiClient.post(
-        `${httpBackend}/room/${roomId}/ai/generate`,
-        { prompt: finalPrompt },
-      );
-      const jobId = (res.data as { data?: { jobId?: string } })?.data?.jobId;
-      if (!jobId) throw new Error("No job ID");
-      poll(jobId, aid);
-    } catch (error) {
-      const maybeAxiosError = error as {
-        response?: { data?: { message?: string } };
-        message?: string;
-      };
-      const backendMessage =
-        maybeAxiosError.response?.data?.message ||
-        maybeAxiosError.message ||
-        "Could not start AI generation.";
-      patchMsg(aid, {
-        isGenerating: false,
-        isError: true,
-        text: backendMessage,
-      });
-      setIsGenerating(false);
-      onError(backendMessage);
-    }
+    await onSend(finalPrompt, text);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -434,18 +287,21 @@ export function AiChatModal({
           >
             Canvas AI
           </p>
-          <p
+          <div
             className={`text-[10px] leading-tight ${isDark ? "text-indigo-300/50" : "text-indigo-400"}`}
           >
             {isGenerating ? (
-              <span className="flex items-center gap-1">
-                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-                generating…
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-2 w-2 animate-pulse-scale rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]" />
+                <span className="font-medium animate-pulse">Generating…</span>
               </span>
             ) : (
-              "online"
+              <span className="flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500/50" />
+                online
+              </span>
             )}
-          </p>
+          </div>
         </div>
         <button
           type="button"
@@ -541,19 +397,19 @@ export function AiChatModal({
                     }`}
                   >
                     {msg.isGenerating ? (
-                      <span className="flex items-center gap-2">
-                        <span className="flex gap-0.5">
-                          {[0, 0.12, 0.24].map((d) => (
+                      <span className="flex items-center gap-3">
+                        <span className="flex gap-1">
+                          {[0, 0.15, 0.3].map((d) => (
                             <span
                               key={d}
-                              className="inline-block h-2 w-2 rounded-full bg-indigo-400"
+                              className="inline-block h-2 w-2 rounded-full bg-indigo-400 shadow-[0_0_6px_rgba(129,140,248,0.4)]"
                               style={{
-                                animation: `bounce 1s ${d}s ease-in-out infinite`,
+                                animation: `bounce 0.8s ${d}s ease-in-out infinite`,
                               }}
                             />
                           ))}
                         </span>
-                        <span>Generating…</span>
+                        <span className="font-medium">Generating…</span>
                       </span>
                     ) : (
                       <span>

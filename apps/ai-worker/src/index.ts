@@ -123,7 +123,7 @@ function getModel(modelName: string) {
     systemInstruction: SYSTEM_INSTRUCTION,
     generationConfig: {
       temperature: 0.3,
-      maxOutputTokens: 4096,
+      maxOutputTokens: 8192,
       responseMimeType: "application/json",
     },
   });
@@ -422,13 +422,18 @@ function extractJsonArrayString(rawText: string): string {
   const endIdx = stripped.lastIndexOf("]");
 
   if (startIdx === -1) {
+    const snippet = rawText.slice(0, 300);
+    console.error(`[AI Worker] Response missing '['. Raw snippet: ${snippet}`);
     throw new Error(
-      `Gemini response does not contain a JSON array start token '[': ${rawText.slice(0, 240)}`,
+      `Gemini response does not contain a JSON array start token '[': ${snippet}`,
     );
   }
+
   if (endIdx === -1 || endIdx < startIdx) {
+    const snippet = rawText.slice(-300);
+    console.error(`[AI Worker] Response appears truncated (missing ']'). End snippet: ${snippet}`);
     throw new Error(
-      `Gemini response appears truncated (missing closing ']'): ${rawText.slice(0, 240)}`,
+      `Gemini response appears truncated (missing closing ']'): ${snippet}`,
     );
   }
 
@@ -526,7 +531,7 @@ function buildAttemptPrompt(
   const issueHint = previousIssue
     ? `Previous attempt issue: ${previousIssue}.`
     : "";
-  return `${basePrompt}\n\nRetry constraints:\n${issueHint}\n- Return compact valid JSON array only (no prose).\n- Keep output complete and reasonably detailed (10-24 shapes when prompt implies architecture/workflow; at least 7 otherwise).\n- Ensure first shape is heading text and include connectors for flow/pipeline/architecture prompts.\n- Use multiple node tools (rect/circle/rhombus) when they improve clarity.\n- For decision/branch prompts, include at least one rhombus gateway.\n- Ensure JSON is complete with closing brackets.`;
+  return `${basePrompt}\n\nRetry constraints:\n${issueHint}\n- Return compact valid JSON array only (no prose).\n- If the previous response was truncated, be more concise but keep the essential structure.\n- Generate 9-20 content shapes total (plus heading).\n- Ensure first shape is heading text and include connectors for flow/pipeline/architecture prompts.\n- Ensure JSON is complete with closing brackets.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -543,14 +548,25 @@ async function generateShapesFromPrompt(prompt: string): Promise<unknown[]> {
     const attemptPrompt = buildAttemptPrompt(prompt, attempt, previousIssue);
     for (const modelName of models) {
       try {
-        const result = await getModel(modelName).generateContent(attemptPrompt);
-        const rawText = result.response.text();
+        const responseResult = await getModel(modelName).generateContent(attemptPrompt);
+        const response = responseResult.response;
+        const rawText = response.text();
+
+        // Log truncation/finish reason if available to help debugging
+        const candidate = response.candidates?.[0];
+        if (candidate?.finishReason && candidate.finishReason !== "STOP") {
+          console.warn(
+            `[AI Worker] Gemini finishReason: ${candidate.finishReason} for model ${modelName}`,
+          );
+        }
+
         const jsonStr = extractJsonArrayString(rawText);
 
         let parsed: unknown;
         try {
           parsed = JSON.parse(jsonStr);
         } catch (err) {
+          console.error(`[AI Worker] Failed to parse JSON from Gemini. Raw text snippet: ${rawText.slice(0, 500)}...`);
           throw new Error(
             `Gemini returned invalid JSON on attempt ${attempt + 1}: ${(err as Error).message}. Snippet: ${jsonStr.slice(0, 300)}`,
           );

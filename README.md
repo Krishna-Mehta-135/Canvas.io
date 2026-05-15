@@ -439,7 +439,3 @@ Operational documentation:
 - If shapes fail to persist, run Prisma migrations and confirm PostgreSQL is healthy.
 - If password reset emails are not delivered, verify Gmail app-password configuration.
 - If collaborators joining causes frame drops or `Maximum update depth exceeded`, update to latest sync hooks and verify no custom `useEffect` calls are setting state from unstable array/object dependencies.
-
-## License
-
-No license has been declared yet in this repository. Add one before publishing publicly.
